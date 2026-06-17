@@ -2,6 +2,38 @@
 
 这是一个本地 AI 安全实验平台，用来测试一套可审计的 Agent + RAG + Guardrails 架构。
 
+## 云端与 AutoDL 运行形态
+
+当前生产化部署采用“腾讯云轻量服务器做平台入口，AutoDL 做 GPU 算力后端”的拆分方式：
+
+- 腾讯云项目根目录：`/root/llm-security-guardrail-platform`
+- 腾讯云公开入口：`http://43.139.77.64:8000`
+- 腾讯云只承接 FastAPI、前端静态文件、报告、调度与 SSH tunnel
+- AutoDL 承接 Qwen3-8B vLLM 推理、Garak runner 和长耗时真实评测
+- AutoDL 持久盘：`/root/autodl-tmp`
+- 腾讯云本地推理入口：`127.0.0.1:18000 -> AutoDL 127.0.0.1:8000`
+
+后续 AI 或开发者在处理部署、推理、评测、重启恢复前，先读根目录：
+
+```text
+AGENTS.md
+AUTODL_AGENT_PROMPT.md
+AUTODL_RECOVERY.md
+```
+
+AutoDL 重启后，在腾讯云执行：
+
+```bash
+cd /root/llm-security-guardrail-platform
+bash scripts/check-autodl-recovery.sh --start-vllm
+```
+
+AutoDL 关机前，先确认模型、runner、报告和启动脚本都在持久盘：
+
+```bash
+bash scripts/sync-autodl-compute-assets.sh --check-only
+```
+
 当前这一版已经具备后端基础能力，包括：
 
 - FastAPI 应用骨架
