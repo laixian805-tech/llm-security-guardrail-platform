@@ -65,6 +65,15 @@ If AutoDL is reachable but vLLM is down:
 bash scripts/check-autodl-recovery.sh --start-vllm
 ```
 
+If AutoDL persistent assets ever need to be rechecked or rebuilt from Tencent-side scripts:
+
+```bash
+bash scripts/sync-autodl-compute-assets.sh --check-only
+bash scripts/bootstrap-autodl-compute.sh
+```
+
+`bootstrap-autodl-compute.sh` is idempotent: it syncs runner scripts, bootstraps the Garak runner, writes the vLLM launcher, and verifies the persistent compute assets. It should not redownload Qwen3-8B if the existing cache is present.
+
 Then verify the platform:
 
 ```bash
@@ -90,6 +99,32 @@ bash scripts/check-autodl-recovery.sh --start-vllm
 ```
 
 If the SSH target changed permanently, update the Tencent tunnel command or service to use the new host and port.
+
+## Before Shutting Down AutoDL
+
+Preview running compute jobs:
+
+```bash
+bash scripts/stop-autodl-compute.sh
+```
+
+If you want a clean shutdown, stop vLLM/Garak processes without deleting files:
+
+```bash
+bash scripts/stop-autodl-compute.sh --apply
+```
+
+Then confirm persistent assets are present:
+
+```bash
+bash scripts/sync-autodl-compute-assets.sh --check-only
+```
+
+After shutdown, AutoDL processes are gone, but `/root/autodl-tmp` assets should remain. On the next boot, run `bash scripts/check-autodl-recovery.sh --start-vllm`.
+
+## For Future AI Agents
+
+Read `AUTODL_AGENT_PROMPT.md` before changing deployment, inference, evaluation, or recovery logic. It records the required AutoDL/Tencent split, the first checks to run, and the mistakes to avoid.
 
 ## Expected Healthy State
 
