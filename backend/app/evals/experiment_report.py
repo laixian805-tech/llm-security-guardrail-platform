@@ -134,6 +134,8 @@ def write_experiment_report(
             "files": {
                 "markdown": str(markdown_path),
                 "html": str(html_path),
+                "experiment_markdown": str(markdown_path),
+                "experiment_html": str(html_path),
             }
         }
     )

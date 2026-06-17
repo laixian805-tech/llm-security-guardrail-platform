@@ -12,12 +12,20 @@ from app.config.settings import Settings
 from app.config.settings import get_settings
 from app.evals.garak import GarakEvalRunner
 from app.evals.experiment_report import ExperimentReport, write_experiment_report
+from app.evals.formal import (
+    FORMAL_PROBES,
+    FormalExperimentResponse,
+    ModelMatrixResponse,
+    build_formal_experiment_response,
+    build_model_matrix_row,
+)
 from app.evals.paired import PairedEvalResponse, paired_response
 from app.evals.promptfoo import PromptfooEvalRunner
 from app.evals.runner import EvalArtifacts, LocalEvalRunner
 from app.evals.report_store import ReportListResponse, ReportStore
 from app.guardrails.pipeline import GuardMode, GuardrailPipeline
 from app.models.provider import ModelProvider, OllamaModelProvider, OpenAICompatibleModelProvider, StubModelProvider
+from app.rag.poisoning_demo import RAGPoisoningDemoRequest, RAGPoisoningDemoResult, run_rag_poisoning_demo
 from app.rag.service import ChunkStrategy, PersistentHybridRAGService, RetrievalResult
 from app.schemas.security import AgentStep, SessionSecurityReport, ToolCallVerdict
 from app.tools.gateway import CallerContext, ToolGateway, default_tool_catalog
@@ -99,6 +107,22 @@ class PairedEvalRunRequest(BaseModel):
         ]
     )
     model: str | None = None
+    garak_probe_spec: str | None = None
+    garak_detector_spec: str | None = None
+
+
+class FormalExperimentRequest(BaseModel):
+    adapter: Literal["local", "garak", "promptfoo"] = "local"
+    probes: list[str] = Field(default_factory=lambda: list(FORMAL_PROBES))
+    model: str | None = None
+    garak_probe_spec: str | None = None
+    garak_detector_spec: str | None = None
+
+
+class ModelMatrixRequest(BaseModel):
+    adapter: Literal["local", "garak", "promptfoo"] = "local"
+    models: list[str] = Field(default_factory=lambda: ["qwen3:8b"])
+    probes: list[str] = Field(default_factory=lambda: list(FORMAL_PROBES))
     garak_probe_spec: str | None = None
     garak_detector_spec: str | None = None
 
@@ -281,6 +305,48 @@ def create_app() -> FastAPI:
             guard_mode=guard_mode,
         )
 
+    def runtime_inference_base_url() -> str:
+        provider_name = settings.model_provider.strip().lower()
+        if provider_name in {"openai", "openai_compatible", "autodl"}:
+            return settings.openai_base_url
+        return settings.ollama_base_url
+
+    def run_formal_experiment_artifacts(request: FormalExperimentRequest) -> FormalExperimentResponse:
+        try:
+            baseline = run_eval_artifacts(
+                adapter=request.adapter,
+                probes=request.probes,
+                guard_mode=GuardMode.OFF,
+                model=request.model,
+                garak_probe_spec=request.garak_probe_spec,
+                garak_detector_spec=request.garak_detector_spec,
+            )
+            guarded = run_eval_artifacts(
+                adapter=request.adapter,
+                probes=request.probes,
+                guard_mode=GuardMode.ENFORCE,
+                model=request.model,
+                garak_probe_spec=request.garak_probe_spec,
+                garak_detector_spec=request.garak_detector_spec,
+            )
+        except RuntimeError as caught:
+            raise HTTPException(status_code=400, detail=str(caught)) from caught
+
+        eval_artifacts[baseline.run.run_id] = baseline
+        eval_artifacts[guarded.run.run_id] = guarded
+        report = write_experiment_report(
+            baseline=baseline,
+            guarded=guarded,
+            model_name=request.model or settings.openai_model or settings.ollama_model,
+            provider=settings.model_provider,
+            inference_base_url=runtime_inference_base_url(),
+        )
+        return build_formal_experiment_response(
+            baseline=baseline,
+            guarded=guarded,
+            report=report,
+        )
+
     @app.get("/health")
     def health() -> dict[str, object]:
         return {
@@ -363,6 +429,13 @@ def create_app() -> FastAPI:
             limit=request.limit,
         )
 
+    @app.post("/rag/poisoning-demo", response_model=RAGPoisoningDemoResult)
+    def rag_poisoning_demo(request: RAGPoisoningDemoRequest) -> RAGPoisoningDemoResult:
+        return run_rag_poisoning_demo(
+            rag_service=rag_service,
+            request=request,
+        )
+
     @app.post("/eval/run", response_model=EvalRunResponse)
     def run_eval(request: EvalRunRequest) -> EvalRunResponse:
         try:
@@ -407,6 +480,26 @@ def create_app() -> FastAPI:
         eval_artifacts[baseline.run.run_id] = baseline
         eval_artifacts[guarded.run.run_id] = guarded
         return paired_response(baseline=baseline, guarded=guarded)
+
+    @app.post("/experiments/formal-run", response_model=FormalExperimentResponse)
+    def run_formal_experiment(request: FormalExperimentRequest) -> FormalExperimentResponse:
+        return run_formal_experiment_artifacts(request)
+
+    @app.post("/experiments/model-matrix", response_model=ModelMatrixResponse)
+    def run_model_matrix(request: ModelMatrixRequest) -> ModelMatrixResponse:
+        rows = []
+        for model in request.models:
+            formal_response = run_formal_experiment_artifacts(
+                FormalExperimentRequest(
+                    adapter=request.adapter,
+                    probes=request.probes,
+                    model=model,
+                    garak_probe_spec=request.garak_probe_spec,
+                    garak_detector_spec=request.garak_detector_spec,
+                )
+            )
+            rows.append(build_model_matrix_row(model=model, response=formal_response))
+        return ModelMatrixResponse(matrix=rows)
 
     @app.get("/reports", response_model=ReportListResponse)
     def list_reports() -> ReportListResponse:
