@@ -80,7 +80,10 @@ def run_rag_poisoning_demo(
     ]
 
     retrieved_context = "\n".join(chunk.text for chunk in retrieval.chunks)
-    guardrail = GuardrailPipeline(mode=GuardMode.ENFORCE).check_input(retrieved_context)
+    guardrail_text = retrieved_context
+    if poisoned_chunks:
+        guardrail_text = f"{retrieved_context}\n{request.poison_document}"
+    guardrail = GuardrailPipeline(mode=GuardMode.ENFORCE).check_input(guardrail_text)
     sanitized_context = _sanitize_context(
         safe_chunks=safe_chunks,
         poisoned_chunks=poisoned_chunks,

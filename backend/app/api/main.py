@@ -331,6 +331,11 @@ def create_app() -> FastAPI:
             )
         except RuntimeError as caught:
             raise HTTPException(status_code=400, detail=str(caught)) from caught
+        except Exception as caught:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Formal experiment failed: {type(caught).__name__}: {caught}",
+            ) from caught
 
         eval_artifacts[baseline.run.run_id] = baseline
         eval_artifacts[guarded.run.run_id] = guarded

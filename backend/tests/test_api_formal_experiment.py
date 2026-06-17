@@ -146,3 +146,27 @@ def test_model_matrix_runs_formal_experiment_for_each_model(monkeypatch, tmp_pat
         ("llama3.1:8b", "off"),
         ("llama3.1:8b", "enforce"),
     ]
+
+
+def test_formal_experiment_returns_readable_error_when_model_provider_fails(monkeypatch, tmp_path) -> None:
+    class FailingLocalRunner:
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        def run_with_artifacts(self, *, probes, guard_mode):
+            raise ConnectionError("model endpoint reset")
+
+    from app.api import main
+
+    monkeypatch.setattr(main, "LocalEvalRunner", FailingLocalRunner)
+    monkeypatch.setattr(main, "get_settings", lambda: main.Settings(reports_dir=str(tmp_path)))
+    client = TestClient(main.create_app())
+
+    response = client.post(
+        "/experiments/formal-run",
+        json={"adapter": "local", "probes": ["direct_injection"]},
+    )
+
+    assert response.status_code == 502
+    assert "Formal experiment failed" in response.json()["detail"]
+    assert "model endpoint reset" in response.json()["detail"]
