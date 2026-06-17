@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.config.settings import Settings
 from app.config.settings import get_settings
+from app.evals.defense_feedback import DefenseFeedbackRequest, DefenseFeedbackResponse, write_defense_feedback
 from app.evals.garak import GarakEvalRunner
 from app.evals.experiment_report import ExperimentReport, write_experiment_report
 from app.evals.formal import (
@@ -123,7 +124,7 @@ class FormalExperimentRequest(BaseModel):
 
 class ModelMatrixRequest(BaseModel):
     adapter: Literal["local", "garak", "promptfoo"] = "local"
-    models: list[str] = Field(default_factory=lambda: ["qwen3:8b"])
+    models: list[str] = Field(default_factory=lambda: ["qwen3:8b", "llama-3.1-8b", "mistral-7b", "deepseek-r1-distill-qwen-7b"])
     probes: list[str] = Field(default_factory=lambda: list(FORMAL_PROBES))
     garak_probe_spec: str | None = None
     garak_detector_spec: str | None = None
@@ -146,6 +147,11 @@ class ExperimentReportResponse(BaseModel):
     markdown: str
     html: str
     files: dict[str, str]
+
+
+class DirectDefenseFeedbackRequest(BaseModel):
+    run_id: str | None = None
+    failed_samples: list[dict] = Field(default_factory=list)
 
 
 def frontend_dist_dir() -> Path:
@@ -347,17 +353,20 @@ def create_app() -> FastAPI:
 
         eval_artifacts[baseline.run.run_id] = baseline
         eval_artifacts[guarded.run.run_id] = guarded
+        defense_feedback = write_defense_feedback(guarded)
         report = write_experiment_report(
             baseline=baseline,
             guarded=guarded,
             model_name=request.model or settings.openai_model or settings.ollama_model,
             provider=settings.model_provider,
             inference_base_url=runtime_inference_base_url(),
+            defense_feedback=defense_feedback,
         )
         return build_formal_experiment_response(
             baseline=baseline,
             guarded=guarded,
             report=report,
+            defense_feedback=defense_feedback,
         )
 
     @app.get("/health")
@@ -516,6 +525,21 @@ def create_app() -> FastAPI:
             rows.append(build_model_matrix_row(model=model, response=formal_response))
         return ModelMatrixResponse(matrix=rows)
 
+    @app.post("/experiments/defense-feedback", response_model=DefenseFeedbackResponse)
+    def create_defense_feedback(request: DirectDefenseFeedbackRequest) -> DefenseFeedbackResponse:
+        if request.run_id:
+            try:
+                artifacts = eval_artifacts.get(request.run_id) or ReportStore(settings.reports_dir).load_artifacts(request.run_id)
+            except FileNotFoundError:
+                raise HTTPException(status_code=404, detail=f"Report '{request.run_id}' not found.")
+            return write_defense_feedback(artifacts)
+        return write_defense_feedback(
+            DefenseFeedbackRequest(
+                run_id=request.run_id,
+                failed_samples=request.failed_samples,
+            )
+        )
+
     @app.get("/reports", response_model=ReportListResponse)
     def list_reports() -> ReportListResponse:
         return ReportListResponse(reports=ReportStore(settings.reports_dir).list_reports())
@@ -566,6 +590,7 @@ def create_app() -> FastAPI:
             model_name=settings.openai_model or settings.ollama_model,
             provider=settings.model_provider,
             inference_base_url=settings.openai_base_url if settings.model_provider.strip().lower() in {"openai", "openai_compatible", "autodl"} else settings.ollama_base_url,
+            defense_feedback=write_defense_feedback(guarded),
         )
         return ExperimentReportResponse(**report.model_dump())
 

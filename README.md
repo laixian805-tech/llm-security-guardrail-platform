@@ -708,6 +708,7 @@ npm run build
 | 文档 | 适合读者 | 内容 |
 | ---- | -------- | ---- |
 | [docs/README.md](docs/README.md) | 所有人 | 文档索引 |
+| [docs/platform-user-manual.md](docs/platform-user-manual.md) | 面试、答辩、第一次完整使用平台的人 | 平台定位、完整操作、AutoDL 恢复、排错、答辩话术 |
 | [docs/beginner-operation-guide.md](docs/beginner-operation-guide.md) | 第一次操作的人 | 从启动服务到跑正式实验的步骤 |
 | [docs/project-showcase-guide.md](docs/project-showcase-guide.md) | 答辩、展示、面试 | 项目讲法、演示路径、指标解释 |
 | [docs/implementation-notes.md](docs/implementation-notes.md) | 开发者 | 实现细节和设计记录 |

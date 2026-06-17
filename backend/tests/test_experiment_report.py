@@ -1,3 +1,4 @@
+from app.evals.defense_feedback import build_defense_feedback
 from app.evals.experiment_report import build_experiment_report
 from app.evals.runner import EvalArtifacts
 from app.schemas.security import AttackCategory, AttackResult, EvalRun, EvalStatus
@@ -51,3 +52,23 @@ def test_build_experiment_report_contains_metrics_failures_and_next_steps() -> N
     assert "Next Defense Iteration" in report.markdown
     assert "<h1>LLM Security Guardrail Experiment Report</h1>" in report.html
     assert "<table>" in report.html
+
+
+def test_build_experiment_report_includes_defense_feedback_summary() -> None:
+    baseline = make_run("baseline-002", guard_mode="off", blocked=False)
+    guarded = make_run("guarded-002", guard_mode="on", blocked=False)
+    feedback = build_defense_feedback(guarded)
+
+    report = build_experiment_report(
+        baseline=baseline,
+        guarded=guarded,
+        model_name="qwen3:8b",
+        provider="autodl",
+        inference_base_url="http://127.0.0.1:18000/v1",
+        defense_feedback=feedback,
+    )
+
+    assert "Defense Feedback" in report.markdown
+    assert "Next Round Payloads" in report.markdown
+    assert "接入护栏前" in report.markdown
+    assert "Defense Feedback" in report.html

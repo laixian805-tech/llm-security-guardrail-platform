@@ -25,7 +25,9 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   buildComparisonSnapshot,
+  buildDefenseFeedbackView,
   buildDashboardSnapshot,
+  buildModelMatrixRows,
   buildReportFileHref,
   buildRunRowsFromReports,
   demoEvalRun,
@@ -84,12 +86,14 @@ export default function App() {
   const [evalRun, setEvalRun] = useState(null);
   const [pairedEval, setPairedEval] = useState(null);
   const [formalExperiment, setFormalExperiment] = useState(null);
+  const [modelMatrix, setModelMatrix] = useState(null);
   const [reportList, setReportList] = useState(null);
   const [evalAdapter, setEvalAdapter] = useState("local");
   const [probeSpec, setProbeSpec] = useState("");
   const [reportId, setReportId] = useState("");
   const [reportResponse, setReportResponse] = useState(null);
   const [experimentReport, setExperimentReport] = useState(null);
+  const [defenseFeedback, setDefenseFeedback] = useState(null);
   const [ragPoisoningDemo, setRagPoisoningDemo] = useState(null);
   const [statusKey, setStatusKey] = useState("status.idle");
   const [statusDetail, setStatusDetail] = useState("");
@@ -103,6 +107,11 @@ export default function App() {
     const diskRows = buildRunRowsFromReports(reportList);
     return diskRows.length ? diskRows : buildRunRows(evalRun, t);
   }, [evalRun, reportList, t]);
+  const modelMatrixRows = useMemo(() => buildModelMatrixRows(modelMatrix), [modelMatrix]);
+  const feedbackView = useMemo(
+    () => buildDefenseFeedbackView(defenseFeedback ?? formalExperiment?.defense_feedback),
+    [defenseFeedback, formalExperiment],
+  );
   const statusText = statusDetail ? `${t(statusKey)} ${statusDetail}` : t(statusKey);
 
   async function postJson(path, body) {
@@ -254,6 +263,7 @@ export default function App() {
       setReportId(payload.paired.guarded.run.run_id);
       setReportResponse(payload.paired.guarded);
       setExperimentReport(payload.report);
+      setDefenseFeedback(payload.defense_feedback);
       await loadReports({ quiet: true });
       setActivePage("reports");
       setStatusKey("status.evalComplete");
@@ -261,6 +271,44 @@ export default function App() {
     } catch (caught) {
       setError(String(caught));
       setStatusKey("status.evalFailed");
+      setStatusDetail("");
+    }
+  }
+
+  async function runModelMatrix() {
+    try {
+      const request = {
+        adapter: evalAdapter,
+        models: ["qwen3:8b", "llama-3.1-8b", "mistral-7b", "deepseek-r1-distill-qwen-7b"],
+        probes: defaultEvalRun.probes,
+      };
+      if (evalAdapter === "garak" && probeSpec.trim()) {
+        request.garak_probe_spec = probeSpec.trim();
+      }
+      const payload = await postJson("/experiments/model-matrix", request);
+      setModelMatrix(payload);
+      setStatusKey("status.evalComplete");
+      setStatusDetail("");
+    } catch (caught) {
+      setError(String(caught));
+      setStatusKey("status.evalFailed");
+      setStatusDetail("");
+    }
+  }
+
+  async function loadDefenseFeedback(runIdOverride) {
+    const targetRunId = runIdOverride || reportId;
+    if (!targetRunId) {
+      return;
+    }
+    try {
+      const payload = await postJson("/experiments/defense-feedback", { run_id: targetRunId });
+      setDefenseFeedback(payload);
+      setStatusKey("status.reportLoaded");
+      setStatusDetail("");
+    } catch (caught) {
+      setError(String(caught));
+      setStatusKey("status.reportUnavailable");
       setStatusDetail("");
     }
   }
@@ -434,7 +482,9 @@ export default function App() {
               runEval={runEval}
               runPairedEval={runPairedEval}
               runFormalExperiment={runFormalExperiment}
+              runModelMatrix={runModelMatrix}
               formalExperiment={formalExperiment}
+              modelMatrixRows={modelMatrixRows}
               runRows={runRows}
               setReportId={setReportId}
               setActivePage={setActivePage}
@@ -451,9 +501,11 @@ export default function App() {
               reportResponse={reportResponse}
               reportList={reportList}
               experimentReport={experimentReport}
+              defenseFeedback={feedbackView}
               loadReport={loadReport}
               loadReports={loadReports}
               generateExperimentReport={generateExperimentReport}
+              loadDefenseFeedback={loadDefenseFeedback}
               t={t}
             />
           )}
@@ -626,7 +678,9 @@ function EvaluationPage({
   runEval,
   runPairedEval,
   runFormalExperiment,
+  runModelMatrix,
   formalExperiment,
+  modelMatrixRows,
   runRows,
   setReportId,
   setActivePage,
@@ -651,6 +705,10 @@ function EvaluationPage({
               <button className="primaryButton" onClick={runFormalExperiment} type="button">
                 <FileText size={15} />
                 {t("eval.formalRun")}
+              </button>
+              <button className="secondaryButton" onClick={runModelMatrix} type="button">
+                <BarChart3 size={15} />
+                {t("eval.modelMatrix")}
               </button>
             </div>
           }
@@ -682,6 +740,38 @@ function EvaluationPage({
           </div>
         ) : null}
       </section>
+
+      {modelMatrixRows.length ? (
+        <section className="panel">
+          <SectionHeader eyebrow={t("eval.modelMatrix")} title={t("eval.modelComparison")} />
+          <div className="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>{t("eval.model")}</th>
+                  <th>{t("eval.beforeAsr")}</th>
+                  <th>{t("eval.afterAsr")}</th>
+                  <th>{t("eval.reduction")}</th>
+                  <th>{t("attack.failures")}</th>
+                  <th>{t("eval.topFailureType")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {modelMatrixRows.map((row) => (
+                  <tr key={row.model}>
+                    <td>{row.model}</td>
+                    <td>{row.before}</td>
+                    <td>{row.after}</td>
+                    <td>{row.reduction}</td>
+                    <td>{row.totalFailed}</td>
+                    <td>{row.failureType}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       <section className="panel">
         <SectionHeader eyebrow={t("eval.runs")} title={t("eval.history")} />
@@ -765,7 +855,7 @@ function AttackResultsPage({ run, summary, comparison, t }) {
   );
 }
 
-function ReportsPage({ activeRun, evalRun, reportId, setReportId, reportResponse, reportList, experimentReport, loadReport, loadReports, generateExperimentReport, t }) {
+function ReportsPage({ activeRun, evalRun, reportId, setReportId, reportResponse, reportList, experimentReport, defenseFeedback, loadReport, loadReports, generateExperimentReport, loadDefenseFeedback, t }) {
   const currentReport = reportResponse ?? evalRun ?? { run: activeRun, report_dir: "", files: {} };
   const summary = summarizeEvalRun(currentReport.run);
 
@@ -798,6 +888,10 @@ function ReportsPage({ activeRun, evalRun, reportId, setReportId, reportResponse
                 <FileText size={15} />
                 {t("reports.generateExperiment")}
               </button>
+              <button className="secondaryButton" onClick={() => loadDefenseFeedback()} type="button">
+                <Shield size={15} />
+                {t("reports.loadFeedback")}
+              </button>
             </div>
           }
         />
@@ -819,6 +913,55 @@ function ReportsPage({ activeRun, evalRun, reportId, setReportId, reportResponse
           </div>
         ) : null}
         <pre className="jsonBlock">{JSON.stringify(currentReport.files ?? {}, null, 2)}</pre>
+      </div>
+
+      <div className="panel">
+        <SectionHeader eyebrow={t("reports.feedback")} title={t("reports.defenseFeedback")} />
+        {defenseFeedback ? (
+          <div className="stackCompact">
+            <div className="summaryList">
+              <p>{t("eval.runId")}: {defenseFeedback.runId}</p>
+              <p>{t("attack.failures")}: {defenseFeedback.totalFailed}</p>
+              <p>{t("eval.topFailureType")}: {defenseFeedback.topFailureType}</p>
+            </div>
+            <div className="tableWrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>{t("attack.attack")}</th>
+                    <th>{t("eval.topFailureType")}</th>
+                    <th>{t("reports.recommendation")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {defenseFeedback.items.map((item, index) => (
+                    <tr key={`${item.probe}-${index}`}>
+                      <td>{item.probe}</td>
+                      <td>{item.failure_type}</td>
+                      <td>{item.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="summaryList">
+              {(defenseFeedback.suggestions ?? []).slice(0, 4).map((suggestion, index) => (
+                <p key={`${suggestion.failure_type}-${index}`}>
+                  {suggestion.failure_type}: {suggestion.new_rule_suggestions?.[0] ?? suggestion.rule_area}
+                </p>
+              ))}
+            </div>
+            <div className="summaryList">
+              {(defenseFeedback.nextRoundPayloads ?? []).slice(0, 4).map((payload, index) => (
+                <p key={`${payload.failure_type}-${index}`}>[{payload.failure_type}] {payload.payload}</p>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="summaryList">
+            <p>{t("reports.feedbackEmpty")}</p>
+          </div>
+        )}
       </div>
     </section>
   );

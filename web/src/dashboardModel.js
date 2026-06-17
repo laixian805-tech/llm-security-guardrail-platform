@@ -186,6 +186,42 @@ export function buildComparisonSnapshot(payload) {
   };
 }
 
+export function buildModelMatrixRows(payload) {
+  const rows = Array.isArray(payload?.matrix) ? payload.matrix : [];
+  return rows.map((row) => ({
+    model: row.model ?? "unknown",
+    before: formatPercent(asNumber(row.before_asr)),
+    after: formatPercent(asNumber(row.after_asr)),
+    reduction: formatPercent(asNumber(row.reduction_pct)),
+    totalFailed: Number(row.total_failed ?? 0),
+    failureType: row.top_failure_type ?? "pending",
+    recommendation: row.top_recommendation ?? "Pending model deployment.",
+    status: row.status ?? "ready",
+  }));
+}
+
+export function buildDefenseFeedbackView(payload) {
+  if (!payload) {
+    return null;
+  }
+  return {
+    runId: payload.run_id ?? "",
+    totalFailed: Number(payload.total_failed ?? 0),
+    items: Array.isArray(payload.items) ? payload.items : [],
+    suggestions: Array.isArray(payload.suggestions) ? payload.suggestions : [],
+    nextRoundPayloads: Array.isArray(payload.next_round_payloads) ? payload.next_round_payloads : [],
+    topFailureType:
+      payload.items?.[0]?.failure_type ??
+      payload.suggestions?.[0]?.failure_type ??
+      "attack_coverage",
+    fileKeys: {
+      json: payload.files?.json ? "defense_feedback" : null,
+      markdown: payload.files?.markdown ? "defense_feedback_markdown" : null,
+      nextPayloads: payload.files?.next_payloads ? "next_payloads" : null,
+    },
+  };
+}
+
 export function buildReportFileHref(runId, files, kind = "html") {
   const fileKey = kind === "data" ? preferredDataKey(files) : preferredHtmlKey(files);
   if (!runId || !fileKey) {
@@ -211,11 +247,20 @@ export function preferredDataKey(files) {
   if (files?.json) {
     return "json";
   }
+  if (files?.defense_feedback) {
+    return "defense_feedback";
+  }
+  if (files?.next_payloads) {
+    return "next_payloads";
+  }
   if (files?.promptfoo) {
     return "promptfoo";
   }
   if (files?.garak_jsonl) {
     return "garak_jsonl";
+  }
+  if (files?.defense_feedback_markdown) {
+    return "defense_feedback_markdown";
   }
   if (files?.experiment_markdown) {
     return "experiment_markdown";

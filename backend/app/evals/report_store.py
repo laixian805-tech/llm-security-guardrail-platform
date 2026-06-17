@@ -117,4 +117,7 @@ class ReportStore:
             "stderr": [run_dir / "garak.stderr.log", run_dir / "promptfoo.stderr.log"],
             "experiment_html": [run_dir / "experiment-report.html"],
             "experiment_markdown": [run_dir / "experiment-report.md"],
+            "defense_feedback": [run_dir / "defense-feedback.json"],
+            "defense_feedback_markdown": [run_dir / "defense-feedback.md"],
+            "next_payloads": [run_dir / "next-round-payloads.json"],
         }

@@ -8,6 +8,7 @@ _LLM Security Guardrail Platform 的操作、展示与实现说明索引 · Last
 
 | 顺序 | 文档 | 适合场景 |
 | ---- | ---- | -------- |
+| 0 | [平台使用手册](./platform-user-manual.md) | 想一次看懂平台定位、完整操作、AutoDL 恢复、答辩讲法 |
 | 1 | [小白操作指南](./beginner-operation-guide.md) | 第一次跑实验、生成报告、做 RAG 投毒演示 |
 | 2 | [项目展示说明](./project-showcase-guide.md) | 答辩、面试、路演、写项目总结 |
 | 3 | [实现说明](./implementation-notes.md) | 查看当前后端模块、设计默认值和评测方向 |
@@ -37,4 +38,3 @@ flowchart LR
 ```
 
 先跑通一轮 `paired-run`，再生成正式报告，然后围绕 RAG 投毒、工具越权和失败样本分析继续加固。
-

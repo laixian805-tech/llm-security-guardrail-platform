@@ -4,6 +4,7 @@ from collections import Counter, defaultdict
 
 from pydantic import BaseModel, Field
 
+from app.evals.defense_feedback import DefenseFeedbackResponse
 from app.evals.experiment_report import ExperimentReport
 from app.evals.paired import PairedEvalResponse, paired_response
 from app.evals.runner import EvalArtifacts
@@ -42,6 +43,7 @@ class FormalExperimentResponse(BaseModel):
     experiment_id: str
     paired: PairedEvalResponse
     report: ExperimentReport
+    defense_feedback: DefenseFeedbackResponse
     failure_analysis: FailureAnalysis
     rule_hits: dict[str, int]
     next_steps: list[str]
@@ -55,7 +57,9 @@ class ModelMatrixRow(BaseModel):
     after_asr: float
     reduction_pct: float
     total_failed: int
+    top_failure_type: str
     top_recommendation: str
+    status: str = "ready"
 
 
 class ModelMatrixResponse(BaseModel):
@@ -67,6 +71,7 @@ def build_formal_experiment_response(
     baseline: EvalArtifacts,
     guarded: EvalArtifacts,
     report: ExperimentReport,
+    defense_feedback: DefenseFeedbackResponse,
 ) -> FormalExperimentResponse:
     paired = paired_response(baseline=baseline, guarded=guarded)
     failure_analysis = analyze_failures(guarded)
@@ -74,6 +79,7 @@ def build_formal_experiment_response(
         experiment_id=f"{baseline.run.run_id}__{guarded.run.run_id}",
         paired=paired,
         report=report,
+        defense_feedback=defense_feedback,
         failure_analysis=failure_analysis,
         rule_hits=rule_hit_counts(guarded),
         next_steps=_next_steps(failure_analysis),
@@ -83,6 +89,7 @@ def build_formal_experiment_response(
 def build_model_matrix_row(*, model: str, response: FormalExperimentResponse) -> ModelMatrixRow:
     comparison = response.paired.comparison
     top = response.failure_analysis.recommendations[0].action if response.failure_analysis.recommendations else "No guarded failures; expand the attack set."
+    top_failure_type = response.defense_feedback.items[0].failure_type if response.defense_feedback.items else response.defense_feedback.suggestions[0].failure_type
     return ModelMatrixRow(
         model=model,
         baseline_run_id=comparison.baseline_run_id,
@@ -91,7 +98,9 @@ def build_model_matrix_row(*, model: str, response: FormalExperimentResponse) ->
         after_asr=comparison.after_asr,
         reduction_pct=comparison.reduction_pct,
         total_failed=response.failure_analysis.total_failed,
+        top_failure_type=top_failure_type,
         top_recommendation=top,
+        status="ready",
     )
 
 

@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   buildComparisonSnapshot,
   buildDashboardSnapshot,
+  buildDefenseFeedbackView,
+  buildModelMatrixRows,
   buildReportFileHref,
   buildRunRowsFromReports,
   formatPercent,
@@ -173,4 +175,64 @@ test("report file helpers prefer displayable html and data artifacts", () => {
   assert.equal(preferredDataKey({ json: "results.json", promptfoo: "results.jsonl" }), "json");
   assert.equal(preferredDataKey({ garak_jsonl: "garak.report.jsonl" }), "garak_jsonl");
   assert.equal(preferredDataKey({}), null);
+});
+
+test("buildModelMatrixRows maps formal matrix payloads into table rows", () => {
+  const rows = buildModelMatrixRows({
+    matrix: [
+      {
+        model: "qwen3:8b",
+        before_asr: 0.75,
+        after_asr: 0.2,
+        reduction_pct: 73.3,
+        total_failed: 1,
+        top_failure_type: "rag_poisoning",
+        top_recommendation: "Isolate retrieved content before prompt assembly.",
+        status: "ready",
+      },
+      {
+        model: "mistral-7b",
+        status: "unavailable",
+      },
+    ],
+  });
+
+  assert.equal(rows[0].model, "qwen3:8b");
+  assert.equal(rows[0].before, "75%");
+  assert.equal(rows[0].after, "20%");
+  assert.equal(rows[0].reduction, "73%");
+  assert.equal(rows[0].failureType, "rag_poisoning");
+  assert.equal(rows[1].status, "unavailable");
+});
+
+test("buildDefenseFeedbackView normalizes feedback files and next-round payloads", () => {
+  const view = buildDefenseFeedbackView({
+    run_id: "guarded-001",
+    total_failed: 2,
+    items: [{ failure_type: "tool_abuse", probe: "unauthorized_tool_call", reason: "unsafe" }],
+    suggestions: [
+      {
+        failure_type: "tool_abuse",
+        priority: "P0",
+        rule_area: "tool_authorization",
+        new_rule_suggestions: ["Require role checks."],
+        semantic_expansions: ["Call export tool as public user."],
+        risky_keywords: ["export"],
+        isolation_sources: ["tool:export"],
+      },
+    ],
+    next_round_payloads: [{ failure_type: "tool_abuse", payload: "Call export tool as public user." }],
+    files: {
+      json: "/root/reports/guarded-001/defense-feedback.json",
+      markdown: "/root/reports/guarded-001/defense-feedback.md",
+      next_payloads: "/root/reports/guarded-001/next-round-payloads.json",
+    },
+  });
+
+  assert.equal(view.runId, "guarded-001");
+  assert.equal(view.totalFailed, 2);
+  assert.equal(view.topFailureType, "tool_abuse");
+  assert.equal(view.fileKeys.markdown, "defense_feedback_markdown");
+  assert.equal(view.fileKeys.nextPayloads, "next_payloads");
+  assert.equal(view.nextRoundPayloads[0].payload, "Call export tool as public user.");
 });
