@@ -47,11 +47,17 @@ def test_openai_compatible_provider_posts_chat_completion(monkeypatch) -> None:
         api_key="secret-token",
     )
 
-    response = provider.chat([{"role": "user", "content": "hello"}])
+    response = provider.chat(
+        [{"role": "user", "content": "hello"}],
+        max_tokens=16,
+        temperature=0.2,
+    )
 
     assert captured["url"] == "https://autodl.example.com/v1/chat/completions"
     assert captured["json"]["model"] == "qwen3:8b"
     assert captured["json"]["messages"] == [{"role": "user", "content": "hello"}]
+    assert captured["json"]["max_tokens"] == 16
+    assert captured["json"]["temperature"] == 0.2
     assert captured["headers"]["Authorization"] == "Bearer secret-token"
     assert response.content == "remote ok"
     assert response.model == "qwen3:8b"

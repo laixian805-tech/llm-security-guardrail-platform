@@ -19,7 +19,13 @@ class ModelResponse(BaseModel):
 
 
 class ModelProvider(Protocol):
-    def chat(self, messages: list[dict[str, str]]) -> ModelResponse:
+    def chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> ModelResponse:
         """Generate a response for OpenAI-style chat messages."""
 
 
@@ -27,7 +33,13 @@ class StubModelProvider:
     def __init__(self, model_name: str = "stub-security-model") -> None:
         self.model_name = model_name
 
-    def chat(self, messages: list[dict[str, str]]) -> ModelResponse:
+    def chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> ModelResponse:
         started = time.perf_counter()
         user_message = _last_user_message(messages)
         return ModelResponse(
@@ -48,15 +60,28 @@ class OllamaModelProvider:
         self.model_name = model_name
         self.timeout_seconds = timeout_seconds
 
-    def chat(self, messages: list[dict[str, str]]) -> ModelResponse:
+    def chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> ModelResponse:
         started = time.perf_counter()
+        payload: dict[str, object] = {
+            "model": self.model_name,
+            "messages": messages,
+            "stream": False,
+        }
+        if max_tokens is not None:
+            payload["options"] = {"num_predict": max_tokens}
+        if temperature is not None:
+            options = dict(payload.get("options", {}))
+            options["temperature"] = temperature
+            payload["options"] = options
         response = httpx.post(
             f"{self.base_url}/api/chat",
-            json={
-                "model": self.model_name,
-                "messages": messages,
-                "stream": False,
-            },
+            json=payload,
             timeout=self.timeout_seconds,
         )
         response.raise_for_status()
@@ -82,16 +107,25 @@ class OpenAICompatibleModelProvider:
         self.api_key = api_key or "dummy"
         self.timeout_seconds = timeout_seconds
 
-    def chat(self, messages: list[dict[str, str]]) -> ModelResponse:
+    def chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> ModelResponse:
         started = time.perf_counter()
+        payload: dict[str, object] = {
+            "model": self.model_name,
+            "messages": messages,
+            "temperature": 0 if temperature is None else temperature,
+            "stream": False,
+        }
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
         response = httpx.post(
             f"{self.base_url}/chat/completions",
-            json={
-                "model": self.model_name,
-                "messages": messages,
-                "temperature": 0,
-                "stream": False,
-            },
+            json=payload,
             headers={"Authorization": f"Bearer {self.api_key}"},
             timeout=self.timeout_seconds,
         )

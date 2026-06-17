@@ -82,6 +82,8 @@ class OpenAIChatCompletionRequest(BaseModel):
     model: str = "local-agent"
     messages: list[OpenAIChatMessage]
     guard_mode: GuardMode = GuardMode.ENFORCE
+    max_tokens: int | None = Field(default=None, ge=1, le=4096)
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
 
 
 class EvalRunRequest(BaseModel):
@@ -209,6 +211,8 @@ def guarded_chat(
     guard_mode: GuardMode,
     session_id: str,
     provider: ModelProvider,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
 ) -> ChatResponse:
     user_message = next(
         (message["content"] for message in reversed(messages) if message["role"] == "user"),
@@ -232,7 +236,11 @@ def guarded_chat(
             security_report=SessionSecurityReport(session_id=session_id, steps=[step]),
         )
 
-    model_response = provider.chat(messages)
+    model_response = provider.chat(
+        messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
     output_result = pipeline.check_output(model_response.content)
     guard_results.append(output_result.model_dump(mode="json"))
     blocked = output_result.action == "block"
@@ -378,6 +386,8 @@ def create_app() -> FastAPI:
             guard_mode=request.guard_mode,
             session_id="openai-compatible-session",
             provider=build_model_provider(settings, model_override=request.model),
+            max_tokens=request.max_tokens,
+            temperature=request.temperature,
         )
         return {
             "id": "chatcmpl-local",
