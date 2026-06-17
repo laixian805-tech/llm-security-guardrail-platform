@@ -1,0 +1,33 @@
+.venv/
+.venv_server/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Local runtime artifacts live outside the repo by default.
+reports/generated/
+data/runtime/
+backend/.venv/
+backend/.venv_server/
+backend/.venv_control/
+backend/.pytest_cache/
+web/node_modules/
+web/dist/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Local backup and automation artifacts
+.codex-backups/
+
+# Superpowers brainstorming artifacts
+.superpowers/
