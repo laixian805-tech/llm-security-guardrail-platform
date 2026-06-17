@@ -206,18 +206,27 @@ export function buildAutoDLModelRows(payload) {
   const available = new Set(Array.isArray(payload?.available_models) ? payload.available_models : []);
   const activeModel = payload?.active_model ?? "";
   const switchable = Boolean(payload?.switchable);
+  const online = payload?.connectivity !== "offline" && available.size > 0;
 
   return supported.map((model) => {
     const active = model === activeModel;
-    const online = available.has(model);
+    const modelOnline = online && available.has(model);
     return {
       model,
       active,
-      available: online,
+      available: modelOnline,
       provider: payload?.model_provider ?? "unknown",
-      canSwitch: switchable && !active,
-      statusLabel: active ? "Active" : online ? "Online / ready" : "Cached / start on demand",
-      tone: active ? "success" : online ? "info" : "warning",
+      canSwitch: switchable && online && !active,
+      statusLabel: online
+        ? active
+          ? "Active"
+          : modelOnline
+            ? "Online / ready"
+            : "Cached / start on demand"
+        : active
+          ? "Last active / offline"
+          : "Offline / recovery required",
+      tone: online ? (active ? "success" : "info") : "warning",
     };
   });
 }

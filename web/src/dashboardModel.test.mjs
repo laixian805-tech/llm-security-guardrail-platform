@@ -302,3 +302,44 @@ test("buildAutoDLModelRows maps model status into switchable rows", () => {
     ],
   );
 });
+
+test("buildAutoDLModelRows marks offline recovery state without hiding supported models", () => {
+  const rows = buildAutoDLModelRows({
+    active_model: "mistral-7b",
+    available_models: [],
+    supported_models: ["qwen3:8b", "mistral-7b"],
+    model_provider: "autodl",
+    switchable: true,
+    connectivity: "offline",
+    status_message: "AutoDL offline. Start the GPU container and recovery tunnel.",
+  });
+
+  assert.deepEqual(
+    rows.map((row) => ({
+      model: row.model,
+      active: row.active,
+      available: row.available,
+      canSwitch: row.canSwitch,
+      statusLabel: row.statusLabel,
+      tone: row.tone,
+    })),
+    [
+      {
+        model: "qwen3:8b",
+        active: false,
+        available: false,
+        canSwitch: false,
+        statusLabel: "Offline / recovery required",
+        tone: "warning",
+      },
+      {
+        model: "mistral-7b",
+        active: true,
+        available: false,
+        canSwitch: false,
+        statusLabel: "Last active / offline",
+        tone: "warning",
+      },
+    ],
+  );
+});

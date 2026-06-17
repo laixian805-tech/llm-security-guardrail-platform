@@ -26,6 +26,8 @@ def test_autodl_model_status_lists_supported_and_available_models(monkeypatch, t
     assert payload["available_models"] == ["qwen3:8b"]
     assert payload["supported_models"] == ["qwen3:8b", "mistral-7b"]
     assert payload["switchable"] is True
+    assert payload["connectivity"] == "online"
+    assert payload["status_message"] == "AutoDL inference endpoint reachable."
 
 
 def test_autodl_model_status_prefers_online_model_after_backend_restart(monkeypatch, tmp_path) -> None:
@@ -51,6 +53,34 @@ def test_autodl_model_status_prefers_online_model_after_backend_restart(monkeypa
     payload = response.json()
     assert payload["active_model"] == "mistral-7b"
     assert payload["available_models"] == ["mistral-7b"]
+    assert payload["connectivity"] == "online"
+
+
+def test_autodl_model_status_keeps_last_known_model_when_endpoint_offline(monkeypatch, tmp_path) -> None:
+    from app.api import main
+
+    monkeypatch.setattr(
+        main,
+        "get_settings",
+        lambda: main.Settings(
+            model_provider="autodl",
+            openai_model="qwen3:8b",
+            openai_base_url="http://127.0.0.1:18000/v1",
+            chroma_persist_directory=str(tmp_path / "chroma"),
+            reports_dir=str(tmp_path / "reports"),
+        ),
+    )
+    monkeypatch.setattr(main, "available_model_names", lambda settings: set())
+    client = TestClient(main.create_app())
+
+    response = client.get("/models/autodl-status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["active_model"] == "qwen3:8b"
+    assert payload["available_models"] == []
+    assert payload["connectivity"] == "offline"
+    assert "offline" in payload["status_message"].lower()
 
 
 def test_switch_autodl_model_updates_runtime_health(monkeypatch, tmp_path) -> None:

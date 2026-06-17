@@ -571,6 +571,7 @@ export default function App() {
               reportList={reportList}
               experimentReport={experimentReport}
               defenseFeedback={feedbackView}
+              autodlModelStatus={autodlModelStatus}
               loadReport={loadReport}
               loadReports={loadReports}
               generateExperimentReport={generateExperimentReport}
@@ -970,7 +971,22 @@ function AttackResultsPage({ run, summary, comparison, t }) {
   );
 }
 
-function ReportsPage({ activeRun, evalRun, reportId, setReportId, reportResponse, reportList, experimentReport, defenseFeedback, loadReport, loadReports, generateExperimentReport, loadDefenseFeedback, t }) {
+function ReportsPage({
+  activeRun,
+  evalRun,
+  reportId,
+  setReportId,
+  reportResponse,
+  reportList,
+  experimentReport,
+  defenseFeedback,
+  autodlModelStatus,
+  loadReport,
+  loadReports,
+  generateExperimentReport,
+  loadDefenseFeedback,
+  t,
+}) {
   const currentReport = reportResponse ?? evalRun ?? { run: activeRun, report_dir: "", files: {} };
   const summary = summarizeEvalRun(currentReport.run);
 
@@ -1014,6 +1030,11 @@ function ReportsPage({ activeRun, evalRun, reportId, setReportId, reportResponse
           <span>{t("eval.runId")}</span>
           <input value={reportId} onChange={(event) => setReportId(event.target.value)} placeholder="run_001" />
         </label>
+        <div className="summaryList">
+          <p>{t("reports.autodlStatus")}: {autodlModelStatus?.connectivity === "offline" ? t("settings.offline") : t("settings.online")}</p>
+          <p>{autodlModelStatus?.status_message ?? t("settings.modelStatusUnknown")}</p>
+          <p>{t("reports.activeModel")}: {autodlModelStatus?.active_model ?? currentReport.run?.model ?? "unknown"}</p>
+        </div>
         <div className="summaryList">
           <p>{summary.totalAttacks} {t("reports.attackPrompts")}</p>
           <p>{summary.blockedAttacks} {t("reports.blocked")}</p>
@@ -1119,6 +1140,10 @@ function SettingsPage({
           <MetricBadge label={t("settings.activeModel")} value={autodlModelStatus?.active_model ?? health?.model_name ?? "unknown"} />
           <MetricBadge label={t("settings.inferenceUrl")} value={health?.inference_base_url ?? "-"} />
           <MetricBadge label={t("settings.switchable")} value={autodlModelStatus?.switchable ? t("settings.yes") : t("settings.no")} />
+          <MetricBadge label={t("settings.connectivity")} value={autodlModelStatus?.connectivity === "offline" ? t("settings.offline") : t("settings.online")} />
+        </div>
+        <div className="summaryList">
+          <p>{autodlModelStatus?.status_message ?? t("settings.modelStatusUnknown")}</p>
         </div>
         <div className="runList">
           {autodlModelRows.map((row) => (
@@ -1142,6 +1167,14 @@ function SettingsPage({
             </article>
           ))}
         </div>
+        {autodlModelStatus?.connectivity === "offline" ? (
+          <div className="summaryList">
+            <p>{t("settings.recoveryTitle")}</p>
+            <p><code>cd /root/llm-security-guardrail-platform</code></p>
+            <p><code>bash scripts/check-autodl-recovery.sh --start-vllm</code></p>
+            <p>{t("settings.recoveryHint")}</p>
+          </div>
+        ) : null}
       </section>
     </div>
   );

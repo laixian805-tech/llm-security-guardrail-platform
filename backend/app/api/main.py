@@ -200,6 +200,8 @@ class AutoDLModelStatusResponse(BaseModel):
     supported_models: list[str]
     model_provider: str
     switchable: bool
+    connectivity: Literal["online", "offline"]
+    status_message: str
 
 
 class AutoDLModelSwitchRequest(BaseModel):
@@ -584,12 +586,19 @@ def create_app() -> FastAPI:
     def autodl_model_status() -> AutoDLModelStatusResponse:
         available = available_model_names(settings)
         provider_name = settings.model_provider.strip().lower()
+        online = bool(available)
         return AutoDLModelStatusResponse(
             active_model=active_model_name(available),
             available_models=sorted(available or []),
             supported_models=list(SUPPORTED_AUTODL_MODELS),
             model_provider=provider_name,
             switchable=provider_name in {"autodl", "openai_compatible", "openai"},
+            connectivity="online" if online else "offline",
+            status_message=(
+                "AutoDL inference endpoint reachable."
+                if online
+                else "AutoDL offline or recovery tunnel unavailable. Start the GPU container and restore the tunnel."
+            ),
         )
 
     @app.post("/models/switch", response_model=AutoDLModelSwitchResponse)
