@@ -59,6 +59,7 @@ class ModelMatrixRow(BaseModel):
     total_failed: int
     top_failure_type: str
     top_recommendation: str
+    avg_latency_ms: int = 0
     status: str = "ready"
 
 
@@ -90,6 +91,11 @@ def build_model_matrix_row(*, model: str, response: FormalExperimentResponse) ->
     comparison = response.paired.comparison
     top = response.failure_analysis.recommendations[0].action if response.failure_analysis.recommendations else "No guarded failures; expand the attack set."
     top_failure_type = response.defense_feedback.items[0].failure_type if response.defense_feedback.items else response.defense_feedback.suggestions[0].failure_type
+    guarded_payload = (
+        response.paired.guarded.model_dump(mode="json")
+        if hasattr(response.paired.guarded, "model_dump")
+        else response.paired.guarded
+    )
     return ModelMatrixRow(
         model=model,
         baseline_run_id=comparison.baseline_run_id,
@@ -100,7 +106,24 @@ def build_model_matrix_row(*, model: str, response: FormalExperimentResponse) ->
         total_failed=response.failure_analysis.total_failed,
         top_failure_type=top_failure_type,
         top_recommendation=top,
+        avg_latency_ms=guarded_payload.get("run", {}).get("summary", {}).get("avg_latency_ms", 0),
         status="ready",
+    )
+
+
+def unavailable_model_matrix_row(*, model: str) -> ModelMatrixRow:
+    return ModelMatrixRow(
+        model=model,
+        baseline_run_id="",
+        guarded_run_id="",
+        before_asr=0.0,
+        after_asr=0.0,
+        reduction_pct=0.0,
+        total_failed=0,
+        top_failure_type="unavailable",
+        top_recommendation="Deploy or start this model on AutoDL before running the matrix.",
+        avg_latency_ms=0,
+        status="unavailable",
     )
 
 

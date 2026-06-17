@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Literal
 
+import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -15,10 +17,12 @@ from app.evals.garak import GarakEvalRunner
 from app.evals.experiment_report import ExperimentReport, write_experiment_report
 from app.evals.formal import (
     FORMAL_PROBES,
+    FailureAnalysis,
     FormalExperimentResponse,
     ModelMatrixResponse,
     build_formal_experiment_response,
     build_model_matrix_row,
+    unavailable_model_matrix_row,
 )
 from app.evals.paired import PairedEvalResponse, paired_response
 from app.evals.promptfoo import PromptfooEvalRunner
@@ -61,6 +65,10 @@ class RAGIngestRequest(BaseModel):
     text: str = Field(min_length=1)
     allowed_roles: list[str] = Field(default_factory=lambda: ["public"])
     chunk_strategy: ChunkStrategy = ChunkStrategy.SENTENCE
+    collection: str = "default"
+    source_type: str = "manual"
+    trust_level: str = "standard"
+    poison_label: str = "unknown"
 
 
 class RAGIngestResponse(BaseModel):
@@ -122,6 +130,11 @@ class FormalExperimentRequest(BaseModel):
     garak_detector_spec: str | None = None
 
 
+class SecurityCycleRequest(FormalExperimentRequest):
+    include_regression_payloads: bool = False
+    regression_payloads: list[dict] = Field(default_factory=list)
+
+
 class ModelMatrixRequest(BaseModel):
     adapter: Literal["local", "garak", "promptfoo"] = "local"
     models: list[str] = Field(default_factory=lambda: ["qwen3:8b", "llama-3.1-8b", "mistral-7b", "deepseek-r1-distill-qwen-7b"])
@@ -147,6 +160,19 @@ class ExperimentReportResponse(BaseModel):
     markdown: str
     html: str
     files: dict[str, str]
+
+
+class SecurityCycleResponse(BaseModel):
+    experiment_id: str
+    paired: PairedEvalResponse
+    report: ExperimentReport
+    defense_feedback: DefenseFeedbackResponse
+    failure_analysis: FailureAnalysis
+    rule_hits: dict[str, int]
+    next_steps: list[str]
+    next_round_payloads: list[dict]
+    regression_payloads_used: list[dict]
+    regression_payload_source: str | None = None
 
 
 class DirectDefenseFeedbackRequest(BaseModel):
@@ -208,6 +234,27 @@ def runtime_model_status(settings: Settings) -> dict[str, object]:
         "model_name": settings.ollama_model,
         "inference_base_url": None,
         "local_inference": False,
+    }
+
+
+def available_model_names(settings: Settings) -> set[str] | None:
+    provider_name = settings.model_provider.strip().lower()
+    if provider_name not in {"openai", "openai_compatible", "autodl"}:
+        return None
+    try:
+        response = httpx.get(
+            f"{settings.openai_base_url.rstrip('/')}/models",
+            headers={"Authorization": f"Bearer {settings.openai_api_key or 'dummy'}"},
+            timeout=5.0,
+        )
+        response.raise_for_status()
+    except Exception:
+        return set()
+    payload = response.json()
+    return {
+        str(item.get("id"))
+        for item in payload.get("data", [])
+        if item.get("id")
     }
 
 
@@ -286,6 +333,7 @@ def create_app() -> FastAPI:
         model: str | None = None,
         garak_probe_spec: str | None = None,
         garak_detector_spec: str | None = None,
+        regression_payloads: list[dict] | None = None,
     ) -> EvalArtifacts:
         if adapter == "garak":
             runner = GarakEvalRunner(
@@ -314,10 +362,10 @@ def create_app() -> FastAPI:
             provider=build_model_provider(settings, model_override=model),
             reports_dir=Path(settings.reports_dir),
         )
-        return runner.run_with_artifacts(
-            probes=probes,
-            guard_mode=guard_mode,
-        )
+        local_kwargs = {"probes": probes, "guard_mode": guard_mode}
+        if regression_payloads:
+            local_kwargs["regression_payloads"] = regression_payloads
+        return runner.run_with_artifacts(**local_kwargs)
 
     def runtime_inference_base_url() -> str:
         provider_name = settings.model_provider.strip().lower()
@@ -325,7 +373,11 @@ def create_app() -> FastAPI:
             return settings.openai_base_url
         return settings.ollama_base_url
 
-    def run_formal_experiment_artifacts(request: FormalExperimentRequest) -> FormalExperimentResponse:
+    def run_formal_experiment_artifacts(
+        request: FormalExperimentRequest,
+        *,
+        regression_payloads: list[dict] | None = None,
+    ) -> FormalExperimentResponse:
         try:
             baseline = run_eval_artifacts(
                 adapter=request.adapter,
@@ -334,6 +386,7 @@ def create_app() -> FastAPI:
                 model=request.model,
                 garak_probe_spec=request.garak_probe_spec,
                 garak_detector_spec=request.garak_detector_spec,
+                regression_payloads=regression_payloads,
             )
             guarded = run_eval_artifacts(
                 adapter=request.adapter,
@@ -342,6 +395,7 @@ def create_app() -> FastAPI:
                 model=request.model,
                 garak_probe_spec=request.garak_probe_spec,
                 garak_detector_spec=request.garak_detector_spec,
+                regression_payloads=regression_payloads,
             )
         except RuntimeError as caught:
             raise HTTPException(status_code=400, detail=str(caught)) from caught
@@ -368,6 +422,23 @@ def create_app() -> FastAPI:
             report=report,
             defense_feedback=defense_feedback,
         )
+
+
+    def load_regression_payloads(request: SecurityCycleRequest) -> tuple[list[dict], str | None]:
+        explicit_payloads = _valid_regression_payloads(request.regression_payloads)
+        if explicit_payloads:
+            return explicit_payloads, "request"
+        if not request.include_regression_payloads:
+            return [], None
+
+        for report in ReportStore(settings.reports_dir).list_reports():
+            next_payloads_path = report.files.get("next_payloads")
+            if not next_payloads_path:
+                continue
+            payloads = _read_regression_payloads(Path(next_payloads_path))
+            if payloads:
+                return payloads, report.run_id
+        return [], None
 
     @app.get("/health")
     def health() -> dict[str, object]:
@@ -439,6 +510,10 @@ def create_app() -> FastAPI:
             text=request.text,
             allowed_roles=request.allowed_roles,
             chunk_strategy=request.chunk_strategy,
+            collection=request.collection,
+            source_type=request.source_type,
+            trust_level=request.trust_level,
+            poison_label=request.poison_label,
         )
         return RAGIngestResponse(
             document_id=request.document_id,
@@ -509,10 +584,34 @@ def create_app() -> FastAPI:
     def run_formal_experiment(request: FormalExperimentRequest) -> FormalExperimentResponse:
         return run_formal_experiment_artifacts(request)
 
+    @app.post("/experiments/security-cycle", response_model=SecurityCycleResponse)
+    def run_security_cycle(request: SecurityCycleRequest) -> SecurityCycleResponse:
+        regression_payloads, regression_source = load_regression_payloads(request)
+        formal_response = run_formal_experiment_artifacts(
+            FormalExperimentRequest(
+                adapter=request.adapter,
+                probes=request.probes,
+                model=request.model,
+                garak_probe_spec=request.garak_probe_spec,
+                garak_detector_spec=request.garak_detector_spec,
+            ),
+            regression_payloads=regression_payloads,
+        )
+        return SecurityCycleResponse(
+            **formal_response.model_dump(),
+            next_round_payloads=formal_response.defense_feedback.next_round_payloads,
+            regression_payloads_used=regression_payloads,
+            regression_payload_source=regression_source,
+        )
+
     @app.post("/experiments/model-matrix", response_model=ModelMatrixResponse)
     def run_model_matrix(request: ModelMatrixRequest) -> ModelMatrixResponse:
         rows = []
+        available_models = available_model_names(settings)
         for model in request.models:
+            if available_models is not None and model not in available_models:
+                rows.append(unavailable_model_matrix_row(model=model))
+                continue
             formal_response = run_formal_experiment_artifacts(
                 FormalExperimentRequest(
                     adapter=request.adapter,
@@ -595,6 +694,30 @@ def create_app() -> FastAPI:
         return ExperimentReportResponse(**report.model_dump())
 
     return app
+
+
+def _valid_regression_payloads(payloads: list[dict]) -> list[dict]:
+    valid: list[dict] = []
+    for payload in payloads:
+        text = str(payload.get("payload") or payload.get("prompt") or "").strip()
+        if not text:
+            continue
+        normalized = dict(payload)
+        normalized["payload"] = text
+        normalized.setdefault("probe", payload.get("failure_type") or "regression_payload")
+        normalized.setdefault("expected_guard", "block")
+        valid.append(normalized)
+    return valid
+
+
+def _read_regression_payloads(path: Path) -> list[dict]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(payload, list):
+        return []
+    return _valid_regression_payloads([item for item in payload if isinstance(item, dict)])
 
 
 app = create_app()

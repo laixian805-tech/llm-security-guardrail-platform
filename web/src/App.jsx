@@ -256,7 +256,10 @@ export default function App() {
       if (evalAdapter === "garak" && probeSpec.trim()) {
         request.garak_probe_spec = probeSpec.trim();
       }
-      const payload = await postJson("/experiments/formal-run", request);
+      const payload = await postJson("/experiments/security-cycle", {
+        ...request,
+        include_regression_payloads: true,
+      });
       setFormalExperiment(payload);
       setPairedEval(payload.paired);
       setEvalRun(payload.paired.guarded);
@@ -754,6 +757,7 @@ function EvaluationPage({
                   <th>{t("eval.reduction")}</th>
                   <th>{t("attack.failures")}</th>
                   <th>{t("eval.topFailureType")}</th>
+                  <th>{t("eval.duration")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -765,6 +769,7 @@ function EvaluationPage({
                     <td>{row.reduction}</td>
                     <td>{row.totalFailed}</td>
                     <td>{row.failureType}</td>
+                    <td>{row.avgLatency}</td>
                   </tr>
                 ))}
               </tbody>

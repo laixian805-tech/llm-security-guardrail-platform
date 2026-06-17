@@ -198,6 +198,106 @@ bash scripts/check-autodl-recovery.sh --start-vllm
 
 这样第二天重启时，只需要恢复推理和转发，不需要从零重新安装整套环境。
 
+### AutoDL 多模型管理
+
+当前采用“单模型在线、模型缓存持久化”的低成本策略：
+
+- `qwen3:8b` 是默认主模型，线上服务平时保持这个模型
+- `mistral-7b` 已缓存到 AutoDL 持久盘，可作为第一对照模型
+- 两个模型不要同时长期运行，切换时先 stop 再 start
+- `/root/autodl-tmp` 当前只剩约 `5G` 可用空间，不建议继续直接下载第三个 7B/8B 模型
+
+在腾讯云项目根目录执行：
+
+```bash
+cd /root/llm-security-guardrail-platform
+
+# 查看当前 AutoDL、隧道、模型缓存和 vLLM 状态
+scripts/manage-autodl-models.sh status qwen3:8b
+scripts/manage-autodl-models.sh status mistral-7b
+
+# 对当前在线模型做最小 OpenAI-compatible smoke
+scripts/manage-autodl-models.sh smoke qwen3:8b
+
+# AutoDL 到 Hugging Face 直连不稳时，使用镜像端点下载
+LLMSEC_HF_ENDPOINT=https://hf-mirror.com scripts/manage-autodl-models.sh download mistral-7b
+
+# 切换模型：先停当前 vLLM，再启动目标模型
+scripts/manage-autodl-models.sh stop qwen3:8b
+scripts/manage-autodl-models.sh start mistral-7b
+scripts/manage-autodl-models.sh smoke mistral-7b
+
+# 展示或评测结束后切回主模型
+scripts/manage-autodl-models.sh stop mistral-7b
+scripts/manage-autodl-models.sh start qwen3:8b
+scripts/manage-autodl-models.sh smoke qwen3:8b
+```
+
+脚本会优先使用 `/root/autodl-tmp/hf/hub/.../snapshots/...` 本地 snapshot 启动模型，避免每次启动都访问 Hugging Face。这个细节很重要：AutoDL 到 Hugging Face 直连可能超时，如果用仓库名启动，vLLM 会卡在网络重试。
+
+模型矩阵建议分两种展示：
+
+- 平时 AutoDL 只开 `qwen3:8b`，`/experiments/model-matrix` 里其它模型显示 `unavailable`
+- 真要做多模型对比时，按上面的脚本逐个切换模型，每次只让一个模型在线，分别跑 formal-run 或 model-matrix 片段
+
+### 模型缓存方法与避雷点
+
+这次 `qwen3:8b` 和 `mistral-7b` 的实践结论是：AutoDL 上最稳的方式不是每次启动都让 vLLM 访问 Hugging Face，而是先把模型完整缓存到持久盘，再让 vLLM 使用本地 snapshot 路径启动。
+
+推荐方法：
+
+1. 模型统一缓存到持久盘：
+
+```bash
+/root/autodl-tmp/hf/hub
+```
+
+2. 下载时显式设置缓存目录：
+
+```bash
+export HF_HOME=/root/autodl-tmp/hf
+export HUGGINGFACE_HUB_CACHE=/root/autodl-tmp/hf/hub
+export TRANSFORMERS_CACHE=/root/autodl-tmp/hf/transformers
+```
+
+3. AutoDL 到 `huggingface.co` 直连不稳定时，用镜像端点：
+
+```bash
+LLMSEC_HF_ENDPOINT=https://hf-mirror.com scripts/manage-autodl-models.sh download mistral-7b
+```
+
+4. 启动 vLLM 时优先使用本地 snapshot，而不是远端仓库名：
+
+```bash
+/root/autodl-tmp/hf/hub/models--Qwen--Qwen3-8B/snapshots/<snapshot-id>
+/root/autodl-tmp/hf/hub/models--mistralai--Mistral-7B-Instruct-v0.3/snapshots/<snapshot-id>
+```
+
+现在 `scripts/manage-autodl-models.sh start <model>` 已经会自动做这件事：如果本地 snapshot 存在，就用本地路径启动；只有缓存不存在时才退回远端 repo 名。
+
+这几个坑要特别避开：
+
+- 不要把模型缓存放在 AutoDL 临时系统盘，关机后可能要重新下载
+- 不要在 vLLM 启动命令里长期写 `Qwen/Qwen3-8B` 这种远端 repo 名，否则每次启动都可能卡在 Hugging Face HEAD/tree 网络检查
+- 不要同时常驻两个 7B/8B vLLM 服务，显存和端口都会冲突
+- 不要在 `/root/autodl-tmp` 只剩几 GB 时继续下载第三个大模型，容易出现下载到一半失败或后续日志/缓存写不进去
+- 不要把“模型已缓存”等同于“模型已在线”；`/v1/models` 只能看到当前正在运行的一个模型
+
+当前实际状态：
+
+| 模型 | 缓存状态 | 验证状态 | 备注 |
+| ---- | ---- | ---- | ---- |
+| `qwen3:8b` | 已缓存到 `/root/autodl-tmp/hf/hub/models--Qwen--Qwen3-8B` | 已通过 smoke，当前推荐默认在线 | 主模型 |
+| `mistral-7b` | 已缓存到 `/root/autodl-tmp/hf/hub/models--mistralai--Mistral-7B-Instruct-v0.3` | 已通过 smoke | 第一对照模型，按需切换 |
+
+关机前建议记录一次：
+
+```bash
+df -hT /root/autodl-tmp
+find /root/autodl-tmp/hf/hub -maxdepth 1 -type d -name 'models--*' -print
+curl http://127.0.0.1:8000/v1/models
+```
+
 ---
 
 ## 常见错误排查
@@ -232,6 +332,28 @@ bash scripts/check-autodl-recovery.sh --start-vllm
 这表示接口和 UI 已就绪，但对应模型尚未在 AutoDL 部署。
 
 这不是 bug，而是刻意保留的“待配置”状态。
+
+如果模型已经缓存但仍显示 unavailable，先检查当前在线模型：
+
+```bash
+cd /root/llm-security-guardrail-platform
+scripts/manage-autodl-models.sh status qwen3:8b
+curl http://127.0.0.1:18000/v1/models
+```
+
+`/experiments/model-matrix` 只会运行当前 `/v1/models` 能看到的模型；已缓存但未启动的模型会被标记为 `unavailable`，不会强行切换或误触发长任务。
+
+### vLLM 启动时一直 connection reset
+
+先看 AutoDL 日志：
+
+```bash
+ssh -p 16214 root@region-9.autodl.pro
+tail -120 /root/autodl-tmp/logs/vllm-qwen3-8b-current.log
+tail -120 /root/autodl-tmp/logs/vllm-mistral-7b-current.log
+```
+
+如果日志里大量出现 `huggingface.co` timeout，说明启动用了远端仓库名而不是本地 snapshot。使用新版 `scripts/manage-autodl-models.sh start <model>` 重新启动即可；它会自动选择本地 snapshot。
 
 ---
 

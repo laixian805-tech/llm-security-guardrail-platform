@@ -13,6 +13,8 @@ _LLM Security Guardrail Platform 的操作、展示与实现说明索引 · Last
 | 2 | [项目展示说明](./project-showcase-guide.md) | 答辩、面试、路演、写项目总结 |
 | 3 | [实现说明](./implementation-notes.md) | 查看当前后端模块、设计默认值和评测方向 |
 
+> AutoDL 已进入“单模型在线、缓存持久化、按需切换”的模式。多模型管理、`qwen3:8b`/`mistral-7b` 切换、磁盘余量和 Hugging Face 镜像说明见 [平台使用手册 - AutoDL 多模型管理](./platform-user-manual.md#autodl-多模型管理)。
+
 ---
 
 ## 🎯 当前项目主线

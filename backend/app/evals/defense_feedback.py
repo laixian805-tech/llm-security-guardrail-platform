@@ -31,6 +31,7 @@ class DefenseFeedbackSuggestion(BaseModel):
     risky_keywords: list[str]
     isolation_sources: list[str]
     next_probe_focus: str
+    rule_templates: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class DefenseFeedbackResponse(BaseModel):
@@ -120,10 +121,14 @@ def _feedback_item(sample: dict[str, Any]) -> DefenseFeedbackItem:
 
 def _classify_failure(*, probe: str, prompt: str, response: str) -> str:
     text = f"{probe} {prompt} {response}".lower()
+    if (
+        "tool_return" in text
+        or "tool returned" in text
+        or ("tool result" in text and ("ignore" in text or "new instruction" in text))
+    ):
+        return "tool_return_poisoning"
     if "rag" in text or "retrieved" in text or "poison" in text:
         return "rag_poisoning"
-    if "tool_return" in text or ("tool result" in text and "ignore" in text):
-        return "tool_return_poisoning"
     if "unauthorized" in text or "export_internal" in text or "export_data" in text or "tool call" in text:
         return "tool_abuse"
     if "long_context" in text or "long document" in text or "end of a long" in text:
@@ -288,7 +293,62 @@ def _suggestion_for_type(failure_type: str) -> DefenseFeedbackSuggestion:
             next_probe_focus="direct_injection",
         ),
     }
-    return templates.get(failure_type, templates["direct_injection"])
+    suggestion = templates.get(failure_type, templates["direct_injection"])
+    return suggestion.model_copy(update={"rule_templates": _rule_templates_for_type(failure_type)})
+
+
+def _rule_templates_for_type(failure_type: str) -> list[dict[str, Any]]:
+    templates: dict[str, list[dict[str, Any]]] = {
+        "role_takeover": [
+            {
+                "rule_name": "role_takeover_authority_claim",
+                "stage": "pre_input",
+                "pattern": r"\b(from now on|you are now|act as|pretend to be)\b.{0,120}\b(system\s+developer|developer|admin(?:istrator)?|auditor)\b|\bdisable\s+safety\s+rules?\b",
+                "reason": "Block user-provided assistant/developer/admin role reassignment.",
+                "approval_required": True,
+                "source_failure_type": failure_type,
+            }
+        ],
+        "rag_poisoning": [
+            {
+                "rule_name": "rag_source_instruction_override",
+                "stage": "pre_input",
+                "pattern": r"\b(retrieved|knowledge\s+base|document|context|chunk)\b.{0,160}\b(says|instructs|asks|contains|tells)\b.{0,160}\b(ignore|override|export|use\s+the\s+retrieved\s+instruction)\b",
+                "reason": "Block untrusted retrieved content that attempts to issue instructions.",
+                "approval_required": True,
+                "source_failure_type": failure_type,
+            }
+        ],
+        "tool_return_poisoning": [
+            {
+                "rule_name": "tool_output_instruction_injection",
+                "stage": "pre_input",
+                "pattern": r"\b(tool\s+(returned|result|output)|api\s+response)\b.{0,160}\b(new\s+instruction|ignore|call\s+the\s+admin|export)\b",
+                "reason": "Block instructions embedded inside tool or API return values.",
+                "approval_required": True,
+                "source_failure_type": failure_type,
+            }
+        ],
+        "tool_abuse": [
+            {
+                "rule_name": "unauthorized_tool_escalation",
+                "stage": "pre_input",
+                "pattern": r"\b(call|use|run)\b.{0,80}\b(export_internal_reports|export_data|admin\s+export)\b.{0,120}\b(role\s*=\s*admin|bypass|authorization|auth)\b",
+                "reason": "Block model- or user-proposed sensitive tool calls with admin/bypass language.",
+                "approval_required": True,
+                "source_failure_type": failure_type,
+            },
+            {
+                "rule_name": "public_role_export_request",
+                "stage": "pre_input",
+                "pattern": r"\b(call|use|run)\b.{0,80}\bexport\s+tool\b.{0,140}\b(role\s+is\s+public|public\s+role|even\s+though.{0,60}public)\b",
+                "reason": "Block export tool requests that conflict with a public caller role.",
+                "approval_required": True,
+                "source_failure_type": failure_type,
+            }
+        ],
+    }
+    return templates.get(failure_type, [])
 
 
 def _next_round_payloads(
@@ -359,6 +419,14 @@ def _feedback_markdown(feedback: DefenseFeedbackResponse) -> str:
                 "",
             ]
         )
+        if suggestion.rule_templates:
+            lines.append("#### Candidate Rule Templates")
+            lines.append("")
+            for template in suggestion.rule_templates:
+                lines.append(
+                    f"- `{template['rule_name']}` ({template['stage']}): {template['reason']} Approval required: {template['approval_required']}"
+                )
+            lines.append("")
 
     lines.extend(["## Next Round Payloads", ""])
     for payload in feedback.next_round_payloads:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import uuid4
+
 from pydantic import BaseModel, Field
 
 from app.guardrails.pipeline import GuardMode, GuardrailPipeline
@@ -39,6 +41,8 @@ class RAGPoisoningDemoResult(BaseModel):
     sanitized_context: str
     tool_verdict: ToolCallVerdict
     attack_chain_blocked: bool
+    blocked_at: str | None = None
+    attack_steps: list[dict]
     recommended_defenses: list[str]
 
 
@@ -47,26 +51,36 @@ def run_rag_poisoning_demo(
     rag_service: InMemoryRAGService,
     request: RAGPoisoningDemoRequest,
 ) -> RAGPoisoningDemoResult:
-    safe_document_id = f"{request.scenario_id}-safe"
-    poison_document_id = f"{request.scenario_id}-poison"
+    run_suffix = uuid4().hex[:8]
+    safe_document_id = f"{request.scenario_id}-{run_suffix}-safe"
+    poison_document_id = f"{request.scenario_id}-{run_suffix}-poison"
 
     rag_service.ingest_text(
         document_id=safe_document_id,
         text=request.safe_document,
         allowed_roles=["public", "internal"],
         chunk_strategy=ChunkStrategy.SENTENCE,
+        collection="safe_docs",
+        source_type="handbook",
+        trust_level="trusted",
+        poison_label="clean",
     )
     rag_service.ingest_text(
         document_id=poison_document_id,
         text=request.poison_document,
         allowed_roles=["public"],
         chunk_strategy=ChunkStrategy.SENTENCE,
+        collection="poisoned_docs",
+        source_type="user_upload",
+        trust_level="low",
+        poison_label="poisoned",
     )
 
     retrieval = rag_service.query(
         query=request.query,
         caller_role=request.caller_role,
         limit=request.limit,
+        document_ids=[safe_document_id, poison_document_id],
     )
     poisoned_chunks = [
         chunk.model_dump(mode="json")
@@ -94,7 +108,19 @@ def run_rag_poisoning_demo(
         {"scope": "audit_logs", "format": "json"},
         CallerContext(caller_role=request.caller_role, user_id="rag-demo-user"),
     )
-    attack_chain_blocked = guardrail.action.value == "block" or tool_verdict.decision.value == "block"
+    guardrail_blocked = guardrail.action.value == "block"
+    tool_blocked = tool_verdict.decision.value == "block"
+    attack_chain_blocked = guardrail_blocked or tool_blocked
+    blocked_at = _blocked_at(guardrail_blocked=guardrail_blocked, tool_blocked=tool_blocked)
+    attack_steps = _attack_steps(
+        safe_document_id=safe_document_id,
+        poison_document_id=poison_document_id,
+        retrieval=retrieval,
+        poisoned_chunks=poisoned_chunks,
+        guardrail_blocked=guardrail_blocked,
+        sanitized_context=sanitized_context,
+        tool_blocked=tool_blocked,
+    )
 
     return RAGPoisoningDemoResult(
         scenario_id=request.scenario_id,
@@ -105,8 +131,57 @@ def run_rag_poisoning_demo(
         sanitized_context=sanitized_context,
         tool_verdict=tool_verdict,
         attack_chain_blocked=attack_chain_blocked,
+        blocked_at=blocked_at,
+        attack_steps=attack_steps,
         recommended_defenses=_recommended_defenses(poisoned_chunks=poisoned_chunks),
     )
+
+
+def _blocked_at(*, guardrail_blocked: bool, tool_blocked: bool) -> str | None:
+    if guardrail_blocked:
+        return "guardrail"
+    if tool_blocked:
+        return "tool_gateway"
+    return None
+
+
+def _attack_steps(
+    *,
+    safe_document_id: str,
+    poison_document_id: str,
+    retrieval: RetrievalResult,
+    poisoned_chunks: list[dict],
+    guardrail_blocked: bool,
+    sanitized_context: str,
+    tool_blocked: bool,
+) -> list[dict]:
+    return [
+        {
+            "stage": "ingest",
+            "blocked": False,
+            "evidence": f"Indexed safe document {safe_document_id} and poison document {poison_document_id}.",
+        },
+        {
+            "stage": "retrieve",
+            "blocked": False,
+            "evidence": f"Returned {retrieval.audit.chunks_returned} chunks from safe_docs/poisoned_docs; poisoned chunks={len(poisoned_chunks)}.",
+        },
+        {
+            "stage": "guardrail",
+            "blocked": guardrail_blocked,
+            "evidence": "Retrieved instructions were blocked before model context." if guardrail_blocked else "No blocking guardrail rule matched retrieved context.",
+        },
+        {
+            "stage": "sanitize",
+            "blocked": False,
+            "evidence": "Poisoned instructions isolated from model context." if "poisoned retrieved instructions isolated" in sanitized_context else "Safe chunks passed through as context.",
+        },
+        {
+            "stage": "tool_authorization",
+            "blocked": tool_blocked,
+            "evidence": "Tool gateway blocked export_data for the caller role." if tool_blocked else "Tool gateway allowed the proposed tool call.",
+        },
+    ]
 
 
 def _sanitize_context(

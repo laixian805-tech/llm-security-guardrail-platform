@@ -5,6 +5,7 @@ import html
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel
@@ -110,6 +111,48 @@ _PROBES: dict[str, ProbeCase] = {
 }
 
 
+def _regression_probe_cases(payloads: list[dict[str, Any]]) -> list[ProbeCase]:
+    cases: list[ProbeCase] = []
+    for index, payload in enumerate(payloads):
+        prompt = str(payload.get("payload") or payload.get("prompt") or "").strip()
+        if not prompt:
+            continue
+        probe_name = str(
+            payload.get("probe")
+            or payload.get("next_probe_focus")
+            or payload.get("failure_type")
+            or f"regression_payload_{index + 1}"
+        )
+        cases.append(
+            ProbeCase(
+                name=probe_name,
+                category=_category_for_regression_payload(payload),
+                variant="regression_payload",
+                prompt=prompt,
+            )
+        )
+    return cases
+
+
+def _category_for_regression_payload(payload: dict[str, Any]) -> AttackCategory:
+    explicit = str(payload.get("category") or "").lower()
+    for category in AttackCategory:
+        if explicit == category.value:
+            return category
+
+    text = " ".join(
+        str(payload.get(key) or "")
+        for key in ("probe", "failure_type", "payload", "prompt")
+    ).lower()
+    if "role" in text or "unauthorized" in text or "tool" in text:
+        return AttackCategory.ROLE_OVERRIDE
+    if "long_context" in text or "jailbreak" in text:
+        return AttackCategory.JAILBREAK
+    if "encoding" in text or "base64" in text:
+        return AttackCategory.ENCODING
+    return AttackCategory.INJECTION
+
+
 class LocalEvalRunner:
     def __init__(self, provider: ModelProvider, reports_dir: str | Path) -> None:
         self.provider = provider
@@ -121,22 +164,28 @@ class LocalEvalRunner:
         probes: list[str],
         guard_mode: GuardMode,
         run_id: str | None = None,
+        regression_payloads: list[dict[str, Any]] | None = None,
     ) -> EvalRun:
         run_id = run_id or f"eval-{uuid4().hex[:8]}"
         started_at = datetime.now(timezone.utc)
+        probe_cases = [
+            _PROBES.get(probe, _PROBES["injection"])
+            for probe in probes
+        ]
+        probe_cases.extend(_regression_probe_cases(regression_payloads or []))
         results = [
             self._run_probe(
                 run_id=run_id,
-                probe_case=_PROBES.get(probe, _PROBES["injection"]),
+                probe_case=probe_case,
                 guard_mode=guard_mode,
             )
-            for probe in probes
+            for probe_case in probe_cases
         ]
         run = EvalRun(
             run_id=run_id,
             adapter="local",
             guard_mode=_guard_mode_value(guard_mode),
-            probes=probes,
+            probes=[probe_case.name for probe_case in probe_cases],
             status=EvalStatus.COMPLETED,
             started_at=started_at,
             finished_at=datetime.now(timezone.utc),
@@ -151,8 +200,14 @@ class LocalEvalRunner:
         probes: list[str],
         guard_mode: GuardMode,
         run_id: str | None = None,
+        regression_payloads: list[dict[str, Any]] | None = None,
     ) -> EvalArtifacts:
-        run = self.run(probes=probes, guard_mode=guard_mode, run_id=run_id)
+        run = self.run(
+            probes=probes,
+            guard_mode=guard_mode,
+            run_id=run_id,
+            regression_payloads=regression_payloads,
+        )
         return self._artifacts_for(run)
 
     def _run_probe(
@@ -178,7 +233,11 @@ class LocalEvalRunner:
                 latency_ms=0,
             )
 
-        model_response = self.provider.chat([{"role": "user", "content": probe_case.prompt}])
+        model_response = self.provider.chat(
+            [{"role": "user", "content": probe_case.prompt}],
+            max_tokens=256,
+            temperature=0,
+        )
         output_result = pipeline.check_output(model_response.content)
         blocked = output_result.action.value == "block"
         return AttackResult(

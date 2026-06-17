@@ -236,3 +236,22 @@ test("buildDefenseFeedbackView normalizes feedback files and next-round payloads
   assert.equal(view.fileKeys.nextPayloads, "next_payloads");
   assert.equal(view.nextRoundPayloads[0].payload, "Call export tool as public user.");
 });
+
+test("buildModelMatrixRows includes average latency labels", () => {
+  const rows = buildModelMatrixRows({
+    matrix: [
+      {
+        model: "qwen3:8b",
+        before_asr: 1,
+        after_asr: 0.25,
+        reduction_pct: 75,
+        total_failed: 1,
+        top_failure_type: "rag_poisoning",
+        top_recommendation: "Tune RAG isolation",
+        avg_latency_ms: 345,
+      },
+    ],
+  });
+
+  assert.equal(rows[0].avgLatency, "345 ms");
+});

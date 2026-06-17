@@ -196,6 +196,7 @@ export function buildModelMatrixRows(payload) {
     totalFailed: Number(row.total_failed ?? 0),
     failureType: row.top_failure_type ?? "pending",
     recommendation: row.top_recommendation ?? "Pending model deployment.",
+    avgLatency: Number.isFinite(Number(row.avg_latency_ms)) ? `${Number(row.avg_latency_ms)} ms` : "-",
     status: row.status ?? "ready",
   }));
 }

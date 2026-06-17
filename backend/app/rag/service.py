@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,10 @@ class InMemoryRAGService:
         text: str,
         allowed_roles: list[str],
         chunk_strategy: ChunkStrategy = ChunkStrategy.SENTENCE,
+        collection: str = "default",
+        source_type: str = "manual",
+        trust_level: str = "standard",
+        poison_label: str = "unknown",
     ) -> list[DocumentChunk]:
         chunks = self._chunk_text(text, chunk_strategy)
         indexed: list[DocumentChunk] = []
@@ -54,27 +59,40 @@ class InMemoryRAGService:
                 document_id=document_id,
                 text=chunk_text,
                 allowed_roles=allowed_roles,
-                metadata={"chunk_strategy": chunk_strategy.value},
+                metadata={
+                    "chunk_strategy": chunk_strategy.value,
+                    "collection": collection,
+                    "source_type": source_type,
+                    "trust_level": trust_level,
+                    "poison_label": poison_label,
+                    "ingested_at": datetime.now(timezone.utc).isoformat(),
+                },
             )
             indexed.append(chunk)
         self._chunks.extend(indexed)
         return indexed
 
-    def query(self, query: str, caller_role: str, limit: int = 5) -> RetrievalResult:
+    def query(
+        self,
+        query: str,
+        caller_role: str,
+        limit: int = 5,
+        document_ids: list[str] | None = None,
+    ) -> RetrievalResult:
         if self._is_bulk_dump_query(query):
             return RetrievalResult(
                 chunks=[],
                 audit=RAGAuditRecord(
                     query=query,
                     chunks_returned=0,
-                    total_available=len(self._visible_chunks(caller_role)),
+                    total_available=len(self._visible_chunks(caller_role, document_ids=document_ids)),
                     guard_triggered=True,
                     guard_reason="Blocked bulk knowledge-base dump query.",
                     action="block",
                 ),
             )
 
-        visible_chunks = self._visible_chunks(caller_role)
+        visible_chunks = self._visible_chunks(caller_role, document_ids=document_ids)
         scored_chunks = [
             self._score_chunk(query, chunk)
             for chunk in visible_chunks
@@ -97,6 +115,7 @@ class InMemoryRAGService:
     def _score_chunk(self, query: str, chunk: DocumentChunk) -> RetrievedChunk:
         score = self._score(query, chunk.text)
         metadata = dict(chunk.metadata)
+        _apply_default_collection_metadata(metadata)
         metadata.update(
             {
                 "retrieval_mode": "overlap",
@@ -110,16 +129,26 @@ class InMemoryRAGService:
             score=score,
         )
 
-    def _visible_chunks(self, caller_role: str) -> list[DocumentChunk]:
+    def _visible_chunks(
+        self,
+        caller_role: str,
+        *,
+        document_ids: list[str] | None = None,
+    ) -> list[DocumentChunk]:
+        requested_ids = set(document_ids or [])
         if caller_role == "admin":
-            return list(self._chunks)
-        if caller_role == "internal":
-            return [
+            chunks = list(self._chunks)
+        elif caller_role == "internal":
+            chunks = [
                 chunk
                 for chunk in self._chunks
                 if any(role in {"public", "internal"} for role in chunk.allowed_roles)
             ]
-        return [chunk for chunk in self._chunks if "public" in chunk.allowed_roles]
+        else:
+            chunks = [chunk for chunk in self._chunks if "public" in chunk.allowed_roles]
+        if requested_ids:
+            return [chunk for chunk in chunks if chunk.document_id in requested_ids]
+        return chunks
 
     @staticmethod
     def _chunk_text(text: str, chunk_strategy: ChunkStrategy) -> list[str]:
@@ -169,12 +198,20 @@ class PersistentHybridRAGService(InMemoryRAGService):
         text: str,
         allowed_roles: list[str],
         chunk_strategy: ChunkStrategy = ChunkStrategy.SENTENCE,
+        collection: str = "default",
+        source_type: str = "manual",
+        trust_level: str = "standard",
+        poison_label: str = "unknown",
     ) -> list[DocumentChunk]:
         chunks = super().ingest_text(
             document_id=document_id,
             text=text,
             allowed_roles=allowed_roles,
             chunk_strategy=chunk_strategy,
+            collection=collection,
+            source_type=source_type,
+            trust_level=trust_level,
+            poison_label=poison_label,
         )
         self._save()
         return chunks
@@ -184,6 +221,7 @@ class PersistentHybridRAGService(InMemoryRAGService):
         dense_score = self._dense_overlap_score(query, chunk.text)
         score = (0.65 * keyword_score) + (0.35 * dense_score)
         metadata = dict(chunk.metadata)
+        _apply_default_collection_metadata(metadata)
         metadata.update(
             {
                 "retrieval_mode": "hybrid",
@@ -245,3 +283,10 @@ class PersistentHybridRAGService(InMemoryRAGService):
 
 def _tokens(text: str) -> list[str]:
     return re.findall(r"[a-zA-Z0-9_]+", text.lower())
+
+
+def _apply_default_collection_metadata(metadata: dict[str, Any]) -> None:
+    metadata.setdefault("collection", "default")
+    metadata.setdefault("source_type", "manual")
+    metadata.setdefault("trust_level", "standard")
+    metadata.setdefault("poison_label", "unknown")
