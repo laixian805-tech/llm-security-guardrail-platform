@@ -30,7 +30,7 @@ class ReportStore:
         self.reports_dir = Path(reports_dir)
 
     def list_reports(self) -> list[ReportSummary]:
-        return [self._summary_from_path(path) for path in self._result_paths()]
+        return [self._summary_from_path(path) for path in self._report_index_paths()]
 
     def load_artifacts(self, run_id: str) -> EvalArtifacts:
         results_path = self.reports_dir / run_id / "results.json"
@@ -64,33 +64,61 @@ class ReportStore:
             return run_dir
         raise FileNotFoundError(run_id)
 
-    def _result_paths(self) -> list[Path]:
+    def _report_index_paths(self) -> list[Path]:
         if not self.reports_dir.exists():
             return []
+        paths = list(self.reports_dir.glob("*/results.json"))
+        paths.extend(
+            manifest
+            for manifest in self.reports_dir.glob("*/failure-ingest-manifest.json")
+            if not (manifest.parent / "results.json").exists()
+        )
         return sorted(
-            self.reports_dir.glob("*/results.json"),
+            paths,
             key=lambda path: (path.stat().st_mtime, path.parent.name),
             reverse=True,
         )
 
-    def _summary_from_path(self, results_path: Path) -> ReportSummary:
-        payload = json.loads(results_path.read_text(encoding="utf-8"))
-        files = self._files_for(results_path.parent)
+    def _summary_from_path(self, index_path: Path) -> ReportSummary:
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+        if index_path.name == "failure-ingest-manifest.json":
+            return self._summary_from_failure_ingest(index_path, payload)
+        files = self._files_for(index_path.parent)
         return ReportSummary(
-            run_id=str(payload.get("run_id", results_path.parent.name)),
+            run_id=str(payload.get("run_id", index_path.parent.name)),
             adapter=str(payload.get("adapter", "unknown")),
             guard_mode=str(payload.get("guard_mode", "unknown")),
             status=str(payload.get("status", "unknown")),
             started_at=payload.get("started_at"),
             finished_at=payload.get("finished_at"),
-            report_dir=str(results_path.parent),
+            report_dir=str(index_path.parent),
             files=files,
             summary=dict(payload.get("summary") or {}),
         )
 
+    def _summary_from_failure_ingest(self, manifest_path: Path, payload: dict) -> ReportSummary:
+        files = self._files_for(manifest_path.parent)
+        created_at = payload.get("created_at")
+        return ReportSummary(
+            run_id=str(payload.get("run_id", manifest_path.parent.name)),
+            adapter="failure_ingest",
+            guard_mode=str(payload.get("guard_mode", "unknown")),
+            status="completed",
+            started_at=created_at,
+            finished_at=created_at,
+            report_dir=str(manifest_path.parent),
+            files=files,
+            summary={
+                "total_ingested": int(payload.get("total_ingested") or 0),
+                "source": payload.get("source"),
+                "model": payload.get("model"),
+                "original_run_id": payload.get("original_run_id"),
+            },
+        )
+
     @staticmethod
     def _files_for(run_dir: Path) -> dict[str, str]:
-        files = {"json": str(run_dir / "results.json")}
+        files = {}
         for key, paths in ReportStore._file_candidates(run_dir).items():
             for path in paths:
                 if path.exists():
@@ -119,7 +147,9 @@ class ReportStore:
             "experiment_markdown": [run_dir / "experiment-report.md"],
             "defense_feedback": [run_dir / "defense-feedback.json"],
             "defense_feedback_markdown": [run_dir / "defense-feedback.md"],
-            "next_payloads": [run_dir / "next-round-payloads.json"],
+            "next_payloads": [run_dir / "next-round-payloads.json", run_dir / "failure-ingest-payloads.json"],
+            "failure_manifest": [run_dir / "failure-ingest-manifest.json"],
             "candidate_guard_pack": [run_dir / "candidate-guard-pack.json"],
             "asr_comparison": [run_dir / "asr-comparison.json"],
+            "graph_run": [run_dir / "graph-run.json"],
         }

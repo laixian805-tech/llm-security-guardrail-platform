@@ -87,6 +87,14 @@ def test_switch_autodl_model_updates_runtime_health(monkeypatch, tmp_path) -> No
     from app.api import main
 
     commands = []
+    available_models = {"qwen3:8b"}
+
+    def fake_run_model_manager(action: str, model: str) -> str:
+        commands.append((action, model))
+        if action == "start":
+            available_models.clear()
+            available_models.add(model)
+        return f"{action}:{model}"
 
     monkeypatch.setattr(
         main,
@@ -99,7 +107,8 @@ def test_switch_autodl_model_updates_runtime_health(monkeypatch, tmp_path) -> No
             reports_dir=str(tmp_path / "reports"),
         ),
     )
-    monkeypatch.setattr(main, "run_model_manager", lambda action, model: commands.append((action, model)) or f"{action}:{model}")
+    monkeypatch.setattr(main, "available_model_names", lambda settings: available_models)
+    monkeypatch.setattr(main, "run_model_manager", fake_run_model_manager)
     monkeypatch.setattr(main, "wait_for_model_available", lambda settings, model, timeout_seconds=180: True)
     client = TestClient(main.create_app())
 
@@ -112,6 +121,36 @@ def test_switch_autodl_model_updates_runtime_health(monkeypatch, tmp_path) -> No
     assert payload["status"] == "ready"
     assert commands == [("stop", "qwen3:8b"), ("start", "mistral-7b")]
     assert client.get("/health").json()["model_name"] == "mistral-7b"
+
+
+def test_health_reconciles_with_online_autodl_model(monkeypatch, tmp_path) -> None:
+    from app.api import main
+
+    available_models = {"mistral-7b"}
+
+    monkeypatch.setattr(
+        main,
+        "get_settings",
+        lambda: main.Settings(
+            model_provider="autodl",
+            openai_model="qwen3:8b",
+            openai_base_url="http://127.0.0.1:18000/v1",
+            chroma_persist_directory=str(tmp_path / "chroma"),
+            reports_dir=str(tmp_path / "reports"),
+        ),
+    )
+    monkeypatch.setattr(main, "run_model_manager", lambda action, model: f"{action}:{model}")
+    monkeypatch.setattr(main, "wait_for_model_available", lambda settings, model, timeout_seconds=180: True)
+    monkeypatch.setattr(main, "available_model_names", lambda settings: available_models)
+    client = TestClient(main.create_app())
+
+    switched = client.post("/models/switch", json={"model": "mistral-7b"})
+    available_models = {"qwen3:8b"}
+    health = client.get("/health")
+
+    assert switched.status_code == 200
+    assert health.status_code == 200
+    assert health.json()["model_name"] == "qwen3:8b"
 
 
 def test_switch_autodl_model_rejects_unknown_model(monkeypatch, tmp_path) -> None:

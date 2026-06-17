@@ -106,7 +106,7 @@ export function summarizeEvalRun(payload) {
 export function buildDashboardSnapshot({ health, evalRun } = {}) {
   const activeRun = normalizeEvalRun(evalRun) ?? demoEvalRun;
   const summary = summarizeEvalRun(activeRun);
-  const modelName = health?.ollama_model ?? activeRun?.model ?? "qwen3:8b";
+  const modelName = currentModelName({ health, evalRun: activeRun });
   const reportDir = evalRun?.report_dir ?? "";
 
   return {
@@ -151,6 +151,18 @@ export function buildDashboardSnapshot({ health, evalRun } = {}) {
   };
 }
 
+export function currentModelName({ autodlModelStatus, health, evalRun } = {}) {
+  const activeRun = normalizeEvalRun(evalRun);
+  return (
+    autodlModelStatus?.active_model ??
+    health?.model_name ??
+    health?.openai_model ??
+    health?.ollama_model ??
+    activeRun?.model ??
+    "unknown"
+  );
+}
+
 export function buildRunRowsFromReports(reportList) {
   const reports = Array.isArray(reportList?.reports) ? reportList.reports : [];
   return reports.map((report) => ({
@@ -168,6 +180,26 @@ export function buildRunRowsFromReports(reportList) {
     files: report.files ?? {},
     reportDir: report.report_dir ?? "",
   }));
+}
+
+export function buildLatestGarakComparisonReport(reportList) {
+  const reports = Array.isArray(reportList?.reports) ? reportList.reports : [];
+  const report = reports.find((item) => item.adapter === "garak_model_comparison");
+  if (!report) {
+    return null;
+  }
+  const summary = report.summary ?? {};
+  return {
+    runId: report.run_id,
+    status: report.status,
+    probe: summary.probe ?? "promptinject.HijackHateHumans",
+    qwenBaseline: formatPercent(asNumber(summary.qwen_baseline_asr)),
+    mistralBaseline: formatPercent(asNumber(summary.mistral_baseline_asr)),
+    guarded: formatPercent(asNumber(summary.both_guarded_asr)),
+    note: summary.comparison_note ?? "Garak baseline/off exposes model-level robustness.",
+    htmlHref: buildReportFileHref(report.run_id, report.files, "html"),
+    dataHref: buildReportFileHref(report.run_id, report.files, "data"),
+  };
 }
 
 export function buildComparisonSnapshot(payload) {
@@ -270,6 +302,9 @@ export function preferredFileKey(files, kind = "html") {
   }
   if (kind === "asr" && files?.asr_comparison) {
     return "asr_comparison";
+  }
+  if (kind === "graph" && files?.graph_run) {
+    return "graph_run";
   }
   return preferredHtmlKey(files);
 }

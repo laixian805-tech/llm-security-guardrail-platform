@@ -66,6 +66,20 @@ def test_report_store_lists_disk_reports_newest_first(tmp_path) -> None:
     assert reports[0].files["html"].endswith("report.html")
 
 
+def test_report_store_detects_graph_run_artifact(tmp_path) -> None:
+    write_result(tmp_path, "graph-run-report", pass_rate=0.0)
+    run_dir = tmp_path / "graph-run-report"
+    (run_dir / "graph-run.json").write_text(
+        '{"graph_id":"security-cycle-graph","nodes":[]}',
+        encoding="utf-8",
+    )
+
+    reports = ReportStore(tmp_path).list_reports()
+
+    graph_report = next(report for report in reports if report.run_id == "graph-run-report")
+    assert graph_report.files["graph_run"].endswith("graph-run.json")
+
+
 def test_report_store_loads_eval_artifacts_from_disk(tmp_path) -> None:
     write_result(tmp_path, "garak-001", pass_rate=0.0)
 
@@ -76,3 +90,37 @@ def test_report_store_loads_eval_artifacts_from_disk(tmp_path) -> None:
     assert artifacts.run.summary is not None
     assert artifacts.run.summary.blocked == 1
     assert artifacts.files["json"].endswith("results.json")
+
+
+
+def test_report_store_lists_failure_ingest_payload_reports(tmp_path) -> None:
+    run_dir = tmp_path / "failure-ingest-abc123"
+    run_dir.mkdir(parents=True)
+    (run_dir / "failure-ingest-manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "failure-ingest-abc123",
+                "created_at": "2026-06-17T19:30:00Z",
+                "source": "garak",
+                "model": "qwen3:8b",
+                "guard_mode": "enforce",
+                "original_run_id": "garak-qwen-enforce",
+                "total_ingested": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "failure-ingest-payloads.json").write_text(
+        '[{"probe":"promptinject.HijackHateHumans","payload":"Ignore previous instructions."}]',
+        encoding="utf-8",
+    )
+
+    reports = ReportStore(tmp_path).list_reports()
+
+    assert reports[0].run_id == "failure-ingest-abc123"
+    assert reports[0].adapter == "failure_ingest"
+    assert reports[0].guard_mode == "enforce"
+    assert reports[0].summary["total_ingested"] == 1
+    assert "json" not in reports[0].files
+    assert reports[0].files["next_payloads"].endswith("failure-ingest-payloads.json")
+    assert reports[0].files["failure_manifest"].endswith("failure-ingest-manifest.json")

@@ -12,10 +12,19 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app.agent.tool_agent import AgentRunRequest, AgentRunResponse, run_tool_agent
+from app.agent.graph import AgentGraphRunner, GraphExecutionError, GraphNodeSpec
+from app.agent.tool_agent import (
+    AgentRunRequest,
+    AgentRunResponse,
+    ToolAttackDemoRequest,
+    ToolAttackDemoResponse,
+    run_tool_agent,
+    run_tool_attack_demo,
+)
 from app.config.settings import Settings
 from app.config.settings import get_settings
 from app.evals.defense_feedback import DefenseFeedbackRequest, DefenseFeedbackResponse, write_defense_feedback
+from app.evals.failure_ingest import FailureIngestRequest, FailureIngestResponse, ingest_failures
 from app.evals.garak import GarakEvalRunner
 from app.evals.experiment_report import ExperimentReport, write_experiment_report
 from app.evals.formal import (
@@ -31,6 +40,14 @@ from app.evals.paired import PairedEvalResponse, paired_response
 from app.evals.promptfoo import PromptfooEvalRunner
 from app.evals.runner import EvalArtifacts, LocalEvalRunner
 from app.evals.report_store import ReportListResponse, ReportStore
+from app.guardrails.guard_packs import (
+    active_guard_pack_path,
+    delete_active_guard_pack,
+    normalize_guard_pack,
+    read_active_guard_pack,
+    runtime_rules_from_pack,
+    write_active_guard_pack,
+)
 from app.guardrails.pipeline import GuardMode, GuardrailPipeline
 from app.models.provider import ModelProvider, OllamaModelProvider, OpenAICompatibleModelProvider, StubModelProvider
 from app.rag.poisoning_demo import RAGPoisoningDemoRequest, RAGPoisoningDemoResult, run_rag_poisoning_demo
@@ -146,7 +163,7 @@ class SecurityCycleRequest(FormalExperimentRequest):
 
 class ModelMatrixRequest(BaseModel):
     adapter: Literal["local", "garak", "promptfoo"] = "local"
-    models: list[str] = Field(default_factory=lambda: ["qwen3:8b", "llama-3.1-8b", "mistral-7b", "deepseek-r1-distill-qwen-7b"])
+    models: list[str] = Field(default_factory=lambda: ["qwen3:8b", "mistral-7b"])
     probes: list[str] = Field(default_factory=lambda: list(FORMAL_PROBES))
     garak_probe_spec: str | None = None
     garak_detector_spec: str | None = None
@@ -186,12 +203,34 @@ class SecurityCycleResponse(BaseModel):
     guard_profile: str = "combined"
     asr_comparison: dict[str, dict[str, float | int]] = Field(default_factory=dict)
     candidate_guard_pack: dict = Field(default_factory=dict)
+    graph_run: dict[str, Any] = Field(default_factory=dict)
     files: dict[str, str] = Field(default_factory=dict)
 
 
 class DirectDefenseFeedbackRequest(BaseModel):
     run_id: str | None = None
     failed_samples: list[dict] = Field(default_factory=list)
+
+
+class RegressionPreviewRequest(BaseModel):
+    payloads: list[dict] = Field(default_factory=list)
+    guard_mode: GuardMode = GuardMode.ENFORCE
+
+
+class RegressionPreviewResponse(BaseModel):
+    total_payloads: int
+    blocked: int
+    model_invoked: bool = False
+    results: list[dict]
+
+
+class GuardPackOperationResponse(BaseModel):
+    active: bool
+    valid: bool
+    errors: list[str] = Field(default_factory=list)
+    path: str
+    rule_count: int = 0
+    guard_pack: dict[str, Any] | None = None
 
 
 class AutoDLModelStatusResponse(BaseModel):
@@ -333,12 +372,13 @@ def guarded_chat(
     provider: ModelProvider,
     max_tokens: int | None = None,
     temperature: float | None = None,
+    dynamic_rules: list[dict[str, Any]] | None = None,
 ) -> ChatResponse:
     user_message = next(
         (message["content"] for message in reversed(messages) if message["role"] == "user"),
         "",
     )
-    pipeline = GuardrailPipeline(mode=guard_mode)
+    pipeline = GuardrailPipeline(mode=guard_mode, dynamic_rules=dynamic_rules or [])
     input_result = pipeline.check_input(user_message)
     guard_results = [input_result.model_dump(mode="json")]
 
@@ -392,6 +432,10 @@ def create_app() -> FastAPI:
     )
     eval_artifacts: dict[str, EvalArtifacts] = {}
     runtime_state = {"active_model": settings.openai_model or settings.ollama_model}
+    guard_pack_path = active_guard_pack_path(settings.assets_root)
+
+    def active_dynamic_rules() -> list[dict[str, Any]]:
+        return runtime_rules_from_pack(read_active_guard_pack(guard_pack_path))
 
     def active_model_name(available_models: set[str] | None = None) -> str:
         if available_models:
@@ -440,6 +484,7 @@ def create_app() -> FastAPI:
         runner = LocalEvalRunner(
             provider=build_model_provider(settings, model_override=model or active_model_name()),
             reports_dir=Path(settings.reports_dir),
+            dynamic_rules=active_dynamic_rules(),
         )
         local_kwargs = {"probes": probes, "guard_mode": guard_mode}
         if regression_payloads:
@@ -519,14 +564,164 @@ def create_app() -> FastAPI:
                 return payloads, report.run_id
         return [], None
 
+    def run_security_cycle_graph(request: SecurityCycleRequest) -> SecurityCycleResponse:
+        runner = AgentGraphRunner(graph_name="security_cycle")
+        state: dict[str, Any] = {
+            "request": request,
+            "settings": settings,
+            "eval_artifacts": eval_artifacts,
+        }
+
+        def load_regression_payloads_node(node_state: dict[str, Any]) -> dict[str, Any]:
+            payloads, source = load_regression_payloads(node_state["request"])
+            node_state["regression_payloads"] = payloads
+            node_state["regression_payload_source"] = source
+            return node_state
+
+        def formal_baseline_node(node_state: dict[str, Any]) -> dict[str, Any]:
+            cycle_request: SecurityCycleRequest = node_state["request"]
+            eval_kwargs = {
+                "adapter": cycle_request.adapter,
+                "probes": cycle_request.probes,
+                "guard_mode": GuardMode.OFF,
+                "model": cycle_request.model,
+                "garak_probe_spec": cycle_request.garak_probe_spec,
+                "garak_detector_spec": cycle_request.garak_detector_spec,
+            }
+            if node_state.get("regression_payloads"):
+                eval_kwargs["regression_payloads"] = node_state["regression_payloads"]
+            node_state["baseline"] = run_eval_artifacts(**eval_kwargs)
+            eval_artifacts[node_state["baseline"].run.run_id] = node_state["baseline"]
+            return node_state
+
+        def formal_guarded_node(node_state: dict[str, Any]) -> dict[str, Any]:
+            cycle_request: SecurityCycleRequest = node_state["request"]
+            eval_kwargs = {
+                "adapter": cycle_request.adapter,
+                "probes": cycle_request.probes,
+                "guard_mode": GuardMode.ENFORCE,
+                "model": cycle_request.model,
+                "garak_probe_spec": cycle_request.garak_probe_spec,
+                "garak_detector_spec": cycle_request.garak_detector_spec,
+            }
+            if node_state.get("regression_payloads"):
+                eval_kwargs["regression_payloads"] = node_state["regression_payloads"]
+            node_state["guarded"] = run_eval_artifacts(**eval_kwargs)
+            eval_artifacts[node_state["guarded"].run.run_id] = node_state["guarded"]
+            return node_state
+
+        def defense_feedback_node(node_state: dict[str, Any]) -> dict[str, Any]:
+            node_state["defense_feedback"] = write_defense_feedback(node_state["guarded"])
+            return node_state
+
+        def write_report_node(node_state: dict[str, Any]) -> dict[str, Any]:
+            cycle_request: SecurityCycleRequest = node_state["request"]
+            node_state["report"] = write_experiment_report(
+                baseline=node_state["baseline"],
+                guarded=node_state["guarded"],
+                model_name=cycle_request.model or active_model_name(),
+                provider=settings.model_provider,
+                inference_base_url=runtime_inference_base_url(),
+                defense_feedback=node_state.get("defense_feedback"),
+                graph_run=node_state.get("graph_run"),
+            )
+            return node_state
+
+        def surface_asr_node(node_state: dict[str, Any]) -> dict[str, Any]:
+            cycle_request: SecurityCycleRequest = node_state["request"]
+            paired = paired_response(baseline=node_state["baseline"], guarded=node_state["guarded"])
+            node_state["paired"] = paired
+            node_state["asr_comparison"] = build_surface_asr_comparison(
+                baseline=paired.baseline["run"],
+                guarded=paired.guarded["run"],
+                target_surface=cycle_request.target_surface,
+            )
+            return node_state
+
+        def candidate_guard_pack_node(node_state: dict[str, Any]) -> dict[str, Any]:
+            cycle_request: SecurityCycleRequest = node_state["request"]
+            node_state["candidate_guard_pack"] = build_candidate_guard_pack(
+                feedback=node_state["defense_feedback"],
+                guard_profile=cycle_request.guard_profile,
+                target_surface=cycle_request.target_surface,
+                source_guard_pack=cycle_request.guard_pack,
+            )
+            return node_state
+
+        def write_cycle_artifacts_node(node_state: dict[str, Any]) -> dict[str, Any]:
+            node_state["files"] = write_security_cycle_artifacts(
+                guarded_report_dir=Path(node_state["guarded"].report_dir),
+                candidate_guard_pack=node_state["candidate_guard_pack"],
+                asr_comparison=node_state["asr_comparison"],
+            )
+            return node_state
+
+        def response_packaging_node(node_state: dict[str, Any]) -> dict[str, Any]:
+            node_state["formal_response"] = build_formal_experiment_response(
+                baseline=node_state["baseline"],
+                guarded=node_state["guarded"],
+                report=node_state["report"],
+                defense_feedback=node_state["defense_feedback"],
+            )
+            return node_state
+
+        state = runner.run(
+            state,
+            [
+                GraphNodeSpec("load_regression_payloads", load_regression_payloads_node),
+                GraphNodeSpec("formal_baseline", formal_baseline_node),
+                GraphNodeSpec("formal_guarded", formal_guarded_node),
+                GraphNodeSpec("defense_feedback", defense_feedback_node),
+                GraphNodeSpec("write_report", write_report_node),
+                GraphNodeSpec("surface_asr", surface_asr_node),
+                GraphNodeSpec("candidate_guard_pack", candidate_guard_pack_node),
+                GraphNodeSpec("write_cycle_artifacts", write_cycle_artifacts_node),
+                GraphNodeSpec("response_packaging", response_packaging_node),
+            ],
+        )
+        graph_run = state.get("graph_run") or {}
+        graph_file = write_graph_run_artifact(
+            guarded_report_dir=Path(state["guarded"].report_dir),
+            graph_run=graph_run,
+        )
+        files = {**(state.get("files") or {}), "graph_run": graph_file}
+        report = write_experiment_report(
+            baseline=state["baseline"],
+            guarded=state["guarded"],
+            model_name=request.model or active_model_name(),
+            provider=settings.model_provider,
+            inference_base_url=runtime_inference_base_url(),
+            defense_feedback=state["defense_feedback"],
+            graph_run=graph_run,
+        )
+        formal_response = build_formal_experiment_response(
+            baseline=state["baseline"],
+            guarded=state["guarded"],
+            report=report,
+            defense_feedback=state["defense_feedback"],
+        )
+        return SecurityCycleResponse(
+            **formal_response.model_dump(),
+            next_round_payloads=state["defense_feedback"].next_round_payloads,
+            regression_payloads_used=state.get("regression_payloads") or [],
+            regression_payload_source=state.get("regression_payload_source"),
+            target_surface=request.target_surface,
+            guard_profile=request.guard_profile,
+            asr_comparison=state["asr_comparison"],
+            candidate_guard_pack=state["candidate_guard_pack"],
+            graph_run=graph_run,
+            files=files,
+        )
+
     @app.get("/health")
     def health() -> dict[str, object]:
+        available = available_model_names(settings)
         return {
             "status": "ok",
             "service": settings.service_name,
             "assets_root": settings.assets_root,
             "service_base_url": settings.service_base_url,
-            **runtime_model_status(settings, model_override=active_model_name()),
+            **runtime_model_status(settings, model_override=active_model_name(available)),
         }
 
     @app.post("/chat", response_model=ChatResponse)
@@ -536,6 +731,7 @@ def create_app() -> FastAPI:
             guard_mode=request.guard_mode,
             session_id=request.session_id,
             provider=build_model_provider(settings, model_override=active_model_name()),
+            dynamic_rules=active_dynamic_rules(),
         )
 
     @app.post("/v1/chat/completions")
@@ -547,6 +743,7 @@ def create_app() -> FastAPI:
             provider=build_model_provider(settings, model_override=request.model),
             max_tokens=request.max_tokens,
             temperature=request.temperature,
+            dynamic_rules=active_dynamic_rules(),
         )
         return {
             "id": "chatcmpl-local",
@@ -634,7 +831,19 @@ def create_app() -> FastAPI:
 
     @app.post("/agent/run", response_model=AgentRunResponse)
     def run_agent(request: AgentRunRequest) -> AgentRunResponse:
-        return run_tool_agent(request=request, rag_service=rag_service)
+        return run_tool_agent(
+            request=request,
+            rag_service=rag_service,
+            dynamic_rules=active_dynamic_rules(),
+        )
+
+    @app.post("/agent/tool-attack-demo", response_model=ToolAttackDemoResponse)
+    def tool_attack_demo(request: ToolAttackDemoRequest) -> ToolAttackDemoResponse:
+        return run_tool_attack_demo(
+            request=request,
+            rag_service=rag_service,
+            dynamic_rules=active_dynamic_rules(),
+        )
 
     @app.post("/rag/ingest", response_model=RAGIngestResponse)
     def rag_ingest(request: RAGIngestRequest) -> RAGIngestResponse:
@@ -666,6 +875,7 @@ def create_app() -> FastAPI:
         return run_rag_poisoning_demo(
             rag_service=rag_service,
             request=request,
+            dynamic_rules=active_dynamic_rules(),
         )
 
     @app.post("/eval/run", response_model=EvalRunResponse)
@@ -719,50 +929,31 @@ def create_app() -> FastAPI:
 
     @app.post("/experiments/security-cycle", response_model=SecurityCycleResponse)
     def run_security_cycle(request: SecurityCycleRequest) -> SecurityCycleResponse:
-        regression_payloads, regression_source = load_regression_payloads(request)
-        formal_response = run_formal_experiment_artifacts(
-            FormalExperimentRequest(
-                adapter=request.adapter,
-                probes=request.probes,
-                model=request.model,
-                garak_probe_spec=request.garak_probe_spec,
-                garak_detector_spec=request.garak_detector_spec,
-            ),
-            regression_payloads=regression_payloads,
-        )
-        asr_comparison = build_surface_asr_comparison(
-            baseline=formal_response.paired.baseline["run"],
-            guarded=formal_response.paired.guarded["run"],
-            target_surface=request.target_surface,
-        )
-        candidate_guard_pack = build_candidate_guard_pack(
-            feedback=formal_response.defense_feedback,
-            guard_profile=request.guard_profile,
-            target_surface=request.target_surface,
-            source_guard_pack=request.guard_pack,
-        )
-        cycle_files = write_security_cycle_artifacts(
-            guarded_report_dir=Path(formal_response.paired.guarded["report_dir"]),
-            candidate_guard_pack=candidate_guard_pack,
-            asr_comparison=asr_comparison,
-        )
-        return SecurityCycleResponse(
-            **formal_response.model_dump(),
-            next_round_payloads=formal_response.defense_feedback.next_round_payloads,
-            regression_payloads_used=regression_payloads,
-            regression_payload_source=regression_source,
-            target_surface=request.target_surface,
-            guard_profile=request.guard_profile,
-            asr_comparison=asr_comparison,
-            candidate_guard_pack=candidate_guard_pack,
-            files=cycle_files,
-        )
+        try:
+            return run_security_cycle_graph(request)
+        except GraphExecutionError as caught:
+            if isinstance(caught.original, RuntimeError):
+                raise HTTPException(status_code=400, detail=str(caught.original)) from caught
+            raise HTTPException(
+                status_code=502,
+                detail=f"Security cycle graph failed: {type(caught.original).__name__}: {caught.original}",
+            ) from caught
+        except RuntimeError as caught:
+            raise HTTPException(status_code=400, detail=str(caught)) from caught
+        except Exception as caught:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Security cycle graph failed: {type(caught).__name__}: {caught}",
+            ) from caught
 
     @app.post("/experiments/model-matrix", response_model=ModelMatrixResponse)
     def run_model_matrix(request: ModelMatrixRequest) -> ModelMatrixResponse:
         rows = []
         available_models = available_model_names(settings)
         for model in request.models:
+            if model not in SUPPORTED_AUTODL_MODELS:
+                rows.append(unavailable_model_matrix_row(model=model))
+                continue
             if available_models is not None and model not in available_models:
                 rows.append(unavailable_model_matrix_row(model=model))
                 continue
@@ -778,6 +969,38 @@ def create_app() -> FastAPI:
             rows.append(build_model_matrix_row(model=model, response=formal_response))
         return ModelMatrixResponse(matrix=rows)
 
+    @app.post("/experiments/failure-ingest", response_model=FailureIngestResponse)
+    def failure_ingest(request: FailureIngestRequest) -> FailureIngestResponse:
+        return ingest_failures(request=request, reports_dir=settings.reports_dir)
+
+
+    @app.post("/experiments/regression-preview", response_model=RegressionPreviewResponse)
+    def regression_preview(request: RegressionPreviewRequest) -> RegressionPreviewResponse:
+        pipeline = GuardrailPipeline(mode=request.guard_mode, dynamic_rules=active_dynamic_rules())
+        results = []
+        for index, payload in enumerate(request.payloads):
+            text = str(payload.get("payload") or payload.get("prompt") or "")
+            guard = pipeline.check_input(text)
+            blocked = guard.action.value == "block"
+            results.append(
+                {
+                    "index": index,
+                    "probe": payload.get("probe") or payload.get("failure_type") or f"payload_{index + 1}",
+                    "failure_type": payload.get("failure_type"),
+                    "payload": text,
+                    "expected_guard": payload.get("expected_guard", "block"),
+                    "blocked": blocked,
+                    "guard_triggered": guard.rule_name if blocked else None,
+                    "guard_result": guard.model_dump(mode="json"),
+                }
+            )
+        return RegressionPreviewResponse(
+            total_payloads=len(results),
+            blocked=sum(1 for result in results if result["blocked"]),
+            model_invoked=False,
+            results=results,
+        )
+
     @app.post("/experiments/defense-feedback", response_model=DefenseFeedbackResponse)
     def create_defense_feedback(request: DirectDefenseFeedbackRequest) -> DefenseFeedbackResponse:
         if request.run_id:
@@ -791,6 +1014,65 @@ def create_app() -> FastAPI:
                 run_id=request.run_id,
                 failed_samples=request.failed_samples,
             )
+        )
+
+    @app.post("/guard-packs/preview", response_model=GuardPackOperationResponse)
+    def preview_guard_pack(payload: dict[str, Any]) -> GuardPackOperationResponse:
+        validation = normalize_guard_pack(payload)
+        return GuardPackOperationResponse(
+            active=False,
+            valid=validation.valid,
+            errors=validation.errors,
+            path=str(guard_pack_path),
+            rule_count=len(validation.guard_pack.rules),
+            guard_pack=validation.guard_pack.model_dump(mode="json"),
+        )
+
+    @app.post("/guard-packs/activate", response_model=GuardPackOperationResponse)
+    def activate_guard_pack(payload: dict[str, Any]) -> GuardPackOperationResponse:
+        validation = normalize_guard_pack(payload)
+        if not validation.valid:
+            raise HTTPException(status_code=400, detail={"errors": validation.errors})
+        guard_pack = validation.guard_pack.model_copy(update={"active": True})
+        write_active_guard_pack(guard_pack_path, guard_pack)
+        return GuardPackOperationResponse(
+            active=True,
+            valid=True,
+            errors=[],
+            path=str(guard_pack_path),
+            rule_count=len(guard_pack.rules),
+            guard_pack=guard_pack.model_dump(mode="json"),
+        )
+
+    @app.get("/guard-packs/active", response_model=GuardPackOperationResponse)
+    def get_active_guard_pack() -> GuardPackOperationResponse:
+        guard_pack = read_active_guard_pack(guard_pack_path)
+        if guard_pack is None:
+            return GuardPackOperationResponse(
+                active=False,
+                valid=True,
+                path=str(guard_pack_path),
+                rule_count=0,
+                guard_pack=None,
+            )
+        return GuardPackOperationResponse(
+            active=guard_pack.active,
+            valid=True,
+            path=str(guard_pack_path),
+            rule_count=len(guard_pack.rules),
+            guard_pack=guard_pack.model_dump(mode="json"),
+        )
+
+    @app.post("/guard-packs/deactivate", response_model=GuardPackOperationResponse)
+    def deactivate_guard_pack() -> GuardPackOperationResponse:
+        deleted = delete_active_guard_pack(guard_pack_path)
+        return GuardPackOperationResponse(
+            active=False,
+            valid=True,
+            path=str(guard_pack_path),
+            rule_count=0,
+            guard_pack=None,
+            errors=[] if deleted else ["No active guard pack was present."],
         )
 
     @app.get("/reports", response_model=ReportListResponse)
@@ -840,7 +1122,7 @@ def create_app() -> FastAPI:
         report = write_experiment_report(
             baseline=baseline,
             guarded=guarded,
-            model_name=settings.openai_model or settings.ollama_model,
+            model_name=active_model_name(available_model_names(settings)),
             provider=settings.model_provider,
             inference_base_url=settings.openai_base_url if settings.model_provider.strip().lower() in {"openai", "openai_compatible", "autodl"} else settings.ollama_base_url,
             defense_feedback=write_defense_feedback(guarded),
@@ -957,6 +1239,20 @@ def write_security_cycle_artifacts(
         "candidate_guard_pack": str(guard_pack_path),
         "asr_comparison": str(asr_path),
     }
+
+
+def write_graph_run_artifact(
+    *,
+    guarded_report_dir: Path,
+    graph_run: dict[str, Any],
+) -> str:
+    guarded_report_dir.mkdir(parents=True, exist_ok=True)
+    graph_path = guarded_report_dir / "graph-run.json"
+    graph_path.write_text(
+        json.dumps(graph_run, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return str(graph_path)
 
 
 def _surface_results(results: list[dict[str, Any]], surface: str) -> list[dict[str, Any]]:

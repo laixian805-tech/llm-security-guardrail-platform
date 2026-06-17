@@ -52,6 +52,8 @@ flowchart LR
 | 后端服务 | 提供评测、RAG、报告 API | `GET /health` 返回 `status: ok` |
 | AutoDL 模型 | 当前推理后端 | `/health` 中 `model_provider` 为 `autodl` |
 
+普通 API、LangGraph 编排、RAG demo、防御包预览和单元测试不需要 AutoDL 在线；只有真实 `qwen3:8b`/`mistral-7b` 推理、正式 `formal-run`/`security-cycle`、Garak 或 Promptfoo 评测才需要 AutoDL。
+
 ### 第一次检查服务
 
 PowerShell:
@@ -212,6 +214,12 @@ http://43.139.77.64:8000/report-files/eval-yyyy/experiment_html
 3. 找到刚刚的 guarded run
 4. 点击“打开 HTML”
 
+如果你运行的是 `/experiments/security-cycle`，同一个 guarded run 还会生成 Graph Run artifact，用来查看 LangGraph 节点顺序、节点耗时、阻断点和输入输出摘要：
+
+```text
+http://43.139.77.64:8000/report-files/<guarded_run_id>/graph_run
+```
+
 ### Step 5: 做一个真实 RAG 投毒演示
 
 推荐直接使用内置 demo 接口，它会自动写入安全文档和投毒文档，执行检索、护栏检查和工具授权检查：
@@ -242,6 +250,8 @@ $ragDemo | ConvertTo-Json -Depth 10
 | `tool_verdict` | 普通用户调用 `export_data` 的工具授权结果 |
 | `attack_chain_blocked` | 攻击链是否被护栏或工具网关切断 |
 | `recommended_defenses` | 下一轮 RAG 防御建议 |
+
+`scenario` 还可以改成 `web_poisoning`、`multi_hop`、`long_tail_hijack` 或 `tool_induction`，用于观察网页投毒、多跳检索、长文尾部劫持和工具诱导场景。低信任投毒 chunk 的 `entered_model_context` 应该是 `false`。
 
 你也可以传入自定义投毒文本：
 
@@ -393,8 +403,9 @@ inline; filename="report.html"
 1. 把 RAG 检索结果接入 Agent 对话上下文
 2. 在报告里加入失败样本 Top N 和规则命中分布
 3. 增加“根据失败样本生成防御建议”的接口
-4. 跑 Qwen3:8B、Llama 8B、Mistral 7B 的模型对比
-5. 将一轮正式实验结果整理进项目展示说明
+4. 跑 Qwen3:8B、Mistral 7B 的模型对比；第三模型等 AutoDL 磁盘空间允许后再扩
+5. 打开 `graph_run` artifact，解释 LangGraph 节点耗时、阻断点和报告链路
+6. 将一轮正式实验结果整理进项目展示说明
 
 <details>
 <summary><strong>📋 快速命令卡</strong></summary>
@@ -405,10 +416,14 @@ inline; filename="report.html"
 | 健康检查 | `GET /health` |
 | 一键对比实验 | `POST /eval/paired-run` |
 | 一键正式实验 | `POST /experiments/formal-run` |
+| 安全闭环实验 | `POST /experiments/security-cycle` |
 | 模型矩阵实验 | `POST /experiments/model-matrix` |
 | 生成实验报告 | `POST /reports/experiment` |
 | 打开报告文件 | `GET /report-files/<run_id>/<file_key>` |
+| 打开图运行元数据 | `GET /report-files/<run_id>/graph_run` |
 | RAG 投毒 demo | `POST /rag/poisoning-demo` |
+| 防御包预览 | `POST /guard-packs/preview` |
+| 防御包启用 | `POST /guard-packs/activate` |
 | 写入 RAG 文档 | `POST /rag/ingest` |
 | 查询 RAG | `POST /rag/query` |
 | 工具授权检查 | `POST /tools/authorize` |

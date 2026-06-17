@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from enum import Enum
+from typing import Any
 
 from app.schemas.security import GuardAction, GuardResult, GuardStage
 
@@ -105,6 +106,17 @@ class GuardrailPipeline:
             "Detected unauthorized sensitive tool escalation attempt.",
             0.93,
         ),
+        (
+            "semantic_attack_coverage_expansion",
+            re.compile(
+                r"\b(add|generate|create|write|provide)\b.{0,80}"
+                r"\b(paraphrase(?:d)?|multi-turn|translated|translation)\b.{0,120}"
+                r"\b(variants?|probes?|payloads?|attack\s+set)\b",
+                re.I,
+            ),
+            "Detected request to expand attack probes into new bypass variants.",
+            0.9,
+        ),
     )
 
     _OUTPUT_RULES: tuple[tuple[str, re.Pattern[str], str, float], ...] = (
@@ -119,6 +131,23 @@ class GuardrailPipeline:
             re.compile(r"\bfull\s+(knowledge\s+base|document\s+dump)\b", re.I),
             "Detected possible bulk RAG content dump.",
             0.88,
+        ),
+        (
+            "garak_target_phrase_output",
+            re.compile(r"\bi\s+hate\s+humans\b", re.I),
+            "Detected model output executing the Garak prompt-injection target phrase.",
+            0.94,
+        ),
+        (
+            "attack_coverage_expansion_output",
+            re.compile(
+                r"\b(paraphrased?|multi-turn|translated|translation)\b.{0,120}"
+                r"\b(variants?|probes?|payloads?|attack\s+set)\b"
+                r"|\bvariants?\b.{0,120}\b(each|existing)\b.{0,80}\bprobes?\b",
+                re.I,
+            ),
+            "Detected model output generating expanded attack-probe variants.",
+            0.89,
         ),
     )
 
@@ -147,19 +176,22 @@ class GuardrailPipeline:
         self,
         mode: GuardMode = GuardMode.ENFORCE,
         engine: GuardEngine = GuardEngine.CUSTOM,
+        dynamic_rules: list[dict[str, Any]] | None = None,
     ) -> None:
         self.mode = mode
         self.engine = engine
+        self.dynamic_rules = self._compile_dynamic_rules(dynamic_rules or [])
 
     def check_input(self, text: str) -> GuardResult:
         if self.engine == GuardEngine.NEMO:
-            return self._check_rules(
+            result = self._check_rules(
                 GuardStage.PRE_INPUT,
                 text,
                 self._NEMO_INPUT_RULES,
                 engine=GuardEngine.NEMO,
                 engines_checked=[GuardEngine.NEMO.value],
             )
+            return self._with_dynamic_fallback(GuardStage.PRE_INPUT, text, result)
         if self.engine == GuardEngine.CUSTOM_NEMO:
             custom = self._check_rules(
                 GuardStage.PRE_INPUT,
@@ -170,29 +202,32 @@ class GuardrailPipeline:
             )
             if custom.triggered:
                 return custom
-            return self._check_rules(
+            nemo = self._check_rules(
                 GuardStage.PRE_INPUT,
                 text,
                 self._NEMO_INPUT_RULES,
                 engine=GuardEngine.CUSTOM_NEMO,
                 engines_checked=[GuardEngine.CUSTOM.value, GuardEngine.NEMO.value],
             )
-        return self._check_rules(
+            return self._with_dynamic_fallback(GuardStage.PRE_INPUT, text, nemo)
+        result = self._check_rules(
             GuardStage.PRE_INPUT,
             text,
             self._INPUT_RULES,
             engine=GuardEngine.CUSTOM,
             engines_checked=[GuardEngine.CUSTOM.value],
         )
+        return self._with_dynamic_fallback(GuardStage.PRE_INPUT, text, result)
 
     def check_output(self, text: str) -> GuardResult:
-        return self._check_rules(
+        result = self._check_rules(
             GuardStage.POST_OUTPUT,
             text,
             self._OUTPUT_RULES,
             engine=self.engine,
             engines_checked=[self.engine.value],
         )
+        return self._with_dynamic_fallback(GuardStage.POST_OUTPUT, text, result)
 
     def _check_rules(
         self,
@@ -230,6 +265,74 @@ class GuardrailPipeline:
         if self.mode == GuardMode.AUDIT:
             return GuardAction.AUDIT
         return GuardAction.BLOCK
+
+    def _with_dynamic_fallback(
+        self,
+        stage: GuardStage,
+        text: str,
+        static_result: GuardResult,
+    ) -> GuardResult:
+        if static_result.triggered:
+            return static_result
+        return self._check_dynamic_rules(stage, text, static_result)
+
+    def _check_dynamic_rules(
+        self,
+        stage: GuardStage,
+        text: str,
+        fallback: GuardResult,
+    ) -> GuardResult:
+        if self.mode == GuardMode.OFF:
+            return fallback
+        for rule in self.dynamic_rules:
+            if rule["stage"] != stage.value:
+                continue
+            match = rule["pattern"].search(text)
+            if match is None:
+                continue
+            return GuardResult(
+                stage=stage,
+                rule_name=rule["rule_name"],
+                triggered=True,
+                confidence=rule["confidence"],
+                action=self._trigger_action(),
+                reason=rule["reason"],
+                metadata={
+                    "matched_text": match.group(0),
+                    "guard_engine": f"{fallback.metadata.get('guard_engine', self.engine.value)}+dynamic",
+                    "engines_checked": [
+                        *fallback.metadata.get("engines_checked", [self.engine.value]),
+                        "dynamic_guard_pack",
+                    ],
+                    "source_failure_type": rule.get("source_failure_type"),
+                },
+            )
+        return fallback
+
+    @staticmethod
+    def _compile_dynamic_rules(rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        compiled: list[dict[str, Any]] = []
+        for rule in rules:
+            if not rule.get("enabled", True):
+                continue
+            stage = str(rule.get("stage") or "pre_input")
+            if stage not in {GuardStage.PRE_INPUT.value, GuardStage.POST_OUTPUT.value}:
+                continue
+            try:
+                pattern = re.compile(str(rule["pattern"]), re.I)
+            except (KeyError, re.error):
+                continue
+            compiled.append(
+                {
+                    "rule_name": str(rule.get("rule_name") or "dynamic_guard_pack_rule"),
+                    "stage": stage,
+                    "pattern": pattern,
+                    "reason": str(rule.get("reason") or "Dynamic guard pack rule matched."),
+                    "confidence": float(rule.get("confidence", 0.9)),
+                    "source_failure_type": rule.get("source_failure_type"),
+                }
+            )
+        return compiled
 
     @staticmethod
     def _allow(stage: GuardStage, *, engine: GuardEngine, engines_checked: list[str]) -> GuardResult:

@@ -7,8 +7,10 @@ import {
   buildDefenseFeedbackView,
   buildAutoDLModelRows,
   buildModelMatrixRows,
+  buildLatestGarakComparisonReport,
   buildReportFileHref,
   buildRunRowsFromReports,
+  currentModelName,
   formatPercent,
   preferredDataKey,
   preferredHtmlKey,
@@ -101,15 +103,27 @@ test("summarizeEvalRun derives portfolio dashboard metrics from an eval run", ()
 
 test("buildDashboardSnapshot uses live eval data when available", () => {
   const snapshot = buildDashboardSnapshot({
-    health: { status: "ok", ollama_model: "qwen3:8b" },
+    health: { status: "ok", model_name: "mistral-7b", ollama_model: "qwen3:8b" },
     evalRun: { run: sampleRun, report_dir: "/tmp/eval-001", files: { html: "report.html" } },
   });
 
-  assert.equal(snapshot.modelName, "qwen3:8b");
+  assert.equal(snapshot.modelName, "mistral-7b");
   assert.equal(snapshot.kpis[0].value, "25%");
   assert.equal(snapshot.kpis[1].value, "3");
   assert.equal(snapshot.latestRun.runId, "eval-001");
   assert.equal(snapshot.latestRun.reportDir, "/tmp/eval-001");
+});
+
+test("currentModelName prefers runtime AutoDL status over configured defaults", () => {
+  assert.equal(
+    currentModelName({
+      autodlModelStatus: { active_model: "mistral-7b" },
+      health: { model_name: "qwen3:8b", ollama_model: "qwen3:8b" },
+      evalRun: { model: "qwen3:8b" },
+    }),
+    "mistral-7b",
+  );
+  assert.equal(currentModelName({ health: { model_name: "mistral-7b" } }), "mistral-7b");
 });
 
 test("buildRunRowsFromReports maps disk reports into evaluation rows", () => {
@@ -130,6 +144,33 @@ test("buildRunRowsFromReports maps disk reports into evaluation rows", () => {
   assert.equal(rows[0].target, "garak");
   assert.equal(rows[0].after, "65%");
   assert.equal(rows[0].guardMode, "off");
+});
+
+test("buildLatestGarakComparisonReport highlights model-level Garak differences", () => {
+  const comparison = buildLatestGarakComparisonReport({
+    reports: [
+      {
+        run_id: "garak-model-comparison-001",
+        adapter: "garak_model_comparison",
+        status: "completed",
+        files: { html: "/root/reports/garak-model-comparison-001/report.html", json: "/root/reports/garak-model-comparison-001/results.json" },
+        summary: {
+          probe: "promptinject.HijackHateHumans",
+          qwen_baseline_asr: 0.847656,
+          mistral_baseline_asr: 0.488281,
+          both_guarded_asr: 0,
+          comparison_note: "Garak baseline/off exposes model-level robustness.",
+        },
+      },
+    ],
+  });
+
+  assert.equal(comparison.runId, "garak-model-comparison-001");
+  assert.equal(comparison.qwenBaseline, "85%");
+  assert.equal(comparison.mistralBaseline, "49%");
+  assert.equal(comparison.guarded, "0%");
+  assert.equal(comparison.htmlHref, "/report-files/garak-model-comparison-001/html");
+  assert.equal(comparison.dataHref, "/report-files/garak-model-comparison-001/json");
 });
 
 test("buildComparisonSnapshot maps paired baseline and guarded runs", () => {
@@ -261,10 +302,12 @@ test("report file helpers expose guard pack and ASR comparison artifacts", () =>
   const files = {
     candidate_guard_pack: "/root/reports/run-001/candidate-guard-pack.json",
     asr_comparison: "/root/reports/run-001/asr-comparison.json",
+    graph_run: "/root/reports/run-001/graph-run.json",
   };
 
   assert.equal(buildReportFileHref("run-001", files, "guard_pack"), "/report-files/run-001/candidate_guard_pack");
   assert.equal(buildReportFileHref("run-001", files, "asr"), "/report-files/run-001/asr_comparison");
+  assert.equal(buildReportFileHref("run-001", files, "graph"), "/report-files/run-001/graph_run");
 });
 
 test("buildAutoDLModelRows maps model status into switchable rows", () => {
@@ -342,4 +385,15 @@ test("buildAutoDLModelRows marks offline recovery state without hiding supported
       },
     ],
   );
+});
+
+
+test("report file helpers expose failure ingest payload artifacts", () => {
+  const files = {
+    next_payloads: "/root/reports/failure-ingest-001/failure-ingest-payloads.json",
+    failure_manifest: "/root/reports/failure-ingest-001/failure-ingest-manifest.json",
+  };
+
+  assert.equal(buildReportFileHref("failure-ingest-001", files, "data"), "/report-files/failure-ingest-001/next_payloads");
+  assert.equal(preferredDataKey(files), "next_payloads");
 });

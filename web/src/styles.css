@@ -821,6 +821,47 @@ tbody tr:hover {
   gap: 8px;
 }
 
+.comparisonReportCard {
+  align-items: flex-start;
+  border-color: rgba(59, 130, 246, 0.34);
+}
+
+.comparisonReportContent {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.comparisonMetricGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.comparisonMetricGrid div {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.comparisonMetricGrid span,
+.comparisonMetricGrid strong {
+  display: block;
+  margin: 0;
+}
+
+.comparisonMetricGrid span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.comparisonMetricGrid strong {
+  margin-top: 4px;
+  font-size: 18px;
+}
+
 .reportLookup {
   margin-bottom: 14px;
 }

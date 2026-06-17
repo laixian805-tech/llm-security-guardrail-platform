@@ -26,6 +26,7 @@ def build_experiment_report(
     provider: str,
     inference_base_url: str,
     defense_feedback: DefenseFeedbackResponse | None = None,
+    graph_run: dict | None = None,
 ) -> ExperimentReport:
     comparison = compare_artifacts(baseline=baseline, guarded=guarded)
     before = _pct(comparison.before_asr)
@@ -34,6 +35,7 @@ def build_experiment_report(
     failed_rows = _failed_case_rows(comparison.failed_cases)
     covered_rows = _covered_probe_rows(guarded)
     feedback_markdown = _defense_feedback_markdown(defense_feedback)
+    graph_markdown = _graph_run_markdown(graph_run)
     conclusion = (
         "接入护栏前，Agent 会在 RAG 投毒、角色接管、工具返回投毒场景下执行不安全行为；"
         "接入护栏后，系统通过来源分级、语义检测、策略隔离和工具权限校验阻断攻击链路。"
@@ -74,6 +76,10 @@ def build_experiment_report(
 
 {feedback_markdown}
 
+## Graph Run
+
+{graph_markdown}
+
 ## Next Defense Iteration
 
 Review failed cases, convert them into regression payloads, tune the highest-priority guardrail area, and rerun the same baseline/guarded experiment.
@@ -88,6 +94,7 @@ Review failed cases, convert them into regression payloads, tune the highest-pri
         total=comparison.total_attacks,
         conclusion=conclusion,
         defense_feedback=defense_feedback,
+        graph_run=graph_run,
     )
     return ExperimentReport(
         baseline_run_id=baseline.run.run_id,
@@ -105,6 +112,7 @@ def write_experiment_report(
     provider: str,
     inference_base_url: str,
     defense_feedback: DefenseFeedbackResponse | None = None,
+    graph_run: dict | None = None,
 ) -> ExperimentReport:
     report = build_experiment_report(
         baseline=baseline,
@@ -113,6 +121,7 @@ def write_experiment_report(
         provider=provider,
         inference_base_url=inference_base_url,
         defense_feedback=defense_feedback,
+        graph_run=graph_run,
     )
     output_dir = Path(guarded.report_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -186,6 +195,58 @@ def _defense_feedback_markdown(defense_feedback: DefenseFeedbackResponse | None)
     return "\n".join(lines)
 
 
+def _graph_run_markdown(graph_run: dict | None) -> str:
+    if not graph_run:
+        return "Graph run metadata was not generated for this report."
+    lines = [
+        f"- Graph ID: `{graph_run.get('graph_id', 'unknown')}`",
+        f"- Backend: `{graph_run.get('graph_backend', 'unknown')}`",
+        f"- Blocked At: `{graph_run.get('blocked_at') or '-'}`",
+        f"- Total Duration: `{graph_run.get('total_duration_ms', 0)} ms`",
+        "",
+        "| Node | Public Node | Duration | Blocked | Input Summary | Output Summary | Error |",
+        "| --- | --- | ---: | --- | --- | --- | --- |",
+    ]
+    for node in graph_run.get("nodes", []):
+        lines.append(
+            "| {name} | {public_name} | {duration} ms | {blocked} | {input_summary} | {output_summary} | {error} |".format(
+                name=node.get("name", ""),
+                public_name=node.get("public_name", ""),
+                duration=node.get("duration_ms", 0),
+                blocked="yes" if node.get("blocked") else "no",
+                input_summary=_compact_summary(node.get("input_summary") or {}),
+                output_summary=_compact_summary(node.get("output_summary") or {}),
+                error=node.get("error") or "-",
+            )
+        )
+    return "\n".join(lines)
+
+
+def _compact_summary(summary: dict) -> str:
+    parts = []
+    for key in (
+        "scenario_id",
+        "adapter",
+        "target_surface",
+        "guard_profile",
+        "probes_count",
+        "regression_payload_count",
+        "trace_steps",
+        "tool_name",
+        "tool_verdict_count",
+        "experiment_id",
+        "asr_surfaces",
+        "guard_pack_rule_count",
+        "file_keys",
+        "response_chars",
+    ):
+        if key in summary:
+            parts.append(f"{key}={summary[key]}")
+    if not parts and summary.get("keys"):
+        parts.append(f"keys={','.join(summary['keys'][:6])}")
+    return html.escape("; ".join(str(part) for part in parts) or "-")
+
+
 def _markdown_to_html(
     *,
     markdown: str,
@@ -196,6 +257,7 @@ def _markdown_to_html(
     total: int,
     conclusion: str,
     defense_feedback: DefenseFeedbackResponse | None,
+    graph_run: dict | None,
 ) -> str:
     failed_rows = "".join(
         "<tr><td>{probe}</td><td>{category}</td><td>{variant}</td><td>{guard}</td></tr>".format(
@@ -234,6 +296,8 @@ def _markdown_to_html(
     if not payload_rows:
         payload_rows = "<li>No next-round payloads were generated.</li>"
 
+    graph_rows = _graph_run_html_rows(graph_run)
+
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -261,10 +325,34 @@ def _markdown_to_html(
   <ul>{feedback_rows}</ul>
   <h3>Next Round Payloads</h3>
   <ul>{payload_rows}</ul>
+  <h2>Graph Run</h2>
+  <table>
+    <tr><th>Node</th><th>Public Node</th><th>Duration</th><th>Blocked</th><th>Input Summary</th><th>Output Summary</th><th>Error</th></tr>
+    {graph_rows}
+  </table>
   <pre>{html.escape(markdown)}</pre>
 </body>
 </html>
 """
+
+
+def _graph_run_html_rows(graph_run: dict | None) -> str:
+    if not graph_run:
+        return '<tr><td colspan="7">Graph run metadata was not generated.</td></tr>'
+    rows = []
+    for node in graph_run.get("nodes", []):
+        rows.append(
+            "<tr><td>{name}</td><td>{public_name}</td><td>{duration} ms</td><td>{blocked}</td><td>{input_summary}</td><td>{output_summary}</td><td>{error}</td></tr>".format(
+                name=html.escape(str(node.get("name", ""))),
+                public_name=html.escape(str(node.get("public_name", ""))),
+                duration=html.escape(str(node.get("duration_ms", 0))),
+                blocked="yes" if node.get("blocked") else "no",
+                input_summary=_compact_summary(node.get("input_summary") or {}),
+                output_summary=_compact_summary(node.get("output_summary") or {}),
+                error=html.escape(str(node.get("error") or "-")),
+            )
+        )
+    return "".join(rows) or '<tr><td colspan="7">No graph nodes were recorded.</td></tr>'
 
 
 def _pct(value: float) -> str:

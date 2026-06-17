@@ -27,8 +27,10 @@ import {
   buildComparisonSnapshot,
   buildDefenseFeedbackView,
   buildAutoDLModelRows,
+  currentModelName,
   buildDashboardSnapshot,
   buildModelMatrixRows,
+  buildLatestGarakComparisonReport,
   buildReportFileHref,
   buildRunRowsFromReports,
   demoEvalRun,
@@ -104,6 +106,10 @@ export default function App() {
   const [statusDetail, setStatusDetail] = useState("");
   const [error, setError] = useState("");
 
+  const activeModelName = useMemo(
+    () => currentModelName({ autodlModelStatus, health, evalRun }),
+    [autodlModelStatus, health, evalRun],
+  );
   const snapshot = useMemo(() => buildDashboardSnapshot({ health, evalRun }), [health, evalRun]);
   const activeRun = normalizeEvalRun(evalRun ?? pairedEval?.guarded) ?? demoEvalRun;
   const activeSummary = useMemo(() => summarizeEvalRun(activeRun), [activeRun]);
@@ -296,7 +302,7 @@ export default function App() {
     try {
       const request = {
         adapter: evalAdapter,
-        models: ["qwen3:8b", "llama-3.1-8b", "mistral-7b", "deepseek-r1-distill-qwen-7b"],
+        models: ["qwen3:8b", "mistral-7b"],
         probes: defaultEvalRun.probes,
       };
       if (evalAdapter === "garak" && probeSpec.trim()) {
@@ -484,7 +490,7 @@ export default function App() {
 
         <div className="sidebarFooter">
           <span className="miniLabel">{t("app.currentModel")}</span>
-          <strong>{snapshot.modelName}</strong>
+          <strong>{activeModelName}</strong>
           <span className="healthLine">
             <span className={health?.status === "ok" ? "liveDot online" : "liveDot"} />
             {snapshot.serviceStatus}
@@ -532,6 +538,7 @@ export default function App() {
               setRagQuery={setRagQuery}
               ragResponse={ragResponse}
               ragPoisoningDemo={ragPoisoningDemo}
+              activeModelName={activeModelName}
               runChat={runChat}
               runRag={runRag}
               runRagPoisoningDemo={runRagPoisoningDemo}
@@ -572,6 +579,7 @@ export default function App() {
               experimentReport={experimentReport}
               defenseFeedback={feedbackView}
               autodlModelStatus={autodlModelStatus}
+              activeModelName={activeModelName}
               loadReport={loadReport}
               loadReports={loadReports}
               generateExperimentReport={generateExperimentReport}
@@ -582,6 +590,7 @@ export default function App() {
           {activePage === "settings" && (
             <SettingsPage
               health={health}
+              activeModelName={activeModelName}
               autodlModelRows={autodlModelRows}
               autodlModelStatus={autodlModelStatus}
               switchingModel={switchingModel}
@@ -652,6 +661,7 @@ function ChatPage({
   setRagQuery,
   ragResponse,
   ragPoisoningDemo,
+  activeModelName,
   runChat,
   runRag,
   runRagPoisoningDemo,
@@ -665,7 +675,7 @@ function ChatPage({
         <SectionHeader eyebrow={t("chat.playground")} title={t("chat.controls")} />
         <div className="controlBlock">
           <span className="miniLabel">{t("chat.model")}</span>
-          <strong>Qwen3:8B</strong>
+          <strong>{activeModelName}</strong>
         </div>
         <div className="toggleRow">
           <span>{t("chat.guardrail")}</span>
@@ -981,6 +991,7 @@ function ReportsPage({
   experimentReport,
   defenseFeedback,
   autodlModelStatus,
+  activeModelName,
   loadReport,
   loadReports,
   generateExperimentReport,
@@ -989,11 +1000,13 @@ function ReportsPage({
 }) {
   const currentReport = reportResponse ?? evalRun ?? { run: activeRun, report_dir: "", files: {} };
   const summary = summarizeEvalRun(currentReport.run);
+  const latestGarakComparison = buildLatestGarakComparisonReport(reportList);
 
   return (
     <section className="reportsLayout">
       <div className="panel">
         <SectionHeader eyebrow={t("reports.generated")} title={t("reports.artifacts")} />
+        {latestGarakComparison ? <GarakComparisonCard comparison={latestGarakComparison} t={t} /> : null}
         <ReportCard title={t("reports.securityReport")} run={currentReport.run} files={currentReport.files} t={t} />
         <ReportCard title={t("reports.openHtmlReport")} run={currentReport.run} files={currentReport.files} t={t} />
         {(reportList?.reports ?? []).slice(0, 8).map((report) => (
@@ -1033,7 +1046,7 @@ function ReportsPage({
         <div className="summaryList">
           <p>{t("reports.autodlStatus")}: {autodlModelStatus?.connectivity === "offline" ? t("settings.offline") : t("settings.online")}</p>
           <p>{autodlModelStatus?.status_message ?? t("settings.modelStatusUnknown")}</p>
-          <p>{t("reports.activeModel")}: {autodlModelStatus?.active_model ?? currentReport.run?.model ?? "unknown"}</p>
+          <p>{t("reports.activeModel")}: {activeModelName}</p>
         </div>
         <div className="summaryList">
           <p>{summary.totalAttacks} {t("reports.attackPrompts")}</p>
@@ -1105,6 +1118,7 @@ function ReportsPage({
 
 function SettingsPage({
   health,
+  activeModelName,
   autodlModelRows,
   autodlModelStatus,
   switchingModel,
@@ -1137,7 +1151,7 @@ function SettingsPage({
         />
         <div className="settingsGrid">
           <MetricBadge label={t("settings.provider")} value={autodlModelStatus?.model_provider ?? health?.model_provider ?? "unknown"} />
-          <MetricBadge label={t("settings.activeModel")} value={autodlModelStatus?.active_model ?? health?.model_name ?? "unknown"} />
+          <MetricBadge label={t("settings.activeModel")} value={activeModelName} />
           <MetricBadge label={t("settings.inferenceUrl")} value={health?.inference_base_url ?? "-"} />
           <MetricBadge label={t("settings.switchable")} value={autodlModelStatus?.switchable ? t("settings.yes") : t("settings.no")} />
           <MetricBadge label={t("settings.connectivity")} value={autodlModelStatus?.connectivity === "offline" ? t("settings.offline") : t("settings.online")} />
@@ -1368,12 +1382,54 @@ function MetricBadge({ label, value }) {
   );
 }
 
+function GarakComparisonCard({ comparison, t }) {
+  return (
+    <article className="reportCard comparisonReportCard">
+      <div className="comparisonReportContent">
+        <strong>Garak Model Comparison</strong>
+        <span>{t("eval.runId")} #{comparison.runId}</span>
+        <small>{comparison.probe}</small>
+        <div className="comparisonMetricGrid">
+          <div>
+            <span>Qwen baseline ASR</span>
+            <strong>{comparison.qwenBaseline}</strong>
+          </div>
+          <div>
+            <span>Mistral baseline ASR</span>
+            <strong>{comparison.mistralBaseline}</strong>
+          </div>
+          <div>
+            <span>Guarded ASR</span>
+            <strong>{comparison.guarded}</strong>
+          </div>
+        </div>
+        <small>{comparison.note}</small>
+      </div>
+      <div className="reportActions">
+        {comparison.htmlHref ? (
+          <a className="secondaryButton" href={comparison.htmlHref} target="_blank" rel="noreferrer">
+            <ExternalLink size={15} />
+            {t("reports.openHtml")}
+          </a>
+        ) : null}
+        {comparison.dataHref ? (
+          <a className="secondaryButton" href={comparison.dataHref} target="_blank" rel="noreferrer">
+            <Download size={15} />
+            {t("reports.json")}
+          </a>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
 function ReportCard({ title, run, files, t }) {
   const htmlHref = buildReportFileHref(run?.run_id, files, "html");
   const dataHref = buildReportFileHref(run?.run_id, files, "data");
   const guardPackHref = buildReportFileHref(run?.run_id, files, "guard_pack");
   const asrHref = buildReportFileHref(run?.run_id, files, "asr");
-  if (!htmlHref && !dataHref && !guardPackHref && !asrHref) {
+  const graphHref = buildReportFileHref(run?.run_id, files, "graph");
+  if (!htmlHref && !dataHref && !guardPackHref && !asrHref && !graphHref) {
     return null;
   }
 
@@ -1407,6 +1463,12 @@ function ReportCard({ title, run, files, t }) {
           <a className="secondaryButton" href={asrHref} target="_blank" rel="noreferrer">
             <Gauge size={15} />
             ASR
+          </a>
+        ) : null}
+        {graphHref ? (
+          <a className="secondaryButton" href={graphHref} target="_blank" rel="noreferrer">
+            <Activity size={15} />
+            Graph Run
           </a>
         ) : null}
       </div>

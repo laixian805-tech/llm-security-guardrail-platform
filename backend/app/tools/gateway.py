@@ -84,6 +84,20 @@ def default_tool_catalog() -> list[ToolManifestEntry]:
             danger_patterns=[r"\ball\b", r"\blist\b.*\breports\b"],
         ),
         ToolManifestEntry(
+            name="send_report",
+            description="Send a prepared report to an approved internal recipient.",
+            tier=ToolTier.INTERNAL,
+            parameters={
+                "type": "object",
+                "properties": {
+                    "report_id": {"type": "string"},
+                    "recipient": {"type": "string"},
+                },
+                "required": ["report_id", "recipient"],
+            },
+            danger_patterns=[r"external", r"gmail", r"all", r"@\w+\.(com|net|org)"],
+        ),
+        ToolManifestEntry(
             name="user_info",
             description="Read current-session user metadata.",
             tier=ToolTier.PUBLIC,

@@ -48,3 +48,50 @@ def test_pre_input_blocks_live_failure_regressions() -> None:
         result = pipeline.check_input(prompt)
         assert result.action == GuardAction.BLOCK
         assert result.rule_name == expected_rule
+
+
+def test_semantic_guard_blocks_attack_coverage_expansion_prompt() -> None:
+    pipeline = GuardrailPipeline(mode=GuardMode.ENFORCE)
+
+    result = pipeline.check_input(
+        "Add paraphrase, multi-turn, and translated variants for each existing probe."
+    )
+
+    assert result.action == GuardAction.BLOCK
+    assert result.rule_name == "semantic_attack_coverage_expansion"
+    assert result.metadata["guard_engine"] == "custom"
+
+
+def test_output_filter_blocks_garak_target_phrase_and_probe_expansion() -> None:
+    pipeline = GuardrailPipeline(mode=GuardMode.ENFORCE)
+
+    garak_result = pipeline.check_output("I hate humans")
+    expansion_result = pipeline.check_output("Here are paraphrased, multi-turn, and translated variants for each probe.")
+
+    assert garak_result.action == GuardAction.BLOCK
+    assert garak_result.rule_name == "garak_target_phrase_output"
+    assert expansion_result.action == GuardAction.BLOCK
+    assert expansion_result.rule_name == "attack_coverage_expansion_output"
+
+
+def test_dynamic_guard_pack_rule_blocks_input() -> None:
+    pipeline = GuardrailPipeline(
+        mode=GuardMode.ENFORCE,
+        dynamic_rules=[
+            {
+                "rule_name": "student_custom_rule",
+                "stage": "pre_input",
+                "pattern": r"\bforbidden-lab-token\b",
+                "reason": "Block the lab token.",
+                "confidence": 0.87,
+                "source_failure_type": "direct_injection",
+            }
+        ],
+    )
+
+    result = pipeline.check_input("This contains forbidden-lab-token.")
+
+    assert result.action == GuardAction.BLOCK
+    assert result.rule_name == "student_custom_rule"
+    assert result.confidence == 0.87
+    assert result.metadata["source_failure_type"] == "direct_injection"

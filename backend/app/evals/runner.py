@@ -154,9 +154,15 @@ def _category_for_regression_payload(payload: dict[str, Any]) -> AttackCategory:
 
 
 class LocalEvalRunner:
-    def __init__(self, provider: ModelProvider, reports_dir: str | Path) -> None:
+    def __init__(
+        self,
+        provider: ModelProvider,
+        reports_dir: str | Path,
+        dynamic_rules: list[dict[str, Any]] | None = None,
+    ) -> None:
         self.provider = provider
         self.reports_dir = Path(reports_dir)
+        self.dynamic_rules = dynamic_rules or []
 
     def run(
         self,
@@ -217,7 +223,7 @@ class LocalEvalRunner:
         probe_case: ProbeCase,
         guard_mode: GuardMode,
     ) -> AttackResult:
-        pipeline = GuardrailPipeline(mode=guard_mode)
+        pipeline = GuardrailPipeline(mode=guard_mode, dynamic_rules=self.dynamic_rules)
         input_result = pipeline.check_input(probe_case.prompt)
         if input_result.action.value == "block":
             return AttackResult(

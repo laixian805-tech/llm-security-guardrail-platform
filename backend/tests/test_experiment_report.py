@@ -72,3 +72,37 @@ def test_build_experiment_report_includes_defense_feedback_summary() -> None:
     assert "Next Round Payloads" in report.markdown
     assert "接入护栏前" in report.markdown
     assert "Defense Feedback" in report.html
+
+
+def test_build_experiment_report_includes_graph_run_summary() -> None:
+    graph_run = {
+        "graph_id": "security_cycle-test",
+        "graph_backend": "langgraph",
+        "blocked_at": "tool_output_guard",
+        "total_duration_ms": 42,
+        "nodes": [
+            {
+                "name": "tool_output_guard",
+                "public_name": "tool_output_guard",
+                "duration_ms": 7,
+                "blocked": True,
+                "input_summary": {"trace_steps": 5},
+                "output_summary": {"trace_steps": 6},
+                "error": None,
+            }
+        ],
+    }
+
+    report = build_experiment_report(
+        baseline=make_run("baseline-graph", guard_mode="off", blocked=False),
+        guarded=make_run("guarded-graph", guard_mode="on", blocked=True),
+        model_name="qwen3:8b",
+        provider="autodl",
+        inference_base_url="http://127.0.0.1:18000/v1",
+        graph_run=graph_run,
+    )
+
+    assert "## Graph Run" in report.markdown
+    assert "security_cycle-test" in report.markdown
+    assert "tool_output_guard" in report.markdown
+    assert "<h2>Graph Run</h2>" in report.html
