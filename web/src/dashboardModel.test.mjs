@@ -5,6 +5,7 @@ import {
   buildComparisonSnapshot,
   buildDashboardSnapshot,
   buildDefenseFeedbackView,
+  buildAutoDLModelRows,
   buildModelMatrixRows,
   buildReportFileHref,
   buildRunRowsFromReports,
@@ -254,4 +255,50 @@ test("buildModelMatrixRows includes average latency labels", () => {
   });
 
   assert.equal(rows[0].avgLatency, "345 ms");
+});
+
+test("report file helpers expose guard pack and ASR comparison artifacts", () => {
+  const files = {
+    candidate_guard_pack: "/root/reports/run-001/candidate-guard-pack.json",
+    asr_comparison: "/root/reports/run-001/asr-comparison.json",
+  };
+
+  assert.equal(buildReportFileHref("run-001", files, "guard_pack"), "/report-files/run-001/candidate_guard_pack");
+  assert.equal(buildReportFileHref("run-001", files, "asr"), "/report-files/run-001/asr_comparison");
+});
+
+test("buildAutoDLModelRows maps model status into switchable rows", () => {
+  const rows = buildAutoDLModelRows({
+    active_model: "mistral-7b",
+    available_models: ["mistral-7b"],
+    supported_models: ["qwen3:8b", "mistral-7b"],
+    model_provider: "autodl",
+    switchable: true,
+  });
+
+  assert.deepEqual(
+    rows.map((row) => ({
+      model: row.model,
+      active: row.active,
+      available: row.available,
+      canSwitch: row.canSwitch,
+      statusLabel: row.statusLabel,
+    })),
+    [
+      {
+        model: "qwen3:8b",
+        active: false,
+        available: false,
+        canSwitch: true,
+        statusLabel: "Cached / start on demand",
+      },
+      {
+        model: "mistral-7b",
+        active: true,
+        available: true,
+        canSwitch: false,
+        statusLabel: "Active",
+      },
+    ],
+  );
 });

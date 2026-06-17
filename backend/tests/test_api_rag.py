@@ -140,3 +140,5 @@ def test_rag_ingest_supports_collections_and_trust_metadata(monkeypatch, tmp_pat
     assert poisoned["metadata"]["source_type"] == "user_upload"
     assert poisoned["metadata"]["trust_level"] == "low"
     assert poisoned["metadata"]["poison_label"] == "poisoned"
+    assert poisoned["metadata"]["retrieval_score"] == poisoned["score"]
+    assert poisoned["metadata"]["entered_model_context"] is True

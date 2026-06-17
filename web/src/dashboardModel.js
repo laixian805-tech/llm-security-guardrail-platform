@@ -201,6 +201,27 @@ export function buildModelMatrixRows(payload) {
   }));
 }
 
+export function buildAutoDLModelRows(payload) {
+  const supported = Array.isArray(payload?.supported_models) ? payload.supported_models : ["qwen3:8b", "mistral-7b"];
+  const available = new Set(Array.isArray(payload?.available_models) ? payload.available_models : []);
+  const activeModel = payload?.active_model ?? "";
+  const switchable = Boolean(payload?.switchable);
+
+  return supported.map((model) => {
+    const active = model === activeModel;
+    const online = available.has(model);
+    return {
+      model,
+      active,
+      available: online,
+      provider: payload?.model_provider ?? "unknown",
+      canSwitch: switchable && !active,
+      statusLabel: active ? "Active" : online ? "Online / ready" : "Cached / start on demand",
+      tone: active ? "success" : online ? "info" : "warning",
+    };
+  });
+}
+
 export function buildDefenseFeedbackView(payload) {
   if (!payload) {
     return null;
@@ -224,11 +245,24 @@ export function buildDefenseFeedbackView(payload) {
 }
 
 export function buildReportFileHref(runId, files, kind = "html") {
-  const fileKey = kind === "data" ? preferredDataKey(files) : preferredHtmlKey(files);
+  const fileKey = preferredFileKey(files, kind);
   if (!runId || !fileKey) {
     return null;
   }
   return `/report-files/${encodeURIComponent(runId)}/${encodeURIComponent(fileKey)}`;
+}
+
+export function preferredFileKey(files, kind = "html") {
+  if (kind === "data") {
+    return preferredDataKey(files);
+  }
+  if (kind === "guard_pack" && files?.candidate_guard_pack) {
+    return "candidate_guard_pack";
+  }
+  if (kind === "asr" && files?.asr_comparison) {
+    return "asr_comparison";
+  }
+  return preferredHtmlKey(files);
 }
 
 export function preferredHtmlKey(files) {

@@ -120,4 +120,6 @@ class ReportStore:
             "defense_feedback": [run_dir / "defense-feedback.json"],
             "defense_feedback_markdown": [run_dir / "defense-feedback.md"],
             "next_payloads": [run_dir / "next-round-payloads.json"],
+            "candidate_guard_pack": [run_dir / "candidate-guard-pack.json"],
+            "asr_comparison": [run_dir / "asr-comparison.json"],
         }

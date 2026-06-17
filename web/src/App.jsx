@@ -26,6 +26,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   buildComparisonSnapshot,
   buildDefenseFeedbackView,
+  buildAutoDLModelRows,
   buildDashboardSnapshot,
   buildModelMatrixRows,
   buildReportFileHref,
@@ -87,8 +88,12 @@ export default function App() {
   const [pairedEval, setPairedEval] = useState(null);
   const [formalExperiment, setFormalExperiment] = useState(null);
   const [modelMatrix, setModelMatrix] = useState(null);
+  const [autodlModelStatus, setAutodlModelStatus] = useState(null);
+  const [switchingModel, setSwitchingModel] = useState("");
   const [reportList, setReportList] = useState(null);
   const [evalAdapter, setEvalAdapter] = useState("local");
+  const [targetSurface, setTargetSurface] = useState("all");
+  const [guardProfile, setGuardProfile] = useState("combined");
   const [probeSpec, setProbeSpec] = useState("");
   const [reportId, setReportId] = useState("");
   const [reportResponse, setReportResponse] = useState(null);
@@ -108,6 +113,7 @@ export default function App() {
     return diskRows.length ? diskRows : buildRunRows(evalRun, t);
   }, [evalRun, reportList, t]);
   const modelMatrixRows = useMemo(() => buildModelMatrixRows(modelMatrix), [modelMatrix]);
+  const autodlModelRows = useMemo(() => buildAutoDLModelRows(autodlModelStatus), [autodlModelStatus]);
   const feedbackView = useMemo(
     () => buildDefenseFeedbackView(defenseFeedback ?? formalExperiment?.defense_feedback),
     [defenseFeedback, formalExperiment],
@@ -259,12 +265,20 @@ export default function App() {
       const payload = await postJson("/experiments/security-cycle", {
         ...request,
         include_regression_payloads: true,
+        target_surface: targetSurface,
+        guard_profile: guardProfile,
       });
       setFormalExperiment(payload);
       setPairedEval(payload.paired);
       setEvalRun(payload.paired.guarded);
       setReportId(payload.paired.guarded.run.run_id);
-      setReportResponse(payload.paired.guarded);
+      setReportResponse({
+        ...payload.paired.guarded,
+        files: {
+          ...(payload.paired.guarded?.files ?? {}),
+          ...(payload.files ?? {}),
+        },
+      });
       setExperimentReport(payload.report);
       setDefenseFeedback(payload.defense_feedback);
       await loadReports({ quiet: true });
@@ -347,6 +361,65 @@ export default function App() {
     }
   }
 
+  async function loadHealth({ quiet = false } = {}) {
+    try {
+      const payload = await getJson("/health");
+      setHealth(payload);
+      if (!quiet) {
+        setStatusKey("status.backendReady");
+        setStatusDetail("");
+      }
+    } catch (caught) {
+      if (!quiet) {
+        setError(String(caught));
+        setStatusKey("status.backendUnavailable");
+        setStatusDetail("");
+      }
+    }
+  }
+
+  async function loadAutoDLModelStatus({ quiet = false } = {}) {
+    try {
+      const payload = await getJson("/models/autodl-status");
+      setAutodlModelStatus(payload);
+      if (!quiet) {
+        setStatusKey("status.modelStatusLoaded");
+        setStatusDetail("");
+      }
+    } catch (caught) {
+      if (!quiet) {
+        setError(String(caught));
+        setStatusKey("status.modelStatusFailed");
+        setStatusDetail("");
+      }
+    }
+  }
+
+  async function switchAutoDLModel(model) {
+    try {
+      setSwitchingModel(model);
+      const payload = await postJson("/models/switch", { model });
+      setAutodlModelStatus((current) => ({
+        ...(current ?? {}),
+        active_model: payload.active_model,
+        available_models: [payload.active_model],
+        supported_models: current?.supported_models ?? ["qwen3:8b", "mistral-7b"],
+        model_provider: current?.model_provider ?? health?.model_provider ?? "autodl",
+        switchable: true,
+      }));
+      await loadHealth({ quiet: true });
+      await loadAutoDLModelStatus({ quiet: true });
+      setStatusKey("status.modelSwitched");
+      setStatusDetail(payload.active_model);
+    } catch (caught) {
+      setError(String(caught));
+      setStatusKey("status.modelSwitchFailed");
+      setStatusDetail("");
+    } finally {
+      setSwitchingModel("");
+    }
+  }
+
   async function generateExperimentReport() {
     const pair = pairedEval
       ? {
@@ -377,19 +450,8 @@ export default function App() {
   }
 
   useEffect(() => {
-    async function loadHealth() {
-      try {
-        const payload = await getJson("/health");
-        setHealth(payload);
-        setStatusKey("status.backendReady");
-        setStatusDetail("");
-      } catch (caught) {
-        setError(String(caught));
-        setStatusKey("status.backendUnavailable");
-        setStatusDetail("");
-      }
-    }
     loadHealth();
+    loadAutoDLModelStatus({ quiet: true });
     loadReports({ quiet: true });
   }, []);
 
@@ -480,6 +542,10 @@ export default function App() {
             <EvaluationPage
               evalAdapter={evalAdapter}
               setEvalAdapter={setEvalAdapter}
+              targetSurface={targetSurface}
+              setTargetSurface={setTargetSurface}
+              guardProfile={guardProfile}
+              setGuardProfile={setGuardProfile}
               probeSpec={probeSpec}
               setProbeSpec={setProbeSpec}
               runEval={runEval}
@@ -512,7 +578,17 @@ export default function App() {
               t={t}
             />
           )}
-          {activePage === "settings" && <SettingsPage health={health} t={t} />}
+          {activePage === "settings" && (
+            <SettingsPage
+              health={health}
+              autodlModelRows={autodlModelRows}
+              autodlModelStatus={autodlModelStatus}
+              switchingModel={switchingModel}
+              loadAutoDLModelStatus={loadAutoDLModelStatus}
+              switchAutoDLModel={switchAutoDLModel}
+              t={t}
+            />
+          )}
         </main>
       </div>
     </div>
@@ -676,6 +752,10 @@ function ChatPage({
 function EvaluationPage({
   evalAdapter,
   setEvalAdapter,
+  targetSurface,
+  setTargetSurface,
+  guardProfile,
+  setGuardProfile,
   probeSpec,
   setProbeSpec,
   runEval,
@@ -726,6 +806,25 @@ function EvaluationPage({
             </select>
           </label>
           <label>
+            <span>Target surface</span>
+            <select value={targetSurface} onChange={(event) => setTargetSurface(event.target.value)}>
+              <option value="all">All</option>
+              <option value="chat">Chat</option>
+              <option value="rag">RAG</option>
+              <option value="tool_agent">Tool Agent</option>
+            </select>
+          </label>
+          <label>
+            <span>Guard profile</span>
+            <select value={guardProfile} onChange={(event) => setGuardProfile(event.target.value)}>
+              <option value="combined">Combined</option>
+              <option value="custom_rules">Rule Guard</option>
+              <option value="semantic">Semantic</option>
+              <option value="tool_guard">Tool Guard</option>
+              <option value="rag_isolation">RAG Isolation</option>
+            </select>
+          </label>
+          <label>
             <span>{t("eval.probeSpec")}</span>
             <input
               value={probeSpec}
@@ -740,6 +839,17 @@ function EvaluationPage({
             <p>{t("eval.beforeAsr")}: {formatPercent(formalExperiment.paired?.comparison?.before_asr ?? 0)}</p>
             <p>{t("eval.afterAsr")}: {formatPercent(formalExperiment.paired?.comparison?.after_asr ?? 0)}</p>
             <p>{t("attack.failures")}: {formalExperiment.failure_analysis?.total_failed ?? 0}</p>
+            <p>Surface: {formalExperiment.target_surface ?? "all"} · Profile: {formalExperiment.guard_profile ?? "combined"}</p>
+            <p>
+              Tool ASR: {formatPercent(formalExperiment.asr_comparison?.tool?.before_asr ?? 0)}
+              {" -> "}
+              {formatPercent(formalExperiment.asr_comparison?.tool?.after_asr ?? 0)}
+            </p>
+            <p>
+              RAG ASR: {formatPercent(formalExperiment.asr_comparison?.rag?.before_asr ?? 0)}
+              {" -> "}
+              {formatPercent(formalExperiment.asr_comparison?.rag?.after_asr ?? 0)}
+            </p>
           </div>
         ) : null}
       </section>
@@ -972,17 +1082,68 @@ function ReportsPage({ activeRun, evalRun, reportId, setReportId, reportResponse
   );
 }
 
-function SettingsPage({ health, t }) {
+function SettingsPage({
+  health,
+  autodlModelRows,
+  autodlModelStatus,
+  switchingModel,
+  loadAutoDLModelStatus,
+  switchAutoDLModel,
+  t,
+}) {
   return (
-    <section className="panel settingsPanel">
-      <SectionHeader eyebrow={t("nav.settings")} title={t("settings.runtime")} />
-      <div className="settingsGrid">
-        <MetricBadge label={t("settings.service")} value={health?.service ?? "llm-security-guardrail-platform"} />
-        <MetricBadge label={t("settings.baseUrl")} value={health?.service_base_url ?? "http://localhost:8000"} />
-        <MetricBadge label={t("settings.assetsRoot")} value={health?.assets_root ?? "assets"} />
-        <MetricBadge label={t("settings.guardrailMode")} value="enforce" />
-      </div>
-    </section>
+    <div className="stack">
+      <section className="panel settingsPanel">
+        <SectionHeader eyebrow={t("nav.settings")} title={t("settings.runtime")} />
+        <div className="settingsGrid">
+          <MetricBadge label={t("settings.service")} value={health?.service ?? "llm-security-guardrail-platform"} />
+          <MetricBadge label={t("settings.baseUrl")} value={health?.service_base_url ?? "http://localhost:8000"} />
+          <MetricBadge label={t("settings.assetsRoot")} value={health?.assets_root ?? "assets"} />
+          <MetricBadge label={t("settings.guardrailMode")} value="enforce" />
+        </div>
+      </section>
+
+      <section className="panel">
+        <SectionHeader
+          eyebrow={t("settings.autodl")}
+          title={t("settings.modelSwitch")}
+          action={
+            <button className="secondaryButton" onClick={() => loadAutoDLModelStatus()} type="button">
+              <RefreshCw size={15} />
+              {t("settings.refreshModels")}
+            </button>
+          }
+        />
+        <div className="settingsGrid">
+          <MetricBadge label={t("settings.provider")} value={autodlModelStatus?.model_provider ?? health?.model_provider ?? "unknown"} />
+          <MetricBadge label={t("settings.activeModel")} value={autodlModelStatus?.active_model ?? health?.model_name ?? "unknown"} />
+          <MetricBadge label={t("settings.inferenceUrl")} value={health?.inference_base_url ?? "-"} />
+          <MetricBadge label={t("settings.switchable")} value={autodlModelStatus?.switchable ? t("settings.yes") : t("settings.no")} />
+        </div>
+        <div className="runList">
+          {autodlModelRows.map((row) => (
+            <article className="runRow" key={row.model}>
+              <div>
+                <strong>{row.model}</strong>
+                <span>{row.statusLabel}</span>
+              </div>
+              <div className="rowActions">
+                <span className={`statusPill ${row.tone}`}>{row.active ? t("settings.active") : row.available ? t("settings.online") : t("settings.cached")}</span>
+                <button
+                  className={row.active ? "secondaryButton" : "primaryButton"}
+                  disabled={!row.canSwitch || Boolean(switchingModel)}
+                  onClick={() => switchAutoDLModel(row.model)}
+                  type="button"
+                >
+                  {switchingModel === row.model ? <RefreshCw size={15} /> : <Zap size={15} />}
+                  {row.active ? t("settings.currentModel") : t("settings.switchTo")}
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -1177,7 +1338,9 @@ function MetricBadge({ label, value }) {
 function ReportCard({ title, run, files, t }) {
   const htmlHref = buildReportFileHref(run?.run_id, files, "html");
   const dataHref = buildReportFileHref(run?.run_id, files, "data");
-  if (!htmlHref && !dataHref) {
+  const guardPackHref = buildReportFileHref(run?.run_id, files, "guard_pack");
+  const asrHref = buildReportFileHref(run?.run_id, files, "asr");
+  if (!htmlHref && !dataHref && !guardPackHref && !asrHref) {
     return null;
   }
 
@@ -1199,6 +1362,18 @@ function ReportCard({ title, run, files, t }) {
           <a className="secondaryButton" href={dataHref} target="_blank" rel="noreferrer">
             <Download size={15} />
             {t("reports.json")}
+          </a>
+        ) : null}
+        {guardPackHref ? (
+          <a className="secondaryButton" href={guardPackHref} target="_blank" rel="noreferrer">
+            <Shield size={15} />
+            Guard Pack
+          </a>
+        ) : null}
+        {asrHref ? (
+          <a className="secondaryButton" href={asrHref} target="_blank" rel="noreferrer">
+            <Gauge size={15} />
+            ASR
           </a>
         ) : null}
       </div>

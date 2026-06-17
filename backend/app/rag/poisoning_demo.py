@@ -98,6 +98,11 @@ def run_rag_poisoning_demo(
     if poisoned_chunks:
         guardrail_text = f"{retrieved_context}\n{request.poison_document}"
     guardrail = GuardrailPipeline(mode=GuardMode.ENFORCE).check_input(guardrail_text)
+    _mark_context_entry(
+        safe_chunks=safe_chunks,
+        poisoned_chunks=poisoned_chunks,
+        poisoned_entered=not guardrail.triggered,
+    )
     sanitized_context = _sanitize_context(
         safe_chunks=safe_chunks,
         poisoned_chunks=poisoned_chunks,
@@ -194,6 +199,18 @@ def _sanitize_context(
     if guardrail_triggered and poisoned_chunks:
         return f"{safe_text}\n[poisoned retrieved instructions isolated before model context]".strip()
     return safe_text.strip()
+
+
+def _mark_context_entry(
+    *,
+    safe_chunks: list[dict],
+    poisoned_chunks: list[dict],
+    poisoned_entered: bool,
+) -> None:
+    for chunk in safe_chunks:
+        chunk.setdefault("metadata", {})["entered_model_context"] = True
+    for chunk in poisoned_chunks:
+        chunk.setdefault("metadata", {})["entered_model_context"] = poisoned_entered
 
 
 def _recommended_defenses(*, poisoned_chunks: list[dict]) -> list[str]:

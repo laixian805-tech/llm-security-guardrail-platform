@@ -121,6 +121,8 @@ class InMemoryRAGService:
                 "retrieval_mode": "overlap",
                 "keyword_score": score,
                 "dense_score": score,
+                "retrieval_score": score,
+                "entered_model_context": True,
             }
         )
         return RetrievedChunk(
@@ -227,6 +229,8 @@ class PersistentHybridRAGService(InMemoryRAGService):
                 "retrieval_mode": "hybrid",
                 "keyword_score": keyword_score,
                 "dense_score": dense_score,
+                "retrieval_score": score,
+                "entered_model_context": True,
             }
         )
         return RetrievedChunk(

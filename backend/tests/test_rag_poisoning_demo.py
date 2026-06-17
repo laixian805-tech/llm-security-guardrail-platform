@@ -32,6 +32,8 @@ def test_rag_poisoning_demo_exposes_retrieval_and_blocks_attack_chain(monkeypatc
     assert poisoned_metadata["collection"] == "poisoned_docs"
     assert poisoned_metadata["trust_level"] == "low"
     assert poisoned_metadata["poison_label"] == "poisoned"
+    assert poisoned_metadata["entered_model_context"] is False
+    assert payload["safe_chunks"][0]["metadata"]["entered_model_context"] is True
     assert payload["guardrail"]["triggered"] is True
     assert payload["guardrail"]["action"] == "block"
     assert payload["tool_verdict"]["decision"] == "block"
