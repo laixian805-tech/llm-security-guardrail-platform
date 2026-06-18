@@ -44,4 +44,5 @@ def test_openai_chat_completions_blocks_malicious_prompt() -> None:
     payload = response.json()
     assert payload["choices"][0]["message"]["content"] == "I cannot comply with that request."
     assert payload["security"]["blocked"] is True
-    assert payload["security"]["guard_results"][0]["rule_name"] == "prompt_injection_ignore_previous"
+    assert payload["security"]["guard_results"][0]["rule_name"] == "llmsec_deterministic_input_check"
+    assert payload["security"]["guard_results"][0]["metadata"]["guard_engine"] == "nemo"

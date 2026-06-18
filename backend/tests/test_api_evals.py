@@ -56,9 +56,11 @@ def test_eval_run_api_supports_garak_adapter(monkeypatch) -> None:
             *,
             probes,
             guard_mode,
+            guard_engine,
             garak_probe_spec,
             garak_detector_spec,
         ):
+            assert guard_engine.value == "nemo"
             run = EvalRun(
                 run_id="garak-test",
                 adapter="garak",
@@ -114,9 +116,11 @@ def test_eval_run_api_returns_400_for_runner_error(monkeypatch) -> None:
             *,
             probes,
             guard_mode,
+            guard_engine,
             garak_probe_spec,
             garak_detector_spec,
         ):
+            assert guard_engine.value == "nemo"
             raise RuntimeError("Unknown probes: unsupported_probe")
 
     from app.api import main
@@ -138,7 +142,8 @@ def test_eval_run_api_supports_promptfoo_adapter(monkeypatch) -> None:
         def __init__(self, **kwargs) -> None:
             self.kwargs = kwargs
 
-        def run_with_artifacts(self, *, probes, guard_mode):
+        def run_with_artifacts(self, *, probes, guard_mode, guard_engine):
+            assert guard_engine.value == "nemo"
             run = EvalRun(
                 run_id="promptfoo-test",
                 adapter="promptfoo",

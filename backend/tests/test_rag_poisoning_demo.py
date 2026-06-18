@@ -74,7 +74,8 @@ def test_rag_poisoning_demo_allows_custom_poison_text(monkeypatch, tmp_path) -> 
     assert response.status_code == 200
     payload = response.json()
     assert any("custom-poison" in chunk["document_id"] for chunk in payload["retrieval"]["chunks"])
-    assert payload["guardrail"]["rule_name"] == "prompt_injection_ignore_previous"
+    assert payload["guardrail"]["rule_name"] == "rag_context_sanitizer_low_trust_instruction"
+    assert payload["guardrail"]["metadata"]["guard_engine"] == "rag_context_sanitizer"
     assert payload["tool_verdict"]["permission_check"] == "block"
 
 

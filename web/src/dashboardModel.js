@@ -233,6 +233,64 @@ export function buildModelMatrixRows(payload) {
   }));
 }
 
+export function buildGuardEngineMatrixRows(payload) {
+  const rows = Array.isArray(payload?.matrix) ? payload.matrix : [];
+  return rows.map((row) => ({
+    guardEngine: row.guard_engine ?? "unknown",
+    before: formatPercent(asNumber(row.before_asr)),
+    after: formatPercent(asNumber(row.after_asr)),
+    reduction: formatPercent(asNumber(row.reduction_pct)),
+    totalFailed: Number(row.total_failed ?? 0),
+    ruleHits: row.rule_hits ?? {},
+    topFailureType: row.top_failure_type ?? "pending",
+    recommendation: row.top_recommendation ?? "Pending experiment.",
+    avgLatency: Number.isFinite(Number(row.avg_latency_ms)) ? `${Number(row.avg_latency_ms)} ms` : "-",
+    fallbackUsed: Boolean(row.fallback_used),
+    status: row.status ?? "ready",
+  }));
+}
+
+export function buildRagCollectionRows(payload) {
+  const collections = Array.isArray(payload?.collections) ? payload.collections : [];
+  return collections.map((collection) => ({
+    name: collection.collection ?? collection.name ?? "default",
+    chunks: Number(collection.chunks ?? collection.chunk_count ?? collection.total_chunks ?? 0),
+    documents: Number(collection.documents ?? collection.document_count ?? 0),
+    trusted: Number(collection.trusted_chunks ?? collection.safe_chunks ?? collection.trust_levels?.trusted ?? 0),
+    quarantined: Number(
+      collection.quarantined_chunks ??
+        collection.poisoned_chunks ??
+        collection.poison_labels?.poisoned ??
+        collection.poison_labels?.malicious ??
+        0,
+    ),
+    sourceTypes: formatDistribution(collection.source_types),
+    trustLevels: formatDistribution(collection.trust_levels),
+    poisonLabels: formatDistribution(collection.poison_labels),
+  }));
+}
+
+export function buildJobView(payload) {
+  if (!payload) {
+    return null;
+  }
+  const result = payload.result ?? null;
+  return {
+    jobId: payload.job_id ?? "",
+    kind: payload.kind ?? "security_cycle",
+    status: payload.status ?? "queued",
+    cancelRequested: Boolean(payload.cancel_requested),
+    submittedAt: payload.submitted_at ?? "",
+    startedAt: payload.started_at ?? "",
+    finishedAt: payload.finished_at ?? "",
+    error: payload.error ?? "",
+    result,
+    experimentId: result?.experiment_id ?? "",
+    afterAsr: asNumber(result?.paired?.comparison?.after_asr),
+    beforeAsr: asNumber(result?.paired?.comparison?.before_asr),
+  };
+}
+
 export function buildAutoDLModelRows(payload) {
   const supported = Array.isArray(payload?.supported_models) ? payload.supported_models : ["qwen3:8b", "mistral-7b"];
   const available = new Set(Array.isArray(payload?.available_models) ? payload.available_models : []);
@@ -282,6 +340,34 @@ export function buildDefenseFeedbackView(payload) {
       markdown: payload.files?.markdown ? "defense_feedback_markdown" : null,
       nextPayloads: payload.files?.next_payloads ? "next_payloads" : null,
     },
+  };
+}
+
+export function buildGraphRunView(payload) {
+  if (!payload) {
+    return null;
+  }
+  const nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
+  const rows = nodes.map((node, index) => ({
+    index: index + 1,
+    name: node.public_name ?? node.name ?? `node_${index + 1}`,
+    canonicalName: node.name ?? node.public_name ?? `node_${index + 1}`,
+    durationMs: Number(node.duration_ms ?? 0),
+    blocked: Boolean(node.blocked),
+    error: node.error ?? null,
+  }));
+  const slowest = [...rows].sort((left, right) => right.durationMs - left.durationMs)[0] ?? null;
+  return {
+    graphId: payload.graph_id ?? "unknown",
+    backend: payload.graph_backend ?? "unknown",
+    blockedAt: payload.blocked_at ?? "-",
+    totalDurationMs: Number(payload.total_duration_ms ?? 0),
+    nodeCount: rows.length,
+    slowestNode: slowest,
+    rows,
+    reportChain: payload.graph_id
+      ? `baseline -> guarded -> defense feedback -> ASR comparison -> candidate guard pack -> graph-run artifact ${payload.graph_id} -> experiment report`
+      : "baseline -> guarded -> defense feedback -> ASR comparison -> candidate guard pack -> graph-run artifact -> experiment report",
   };
 }
 
@@ -437,6 +523,18 @@ function countToolDenials(results) {
 function asNumber(value) {
   const number = Number(value ?? 0);
   return Number.isFinite(number) ? number : 0;
+}
+
+function formatDistribution(value) {
+  if (Array.isArray(value)) {
+    return value.join(", ");
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value)
+      .map(([key, count]) => `${key}: ${count}`)
+      .join(", ");
+  }
+  return value || "-";
 }
 
 function dateLabel(value) {

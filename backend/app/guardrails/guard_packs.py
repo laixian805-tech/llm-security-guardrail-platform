@@ -48,6 +48,9 @@ class GuardPack(BaseModel):
     semantic_expansions: list[str] = Field(default_factory=list)
     isolation_sources: list[str] = Field(default_factory=list)
     next_round_payloads: list[dict[str, Any]] = Field(default_factory=list)
+    approved_by: str | None = None
+    approval_note: str | None = None
+    approved_at: str | None = None
 
 
 class GuardPackValidationResult(BaseModel):
@@ -105,6 +108,9 @@ def normalize_guard_pack(payload: dict[str, Any] | None) -> GuardPackValidationR
         next_round_payloads=[
             item for item in raw.get("next_round_payloads", []) if isinstance(item, dict)
         ],
+        approved_by=raw.get("approved_by"),
+        approval_note=raw.get("approval_note"),
+        approved_at=raw.get("approved_at"),
     )
     if not rules:
         errors.append("guard pack must contain at least one valid rule")

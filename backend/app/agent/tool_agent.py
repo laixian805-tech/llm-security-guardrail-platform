@@ -5,8 +5,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from app.agent.graph import AgentGraphRunner, GraphNodeSpec
-from app.guardrails.pipeline import GuardMode, GuardrailPipeline
-from app.rag.service import InMemoryRAGService
+from app.guardrails.pipeline import GuardEngine, GuardMode, GuardrailPipeline
+from app.rag.sanitizer import sanitize_retrieved_context
+from app.rag.service import InMemoryRAGService, RetrievalResult
 from app.schemas.security import ToolCallVerdict, ToolDecision, ToolManifestEntry, ToolTier
 from app.tools.gateway import CallerContext, ToolGateway, default_tool_catalog
 
@@ -20,6 +21,7 @@ class AgentRunRequest(BaseModel):
     messages: list[AgentMessage]
     caller_role: str = "public"
     guard_mode: GuardMode = GuardMode.ENFORCE
+    guard_engine: GuardEngine | None = None
     enable_rag: bool = True
     enable_tools: bool = True
     session_id: str = "agent-demo-session"
@@ -52,6 +54,8 @@ class AgentRunResponse(BaseModel):
     blocked: bool
     scenario_id: str = "tool-agent-demo"
     graph_backend: str = "sequential_langgraph_compat"
+    retrieval: RetrievalResult | None = None
+    rag_context_summary: dict[str, Any] = Field(default_factory=dict)
     graph_run: dict[str, Any] | None = None
 
 
@@ -80,14 +84,28 @@ def run_tool_agent(
     request: AgentRunRequest,
     rag_service: InMemoryRAGService,
     dynamic_rules: list[dict[str, Any]] | None = None,
+    guard_engine: GuardEngine = GuardEngine.CUSTOM,
+    nemo_config_dir: str | None = None,
+    nemo_fallback_engine: GuardEngine = GuardEngine.CUSTOM_NEMO,
+    nemo_fail_mode: str = "fallback",
 ) -> AgentRunResponse:
     runner = AgentGraphRunner()
+    active_guard_engine = request.guard_engine or guard_engine
+    pipeline = GuardrailPipeline(
+        mode=request.guard_mode,
+        engine=active_guard_engine,
+        dynamic_rules=dynamic_rules or [],
+        nemo_config_dir=nemo_config_dir,
+        nemo_fallback_engine=nemo_fallback_engine,
+        nemo_fail_mode=nemo_fail_mode,
+    )
     state: dict[str, Any] = {
         "request": request,
         "rag_service": rag_service,
         "dynamic_rules": dynamic_rules or [],
         "user_message": _latest_user_message(request.messages),
-        "pipeline": GuardrailPipeline(mode=request.guard_mode, dynamic_rules=dynamic_rules or []),
+        "pipeline": pipeline,
+        "guard_engine": active_guard_engine.value,
         "graph_backend": runner.backend,
         "trace": [],
         "tool_call": None,
@@ -96,6 +114,9 @@ def run_tool_agent(
         "input_blocked": False,
         "tool_output_blocked": False,
         "output_blocked": False,
+        "retrieval": None,
+        "rag_context": "",
+        "rag_context_summary": {"enabled": request.enable_rag, "chunks_returned": 0, "chunks_entered_context": 0},
         "response": "",
     }
     state = runner.run(
@@ -129,6 +150,8 @@ def run_tool_agent(
         blocked=blocked,
         scenario_id=request.scenario_id,
         graph_backend=str(state.get("graph_backend") or runner.backend),
+        retrieval=state.get("retrieval"),
+        rag_context_summary=dict(state.get("rag_context_summary") or {}),
         graph_run=state.get("graph_run"),
     )
 
@@ -138,6 +161,10 @@ def run_tool_attack_demo(
     request: ToolAttackDemoRequest,
     rag_service: InMemoryRAGService,
     dynamic_rules: list[dict[str, Any]] | None = None,
+    guard_engine: GuardEngine = GuardEngine.CUSTOM,
+    nemo_config_dir: str | None = None,
+    nemo_fallback_engine: GuardEngine = GuardEngine.CUSTOM_NEMO,
+    nemo_fail_mode: str = "fallback",
 ) -> ToolAttackDemoResponse:
     agent_result = run_tool_agent(
         request=AgentRunRequest(
@@ -150,6 +177,10 @@ def run_tool_attack_demo(
         ),
         rag_service=rag_service,
         dynamic_rules=dynamic_rules,
+        guard_engine=guard_engine,
+        nemo_config_dir=nemo_config_dir,
+        nemo_fallback_engine=nemo_fallback_engine,
+        nemo_fail_mode=nemo_fail_mode,
     )
     tool_call = agent_result.tool_calls[0] if agent_result.tool_calls else None
     verdict = agent_result.tool_verdicts[0] if agent_result.tool_verdicts else None
@@ -173,7 +204,7 @@ def _input_guard_node(state: dict[str, Any]) -> dict[str, Any]:
             node="input_guard",
             blocked=state["input_blocked"],
             detail=input_guard.reason,
-            metadata=input_guard.model_dump(mode="json"),
+            metadata={**input_guard.model_dump(mode="json"), **pipeline.runtime_metadata()},
         )
     )
     return state
@@ -185,15 +216,25 @@ def _rag_retrieve_node(state: dict[str, Any]) -> dict[str, Any]:
     retrieval_metadata: dict[str, Any] = {"enabled": request.enable_rag, "chunks_returned": 0}
     if request.enable_rag:
         retrieval = rag_service.query(state["user_message"], caller_role=request.caller_role, limit=3)
+        sanitized = sanitize_retrieved_context(chunks=retrieval.chunks, pipeline=state["pipeline"])
+        sanitized_payload = sanitized.model_dump(mode="json")
+        _apply_agent_rag_context_policy(retrieval, sanitized_payload)
+        state["retrieval"] = retrieval
+        state["rag_context"] = _agent_rag_context(sanitized_payload)
+        state["rag_context_summary"] = _rag_context_summary(retrieval, sanitized_payload, state["rag_context"])
         retrieval_metadata = {
             "enabled": True,
             "chunks_returned": retrieval.audit.chunks_returned,
             "action": retrieval.audit.action,
+            "chunks_entered_context": state["rag_context_summary"]["chunks_entered_context"],
+            "isolated_chunks": state["rag_context_summary"]["isolated_chunks"],
+            "context_chars": state["rag_context_summary"]["context_chars"],
             "sources": [
                 {
                     "document_id": chunk.document_id,
                     "collection": chunk.metadata.get("collection"),
                     "trust_level": chunk.metadata.get("trust_level"),
+                    "entered_model_context": chunk.metadata.get("entered_model_context", True),
                     "score": chunk.score,
                 }
                 for chunk in retrieval.chunks
@@ -212,8 +253,9 @@ def _rag_retrieve_node(state: dict[str, Any]) -> dict[str, Any]:
 
 def _model_plan_node(state: dict[str, Any]) -> dict[str, Any]:
     request: AgentRunRequest = state["request"]
+    planning_prompt = _planning_prompt(state["user_message"], state.get("rag_context", ""))
     tool_call = _plan_tool_call(
-        state["user_message"],
+        planning_prompt,
         enable_tools=request.enable_tools and request.max_steps >= 3,
         scenario_id=request.scenario_id,
         planner_mode=request.planner_mode,
@@ -228,6 +270,7 @@ def _model_plan_node(state: dict[str, Any]) -> dict[str, Any]:
                 "tool_call": tool_call.model_dump(mode="json") if tool_call else None,
                 "planner_mode": request.planner_mode,
                 "max_steps": request.max_steps,
+                "rag_context_chars": len(str(state.get("rag_context") or "")),
             },
         )
     )
@@ -236,11 +279,16 @@ def _model_plan_node(state: dict[str, Any]) -> dict[str, Any]:
 
 def _tool_authorize_node(state: dict[str, Any]) -> dict[str, Any]:
     request: AgentRunRequest = state["request"]
+    pipeline: GuardrailPipeline = state["pipeline"]
     tool_call: AgentToolCall | None = state.get("tool_call")
     verdicts: list[ToolCallVerdict] = []
     tool_blocked = False
+    tool_intent_guard = None
     if tool_call is not None:
-        if request.allowed_tool_names is not None and tool_call.tool_name not in set(request.allowed_tool_names):
+        tool_intent_guard = pipeline.check_input(_tool_intent_text(tool_call, request, state))
+        if tool_intent_guard.action.value == "block":
+            verdict = _tool_intent_block_verdict(tool_call, tool_intent_guard.reason)
+        elif request.allowed_tool_names is not None and tool_call.tool_name not in set(request.allowed_tool_names):
             verdict = _allowlist_block_verdict(tool_call)
         else:
             verdict = ToolGateway(agent_tool_catalog()).authorize(
@@ -263,6 +311,7 @@ def _tool_authorize_node(state: dict[str, Any]) -> dict[str, Any]:
             detail="ToolGateway made the final authorization decision.",
             metadata={
                 "allowed_tool_names": request.allowed_tool_names,
+                "tool_intent_guard": tool_intent_guard.model_dump(mode="json") if tool_intent_guard else None,
                 "verdicts": [verdict.model_dump(mode="json") for verdict in verdicts],
             },
         )
@@ -304,7 +353,7 @@ def _tool_output_guard_node(state: dict[str, Any]) -> dict[str, Any]:
             node="tool_output_guard",
             blocked=blocked,
             detail=guard.reason,
-            metadata=guard.model_dump(mode="json"),
+            metadata={**guard.model_dump(mode="json"), **pipeline.runtime_metadata()},
         )
     )
     return state
@@ -316,7 +365,7 @@ def _output_guard_node(state: dict[str, Any]) -> dict[str, Any]:
     if state.get("tool_blocked") or state.get("tool_output_blocked"):
         response = "I cannot execute that tool request."
     else:
-        response = _agent_response(tool_call)
+        response = _agent_response(tool_call, rag_context=str(state.get("rag_context") or ""))
     output_guard = pipeline.check_output(response)
     output_blocked = output_guard.action.value == "block"
     state["response"] = "I cannot comply with that request." if output_blocked else response
@@ -326,7 +375,7 @@ def _output_guard_node(state: dict[str, Any]) -> dict[str, Any]:
             node="output_guard",
             blocked=output_blocked,
             detail=output_guard.reason,
-            metadata=output_guard.model_dump(mode="json"),
+            metadata={**output_guard.model_dump(mode="json"), **pipeline.runtime_metadata()},
         )
     )
     return state
@@ -369,6 +418,7 @@ def _report_trace_node(state: dict[str, Any]) -> dict[str, Any]:
                 ],
                 "graph_backend": state.get("graph_backend", "sequential_langgraph_compat"),
                 "scenario_id": state["request"].scenario_id,
+                **state["pipeline"].runtime_metadata(),
             },
         )
     )
@@ -387,6 +437,28 @@ def _allowlist_block_verdict(tool_call: AgentToolCall) -> ToolCallVerdict:
     )
 
 
+def _tool_intent_block_verdict(tool_call: AgentToolCall, reason: str) -> ToolCallVerdict:
+    return ToolCallVerdict(
+        tool_name=tool_call.tool_name,
+        tier=ToolTier.ADMIN if tool_call.risk_level == "high" else ToolTier.INTERNAL,
+        args_passed=tool_call.arguments,
+        args_check="block",
+        permission_check="block",
+        decision=ToolDecision.BLOCK,
+        reason=f"Tool intent blocked by guardrail before ToolGateway authorization: {reason}",
+    )
+
+
+def _tool_intent_text(tool_call: AgentToolCall, request: AgentRunRequest, state: dict[str, Any]) -> str:
+    return (
+        "Model proposed a tool call. "
+        f"tool_name={tool_call.tool_name}; risk_level={tool_call.risk_level}; "
+        f"caller_role={request.caller_role}; arguments={tool_call.arguments}; "
+        f"user_message={state.get('user_message', '')}; "
+        f"rag_context_present={bool(state.get('rag_context'))}."
+    )
+
+
 def _blocked_agent_node(agent_result: AgentRunResponse) -> str | None:
     for step in agent_result.agent_trace:
         if step.blocked:
@@ -399,6 +471,85 @@ def _latest_user_message(messages: list[AgentMessage]) -> str:
         if message.role == "user":
             return message.content
     return messages[-1].content if messages else ""
+
+
+def _planning_prompt(user_message: str, rag_context: str) -> str:
+    if not rag_context:
+        return user_message
+    return f"{user_message}\n\nRetrieved context available to the agent:\n{rag_context}"
+
+
+def _apply_agent_rag_context_policy(retrieval: RetrievalResult, sanitized_payload: dict[str, Any]) -> None:
+    safe_chunk_ids = {
+        str(chunk.get("chunk_id"))
+        for chunk in sanitized_payload.get("safe_chunks") or []
+        if chunk.get("chunk_id")
+    }
+    for chunk in retrieval.chunks:
+        if chunk.chunk_id in safe_chunk_ids:
+            chunk.metadata["entered_model_context"] = True
+            continue
+        chunk.metadata["entered_model_context"] = False
+        chunk.metadata.setdefault("isolation_reason", "Low-trust or poisoned retrieved content kept out of Agent context.")
+
+
+def _agent_rag_context(sanitized_payload: dict[str, Any]) -> str:
+    context_parts = []
+    for chunk in sanitized_payload.get("safe_chunks") or []:
+        metadata = chunk.get("metadata") or {}
+        if metadata.get("entered_model_context") is False:
+            continue
+        text = str(chunk.get("text") or "").strip()
+        if text:
+            context_parts.append(text)
+    return "\n".join(context_parts)
+
+
+def _rag_context_summary(
+    retrieval: RetrievalResult,
+    sanitized_payload: dict[str, Any],
+    rag_context: str,
+) -> dict[str, Any]:
+    isolated_chunks = sanitized_payload.get("isolated_chunks") or []
+    entered_sources = []
+    audit_only_sources = []
+    for chunk in retrieval.chunks:
+        if chunk.metadata.get("entered_model_context") is False:
+            audit_only_sources.append(
+                {
+                    "document_id": chunk.document_id,
+                    "chunk_id": chunk.chunk_id,
+                    "collection": chunk.metadata.get("collection"),
+                    "source_type": chunk.metadata.get("source_type"),
+                    "trust_level": chunk.metadata.get("trust_level"),
+                    "poison_label": chunk.metadata.get("poison_label"),
+                    "isolation_reason": chunk.metadata.get("isolation_reason"),
+                    "score": chunk.score,
+                }
+            )
+            continue
+        entered_sources.append(
+            {
+                "document_id": chunk.document_id,
+                "chunk_id": chunk.chunk_id,
+                "collection": chunk.metadata.get("collection"),
+                "source_type": chunk.metadata.get("source_type"),
+                "trust_level": chunk.metadata.get("trust_level"),
+                "score": chunk.score,
+            }
+        )
+    return {
+        "enabled": True,
+        "action": retrieval.audit.action,
+        "chunks_returned": retrieval.audit.chunks_returned,
+        "chunks_entered_context": len(entered_sources),
+        "isolated_chunks": len(isolated_chunks),
+        "audit_only_chunks": max(0, retrieval.audit.chunks_returned - len(entered_sources)),
+        "context_chars": len(rag_context),
+        "entered_context_sources": entered_sources,
+        "audit_only_sources": audit_only_sources,
+        "guard_result": sanitized_payload.get("guard_result"),
+    }
 
 
 def _plan_tool_call(
@@ -497,7 +648,11 @@ def _mock_tool_result(
     return f"Mock execution completed for {tool_call.tool_name}."
 
 
-def _agent_response(tool_call: AgentToolCall | None) -> str:
+def _agent_response(tool_call: AgentToolCall | None, *, rag_context: str = "") -> str:
     if tool_call is None:
+        if rag_context:
+            return "No tool was needed for this request. Retrieved context was available for the answer."
         return "No tool was needed for this request."
+    if rag_context and tool_call.tool_name == "policy_lookup":
+        return f"Tool {tool_call.tool_name} was authorized in the controlled demo environment with sanitized RAG context."
     return f"Tool {tool_call.tool_name} was authorized in the controlled demo environment."

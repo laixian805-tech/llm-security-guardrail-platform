@@ -262,11 +262,15 @@ load_regression_payloads -> formal_baseline -> formal_guarded -> write_report ->
 
 已完成验证：
 
-- 后端全量：`107 passed, 1 warning`
-- 前端测试：`18 passed`
+- 后端全量：`127 passed, 126 warnings`
+- 前端测试：`23 passed`
 - 前端 build：passed
 - AutoDL `qwen3:8b` smoke：passed
 - 最小真实 `security-cycle`：passed
+- 真实六类 probe：`eval-673bef03` -> `eval-ac05b1e2`，6/6 guarded 阻断，ASR 从 100% 降至 0%
+- 真实 coverage regression：`eval-dccb53e1` -> `eval-1d9e13c8`，18/18 guarded 阻断，ASR 从 100% 降至 0%，回归集 `coverage-expansion-v1`
+- Mistral 对照回归：`eval-a0c2ac0c` -> `eval-caeb761f`，同一 `coverage-expansion-v1` 18/18 guarded 阻断，ASR 从 100% 降至 0%
+- Benign false-positive gate：12 个正常业务/安全运维请求，误报率 0%
 - GitHub 稳定基线已推送：`2a2df06 feat: stabilize guardrail security workflow`
 
 ---
@@ -295,7 +299,7 @@ load_regression_payloads -> formal_baseline -> formal_guarded -> write_report ->
 
 回答：
 
-> 同一批 probes 跑两轮：`guard_mode=off` 作为 baseline，`guard_mode=enforce` 作为 guarded。通过 ASR、失败样本、规则命中、报告文件来比较。最新两模型 security-cycle 矩阵里，Qwen3-8B 和 Mistral-7B 都从 baseline ASR 100% 降到 guarded ASR 14.29%，降幅 85.71%。
+> 同一批 probes 跑两轮：`guard_mode=off` 作为 baseline，`guard_mode=enforce` 作为 guarded。通过 ASR、失败样本、规则命中、报告文件来比较。最新主链路把 6 类标准 probe 扩展到 18 个标准/回归样本，并在 Qwen3-8B 和 Mistral-7B 上分别完成真实对照，两个模型 guarded ASR 都降到 0%；同时用 benign preview 检查正常业务请求误报率，当前为 0%。
 
 ### Garak 在项目里起什么作用？
 
@@ -325,9 +329,9 @@ load_regression_payloads -> formal_baseline -> formal_guarded -> write_report ->
 
 建议诚实回答：
 
-> 当前版本没有把完整 NeMo runtime 作为强依赖接进生产链路，而是参考 NeMo Guardrails 的分层护栏思想，实现了轻量可审计的 guardrail pipeline，并保留了 NeMo-compatible lane 的规则命名和后续接入方向。这样做是为了先保证项目可复现、可测试、资源占用低。
+> 当前版本已经把 NeMo Guardrails runtime 作为主护栏引擎接入后端配置层，默认 `LLMSEC_GUARD_ENGINE=nemo`。为了保证平台在缺依赖或配置异常时仍可复现，我保留了 `custom_nemo` fallback 和原有动态 guard pack 规则层。也就是说，NeMo 负责输入/输出/对话策略 rail，ToolGateway 和 RAG sanitizer 仍然是项目自己的确定性安全边界。
 
-如果简历写“基于 NVIDIA NeMo-Guardrails 构建”，面试官追问会比较危险。更稳的写法是“参考 NeMo Guardrails 思路”或“预留 NeMo-compatible 防护层”。
+更稳的简历写法是“引入 NeMo Guardrails runtime 作为主护栏引擎，并保留自研 ToolGateway、RAG sanitizer、动态 guard pack 与 LangGraph 可观测闭环”。不要写成“所有防护完全由 NeMo 实现”，因为工具授权和 RAG 来源隔离仍然是项目自研逻辑。
 
 ### 有没有用本地向量模型？
 
@@ -424,13 +428,13 @@ load_regression_payloads -> formal_baseline -> formal_guarded -> write_report ->
 
 > 基于 NVIDIA NeMo-Guardrails 与轻量级本地向量模型构建语义防护链路；将用户输入及外部内容统一视为不可信源，在进入上下文前完成来源分级、语义检测与策略隔离。
 
-评价：这条需要修改。当前项目没有完整接入 NeMo runtime，也没有把本地向量模型作为运行依赖。项目真实实现是轻量可审计 guardrail pipeline、RAG sanitizer、混合检索和工具网关。
+评价：NeMo 部分现在可以增强；“轻量级本地向量模型”仍然不要写死，除非后续真的接入 embedding 模型并有测试。
 
 更稳写法：
 
-> 参考 NVIDIA NeMo Guardrails 的分层护栏思想，设计轻量可审计的输入/输出检测、RAG 上下文清洗和工具授权链路；将用户输入、外部文档、网页内容和工具返回统一视为不可信源，在进入模型上下文或工具执行前完成来源分级、指令隔离和策略拦截。
+> 引入 NVIDIA NeMo Guardrails runtime 作为输入/输出策略 rail，并保留自研 RAG context sanitizer、ToolGateway 授权和动态 guard pack fallback；将用户输入、外部文档、网页内容和工具返回统一视为不可信源，在进入模型上下文或工具执行前完成来源分级、指令隔离和策略拦截。
 
-如果后续真的接入 NeMo 和 embedding，再改回“基于”。
+如果后续接入 embedding 或独立安全分类器，再补“轻量级本地向量模型/语义分类器”。
 
 ### 5. 项目成果
 
@@ -442,11 +446,11 @@ load_regression_payloads -> formal_baseline -> formal_guarded -> write_report ->
 
 当前更好写法：
 
-> 在 AutoDL 上接入 Qwen3-8B 与 Mistral-7B 进行真实评测，`security-cycle` 最新矩阵中两模型 baseline ASR 均为 100%，接入护栏后 guarded ASR 降至 14.29%，ASR 降幅 85.71%；RAG 投毒链路和高危工具调用均被 guardrail / ToolGateway 稳定阻断，并自动生成 Markdown/HTML/Graph Run 报告用于复盘。
+> 在 AutoDL 上接入 Qwen3-8B 与 Mistral-7B 进行真实评测；最新 `security-cycle` 使用同一 `coverage-expansion-v1` 覆盖 6 类标准 probe 和 12 个 coverage regression 变体，两个模型 baseline ASR 均为 100%，接入 NeMo Guardrails 主护栏、RAG sanitizer 与 ToolGateway 后 guarded ASR 均降至 0%，并自动生成 Markdown/HTML/JSON/Graph Run 报告用于复盘。
 
 如果觉得 100% baseline 听起来太绝对，也可以保守写：
 
-> 在最新 security-cycle 矩阵中，典型攻击集护栏前 ASR 明显高于护栏后，接入防护后 ASR 降至 14.29%，RAG 投毒和越权工具调用链路均可在报告中追踪阻断点。
+> 在最新 security-cycle 中，典型攻击集护栏前 ASR 明显高于护栏后，接入防护后 Qwen3-8B 与 Mistral-7B guarded ASR 均降至 0%，RAG 投毒和越权工具调用链路均可在报告中追踪阻断点。
 
 ---
 
@@ -461,9 +465,9 @@ load_regression_payloads -> formal_baseline -> formal_guarded -> write_report ->
 ```text
 - 面向 Agent Tool Calling、RAG 检索与工具返回链路中的提示词注入、角色接管和越权工具调用风险，设计并实现 FastAPI + React 的 LLM 安全护栏与自动化红队评测平台。
 - 构造 direct injection、role takeover、long context hijack、RAG/web poisoning、tool return poisoning、unauthorized tool call 等攻击样本，接入 Garak 与本地 probes，形成 baseline/off 与 guarded/enforce 成对复测闭环。
-- 参考 NeMo Guardrails 分层护栏思想，实现轻量可审计的输入/输出检测、RAG context sanitizer、ToolGateway 授权和动态 guard pack 预览/启用机制，将用户输入、外部文档和工具返回统一视为不可信源处理。
+- 引入 NeMo Guardrails runtime 作为主护栏引擎，保留 `custom_nemo` fallback、RAG context sanitizer、ToolGateway 授权和动态 guard pack 预览/启用机制，将用户输入、外部文档和工具返回统一视为不可信源处理。
 - 引入 LangGraph 将 Agent 与 security-cycle 编排为 input_guard、rag_retrieve、model_plan、tool_authorize、tool_execute、tool_output_guard、output_guard 等可观测节点，报告中输出节点耗时、阻断点和输入输出摘要。
-- 在 AutoDL vLLM 上完成 Qwen3-8B 与 Mistral-7B 真实评测，最新 security-cycle 矩阵中两模型 ASR 从 100% 降至 14.29%，并生成 Markdown/HTML/JSON/Graph Run 报告用于复盘和下一轮防御迭代。
+- 在 AutoDL vLLM 上完成 Qwen3-8B 与 Mistral-7B 真实评测；最新 security-cycle 中两个模型的 18 个标准/回归攻击样本 ASR 均从 100% 降至 0%，并生成 Markdown/HTML/JSON/Graph Run 报告用于复盘和下一轮防御迭代。
 ```
 
 如果简历版面有限，可以压缩成三条：
@@ -471,7 +475,7 @@ load_regression_payloads -> formal_baseline -> formal_guarded -> write_report ->
 ```text
 - 设计并实现面向 LLM Agent Tool Calling/RAG 场景的安全护栏平台，覆盖 prompt injection、role takeover、RAG/web poisoning、tool output poisoning 和 unauthorized tool call。
 - 接入 Garak、本地 probes、AutoDL vLLM 与 LangGraph trace，形成“攻击样本构造 -> baseline 压测 -> guarded 复测 -> ASR/失败样本/报告输出”的闭环。
-- 基于来源分级、RAG context sanitizer、ToolGateway 授权和动态 guard pack 拦截高危链路；Qwen3-8B/Mistral-7B 最新 security-cycle 中 ASR 从 100% 降至 14.29%。
+- 基于来源分级、RAG context sanitizer、ToolGateway 授权和动态 guard pack 拦截高危链路；Qwen3-8B/Mistral-7B 最新 18 样本 security-cycle 中 ASR 均从 100% 降至 0%，12 个 benign 样本误报率为 0%。
 ```
 
 ---
@@ -497,7 +501,7 @@ load_regression_payloads -> formal_baseline -> formal_guarded -> write_report ->
 | 表述 | 风险 | 推荐替代 |
 | ---- | ---- | -------- |
 | “生产级安全平台” | 当前没有完整认证、租户隔离、工具沙箱 | “研究型/简历级安全评测原型” |
-| “基于 NVIDIA NeMo-Guardrails” | 当前没有完整 NeMo runtime | “参考 NeMo Guardrails 分层护栏思想” |
+| “所有防护都基于 NVIDIA NeMo-Guardrails” | 夸大；ToolGateway/RAG sanitizer/动态规则仍是自研边界 | “引入 NeMo Guardrails runtime 作为主护栏引擎，并保留自研确定性安全边界” |
 | “基于本地向量模型” | 当前没有强依赖 embedding 模型 | “轻量混合检索与上下文清洗，后续可接 embedding” |
 | “自动修复漏洞” | 动态防御包不会自动改源码 | “生成候选防御包，人工预览后启用” |
 | “支持 3+ 模型矩阵” | 当前因磁盘只保留两模型 | “已支持 Qwen3-8B/Mistral-7B 两模型矩阵，3+ 模型预留” |
@@ -515,7 +519,7 @@ load_regression_payloads -> formal_baseline -> formal_guarded -> write_report ->
 >
 > 防御上，我没有只做关键词过滤，而是把所有用户输入、RAG 文档、网页内容和工具返回都当成不可信源。输入先过 guardrail，RAG 内容进入上下文前做来源分级和 sanitizer，模型提出工具调用后必须经过 ToolGateway 的角色、工具等级和参数策略检查，工具返回和最终输出也会再过护栏。
 >
-> 工程上，后端是 FastAPI，前端是 React，真实模型放在 AutoDL 上通过 vLLM 提供 OpenAI-compatible API，腾讯云只做平台入口和报告中心。后来我用 LangGraph 把 Agent 和 security-cycle 拆成可观测节点，报告里能看到每个节点耗时、阻断点和输入输出摘要。最新两模型 security-cycle 矩阵中，Qwen3-8B 和 Mistral-7B 的攻击集 ASR 从 100% 降到 14.29%，并且 RAG 投毒和高危工具调用都有可追踪的拦截证据。
+> 工程上，后端是 FastAPI，前端是 React，真实模型放在 AutoDL 上通过 vLLM 提供 OpenAI-compatible API，腾讯云只做平台入口和报告中心。后来我用 LangGraph 把 Agent 和 security-cycle 拆成可观测节点，报告里能看到每个节点耗时、阻断点和输入输出摘要。最新 Qwen3-8B/Mistral-7B 18 样本 security-cycle 中攻击集 ASR 都从 100% 降到 0%，并且 RAG 投毒和高危工具调用都有可追踪的拦截证据。
 
 ---
 

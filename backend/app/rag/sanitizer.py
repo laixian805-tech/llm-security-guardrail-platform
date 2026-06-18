@@ -49,10 +49,42 @@ def sanitize_retrieved_context(
     for chunk in chunks:
         chunk_payload = chunk.model_dump(mode="json")
         metadata = chunk_payload.setdefault("metadata", {})
-        guard_result = pipeline.check_input(chunk.text)
         low_trust = _is_low_trust(metadata)
         imperative = bool(_IMPERATIVE_PATTERN.search(chunk.text))
-        isolated = guard_result.action.value == "block" or (low_trust and imperative)
+        if low_trust and imperative:
+            guard_result = GuardResult(
+                stage=GuardStage.PRE_INPUT,
+                rule_name="rag_context_sanitizer_low_trust_instruction",
+                triggered=True,
+                confidence=0.88,
+                action=GuardAction.BLOCK,
+                reason="Low-trust retrieved content contained imperative instructions.",
+                metadata={
+                    "document_id": chunk.document_id,
+                    "collection": metadata.get("collection"),
+                    "trust_level": metadata.get("trust_level"),
+                    "source_type": metadata.get("source_type"),
+                    "guard_engine": "rag_context_sanitizer",
+                },
+            )
+        elif low_trust:
+            guard_result = pipeline.check_input(chunk.text)
+        else:
+            guard_result = GuardResult(
+                stage=GuardStage.PRE_INPUT,
+                rule_name="trusted_context_no_check",
+                triggered=False,
+                confidence=0.0,
+                action=GuardAction.ALLOW,
+                reason="Trusted retrieved content did not require model guardrail inspection.",
+                metadata={
+                    "document_id": chunk.document_id,
+                    "collection": metadata.get("collection"),
+                    "trust_level": metadata.get("trust_level"),
+                    "source_type": metadata.get("source_type"),
+                },
+            )
+        isolated = guard_result.action.value == "block"
         metadata["entered_model_context"] = not isolated
         if isolated:
             metadata["isolation_reason"] = (
@@ -62,24 +94,7 @@ def sanitize_retrieved_context(
             )
             isolated_chunks.append(chunk_payload)
             if first_guard_result is None:
-                first_guard_result = (
-                    guard_result
-                    if guard_result.triggered
-                    else GuardResult(
-                        stage=GuardStage.PRE_INPUT,
-                        rule_name="rag_context_sanitizer_low_trust_instruction",
-                        triggered=True,
-                        confidence=0.88,
-                        action=GuardAction.BLOCK,
-                        reason="Low-trust retrieved content contained imperative instructions.",
-                        metadata={
-                            "document_id": chunk.document_id,
-                            "collection": metadata.get("collection"),
-                            "trust_level": metadata.get("trust_level"),
-                            "source_type": metadata.get("source_type"),
-                        },
-                    )
-                )
+                first_guard_result = guard_result
         else:
             context_parts.append(chunk.text)
 

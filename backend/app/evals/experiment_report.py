@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+from collections import Counter
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -33,9 +34,18 @@ def build_experiment_report(
     after = _pct(comparison.after_asr)
     reduction = _pct(comparison.reduction_pct / 100)
     failed_rows = _failed_case_rows(comparison.failed_cases)
+    top_failed_cases = _top_failed_samples(comparison.failed_cases, top_n=10)
+    top_failed_rows = _top_failed_sample_rows(top_failed_cases)
+    rule_distribution = _rule_hit_distribution(guarded)
+    rule_distribution_markdown = _rule_hit_distribution_markdown(rule_distribution)
     covered_rows = _covered_probe_rows(guarded)
     feedback_markdown = _defense_feedback_markdown(defense_feedback)
     graph_markdown = _graph_run_markdown(graph_run)
+    report_chain = _report_chain_markdown(
+        baseline_run_id=baseline.run.run_id,
+        guarded_run_id=guarded.run.run_id,
+        graph_run=graph_run,
+    )
     conclusion = (
         "接入护栏前，Agent 会在 RAG 投毒、角色接管、工具返回投毒场景下执行不安全行为；"
         "接入护栏后，系统通过来源分级、语义检测、策略隔离和工具权限校验阻断攻击链路。"
@@ -68,6 +78,14 @@ def build_experiment_report(
 
 {failed_rows}
 
+## Top Failed Samples
+
+{top_failed_rows}
+
+## Rule Hit Distribution
+
+{rule_distribution_markdown}
+
 ## Covered Probes
 
 {covered_rows}
@@ -80,6 +98,10 @@ def build_experiment_report(
 
 {graph_markdown}
 
+## Report Chain
+
+{report_chain}
+
 ## Next Defense Iteration
 
 Review failed cases, convert them into regression payloads, tune the highest-priority guardrail area, and rerun the same baseline/guarded experiment.
@@ -88,6 +110,8 @@ Review failed cases, convert them into regression payloads, tune the highest-pri
     html_report = _markdown_to_html(
         markdown=markdown,
         failed_cases=comparison.failed_cases,
+        top_failed_cases=top_failed_cases,
+        rule_distribution=rule_distribution,
         before=before,
         after=after,
         reduction=reduction,
@@ -95,6 +119,7 @@ Review failed cases, convert them into regression payloads, tune the highest-pri
         conclusion=conclusion,
         defense_feedback=defense_feedback,
         graph_run=graph_run,
+        report_chain=report_chain,
     )
     return ExperimentReport(
         baseline_run_id=baseline.run.run_id,
@@ -157,6 +182,63 @@ def _failed_case_rows(failed_cases: list[dict]) -> str:
     return "\n".join(rows)
 
 
+def _top_failed_samples(failed_cases: list[dict], *, top_n: int) -> list[dict]:
+    probe_counts = Counter(str(case.get("probe") or "unknown") for case in failed_cases)
+    ordered = sorted(
+        enumerate(failed_cases),
+        key=lambda item: (-probe_counts[str(item[1].get("probe") or "unknown")], item[0]),
+    )
+    return [case for _, case in ordered[:top_n]]
+
+
+def _top_failed_sample_rows(failed_cases: list[dict]) -> str:
+    if not failed_cases:
+        return "No failed guarded samples to rank."
+    rows = ["| Rank | Probe | Category | Variant | Prompt | Response |", "| ---: | --- | --- | --- | --- | --- |"]
+    for index, case in enumerate(failed_cases, start=1):
+        rows.append(
+            "| {rank} | {probe} | {category} | {variant} | {prompt} | {response} |".format(
+                rank=index,
+                probe=case.get("probe", ""),
+                category=case.get("category", ""),
+                variant=case.get("variant", ""),
+                prompt=_compact_cell(case.get("prompt", "")),
+                response=_compact_cell(case.get("response", "")),
+            )
+        )
+    return "\n".join(rows)
+
+
+def _rule_hit_distribution(artifacts: EvalArtifacts) -> list[dict[str, object]]:
+    counts = Counter(result.guard_triggered for result in artifacts.run.results if result.guard_triggered)
+    total_hits = sum(counts.values())
+    if not total_hits:
+        return []
+    return [
+        {
+            "rule": rule,
+            "count": count,
+            "share": count / total_hits,
+        }
+        for rule, count in counts.most_common()
+    ]
+
+
+def _rule_hit_distribution_markdown(distribution: list[dict[str, object]]) -> str:
+    if not distribution:
+        return "No guardrail rule hits were recorded."
+    rows = ["| Rule | Hits | Share |", "| --- | ---: | ---: |"]
+    for item in distribution:
+        rows.append(
+            "| {rule} | {count} | {share} |".format(
+                rule=item.get("rule", ""),
+                count=item.get("count", 0),
+                share=_pct(float(item.get("share") or 0)),
+            )
+        )
+    return "\n".join(rows)
+
+
 def _covered_probe_rows(artifacts: EvalArtifacts) -> str:
     if not artifacts.run.results:
         return "No probes were recorded."
@@ -203,6 +285,9 @@ def _graph_run_markdown(graph_run: dict | None) -> str:
         f"- Backend: `{graph_run.get('graph_backend', 'unknown')}`",
         f"- Blocked At: `{graph_run.get('blocked_at') or '-'}`",
         f"- Total Duration: `{graph_run.get('total_duration_ms', 0)} ms`",
+        "- `total_duration_ms` is the end-to-end LangGraph orchestration duration.",
+        "- Each node `duration_ms` is the measured time for that node only.",
+        "- `blocked_at` is the first node that blocked the chain or raised an error.",
         "",
         "| Node | Public Node | Duration | Blocked | Input Summary | Output Summary | Error |",
         "| --- | --- | ---: | --- | --- | --- | --- |",
@@ -220,6 +305,28 @@ def _graph_run_markdown(graph_run: dict | None) -> str:
             )
         )
     return "\n".join(lines)
+
+
+def _report_chain_markdown(*, baseline_run_id: str, guarded_run_id: str, graph_run: dict | None) -> str:
+    graph_id = graph_run.get("graph_id") if graph_run else "not-generated"
+    return " -> ".join(
+        [
+            f"baseline run `{baseline_run_id}`",
+            f"guarded run `{guarded_run_id}`",
+            "defense feedback",
+            "ASR comparison",
+            "candidate guard pack",
+            f"graph-run artifact `{graph_id}`",
+            "experiment report",
+        ]
+    )
+
+
+def _compact_cell(value: object, *, limit: int = 96) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) > limit:
+        text = f"{text[: limit - 3]}..."
+    return text.replace("|", "\\|")
 
 
 def _compact_summary(summary: dict) -> str:
@@ -251,6 +358,8 @@ def _markdown_to_html(
     *,
     markdown: str,
     failed_cases: list[dict],
+    top_failed_cases: list[dict],
+    rule_distribution: list[dict[str, object]],
     before: str,
     after: str,
     reduction: str,
@@ -258,6 +367,7 @@ def _markdown_to_html(
     conclusion: str,
     defense_feedback: DefenseFeedbackResponse | None,
     graph_run: dict | None,
+    report_chain: str,
 ) -> str:
     failed_rows = "".join(
         "<tr><td>{probe}</td><td>{category}</td><td>{variant}</td><td>{guard}</td></tr>".format(
@@ -270,6 +380,9 @@ def _markdown_to_html(
     )
     if not failed_rows:
         failed_rows = '<tr><td colspan="4">No failed guarded cases.</td></tr>'
+
+    top_failed_rows = _top_failed_html_rows(top_failed_cases)
+    rule_distribution_rows = _rule_distribution_html_rows(rule_distribution)
 
     feedback_rows = ""
     if defense_feedback:
@@ -321,19 +434,73 @@ def _markdown_to_html(
     <tr><th>Probe</th><th>Category</th><th>Variant</th><th>Guard</th></tr>
     {failed_rows}
   </table>
+  <h2>Top Failed Samples</h2>
+  <table>
+    <tr><th>Rank</th><th>Probe</th><th>Category</th><th>Variant</th><th>Prompt</th><th>Response</th></tr>
+    {top_failed_rows}
+  </table>
+  <h2>Rule Hit Distribution</h2>
+  <table>
+    <tr><th>Rule</th><th>Hits</th><th>Share</th></tr>
+    {rule_distribution_rows}
+  </table>
   <h2>Defense Feedback</h2>
   <ul>{feedback_rows}</ul>
   <h3>Next Round Payloads</h3>
   <ul>{payload_rows}</ul>
   <h2>Graph Run</h2>
+  <p>{html.escape(_graph_run_explanation(graph_run))}</p>
   <table>
     <tr><th>Node</th><th>Public Node</th><th>Duration</th><th>Blocked</th><th>Input Summary</th><th>Output Summary</th><th>Error</th></tr>
     {graph_rows}
   </table>
+  <h2>Report Chain</h2>
+  <p>{html.escape(report_chain)}</p>
   <pre>{html.escape(markdown)}</pre>
 </body>
 </html>
 """
+
+
+def _top_failed_html_rows(failed_cases: list[dict]) -> str:
+    if not failed_cases:
+        return '<tr><td colspan="6">No failed guarded samples to rank.</td></tr>'
+    rows = []
+    for index, case in enumerate(failed_cases, start=1):
+        rows.append(
+            "<tr><td>{rank}</td><td>{probe}</td><td>{category}</td><td>{variant}</td><td>{prompt}</td><td>{response}</td></tr>".format(
+                rank=index,
+                probe=html.escape(str(case.get("probe", ""))),
+                category=html.escape(str(case.get("category", ""))),
+                variant=html.escape(str(case.get("variant", ""))),
+                prompt=html.escape(_compact_cell(case.get("prompt", ""))),
+                response=html.escape(_compact_cell(case.get("response", ""))),
+            )
+        )
+    return "".join(rows)
+
+
+def _rule_distribution_html_rows(distribution: list[dict[str, object]]) -> str:
+    if not distribution:
+        return '<tr><td colspan="3">No guardrail rule hits were recorded.</td></tr>'
+    return "".join(
+        "<tr><td>{rule}</td><td>{count}</td><td>{share}</td></tr>".format(
+            rule=html.escape(str(item.get("rule", ""))),
+            count=html.escape(str(item.get("count", 0))),
+            share=html.escape(_pct(float(item.get("share") or 0))),
+        )
+        for item in distribution
+    )
+
+
+def _graph_run_explanation(graph_run: dict | None) -> str:
+    if not graph_run:
+        return "Graph run metadata was not generated for this report."
+    return (
+        "total_duration_ms is the end-to-end LangGraph orchestration duration; "
+        "each node duration_ms is the measured time for that node only; "
+        "blocked_at is the first node that blocked the chain or raised an error."
+    )
 
 
 def _graph_run_html_rows(graph_run: dict | None) -> str:

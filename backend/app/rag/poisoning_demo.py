@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from app.guardrails.pipeline import GuardMode, GuardrailPipeline
+from app.guardrails.pipeline import GuardEngine, GuardMode, GuardrailPipeline
 from app.rag.sanitizer import sanitize_retrieved_context
 from app.rag.service import ChunkStrategy, InMemoryRAGService, RetrievalResult
 from app.schemas.security import GuardResult, ToolCallVerdict
@@ -42,6 +42,7 @@ class RAGPoisoningDemoRequest(BaseModel):
     poison_document: str = DEFAULT_POISON_DOCUMENT
     query: str = DEFAULT_QUERY
     caller_role: str = "public"
+    guard_engine: GuardEngine | None = None
     limit: int = Field(default=5, ge=1, le=5)
     documents: list[RAGScenarioDocument] = Field(default_factory=list)
 
@@ -67,6 +68,10 @@ def run_rag_poisoning_demo(
     rag_service: InMemoryRAGService,
     request: RAGPoisoningDemoRequest,
     dynamic_rules: list[dict] | None = None,
+    guard_engine: GuardEngine = GuardEngine.CUSTOM,
+    nemo_config_dir: str | None = None,
+    nemo_fallback_engine: GuardEngine = GuardEngine.CUSTOM_NEMO,
+    nemo_fail_mode: str = "fallback",
 ) -> RAGPoisoningDemoResult:
     run_suffix = uuid4().hex[:8]
     documents, query = _scenario_documents(request)
@@ -92,7 +97,14 @@ def run_rag_poisoning_demo(
         limit=request.limit,
         document_ids=document_ids,
     )
-    pipeline = GuardrailPipeline(mode=GuardMode.ENFORCE, dynamic_rules=dynamic_rules or [])
+    pipeline = GuardrailPipeline(
+        mode=GuardMode.ENFORCE,
+        engine=request.guard_engine or guard_engine,
+        dynamic_rules=dynamic_rules or [],
+        nemo_config_dir=nemo_config_dir,
+        nemo_fallback_engine=nemo_fallback_engine,
+        nemo_fail_mode=nemo_fail_mode,
+    )
     sanitized = sanitize_retrieved_context(chunks=retrieval.chunks, pipeline=pipeline)
     guardrail = sanitized.guard_result
     tool_verdict = ToolGateway(default_tool_catalog()).authorize(

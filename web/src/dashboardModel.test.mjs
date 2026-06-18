@@ -6,7 +6,11 @@ import {
   buildDashboardSnapshot,
   buildDefenseFeedbackView,
   buildAutoDLModelRows,
+  buildGraphRunView,
+  buildGuardEngineMatrixRows,
+  buildJobView,
   buildModelMatrixRows,
+  buildRagCollectionRows,
   buildLatestGarakComparisonReport,
   buildReportFileHref,
   buildRunRowsFromReports,
@@ -247,6 +251,69 @@ test("buildModelMatrixRows maps formal matrix payloads into table rows", () => {
   assert.equal(rows[1].status, "unavailable");
 });
 
+test("buildGuardEngineMatrixRows maps guard engine comparisons", () => {
+  const rows = buildGuardEngineMatrixRows({
+    matrix: [
+      {
+        guard_engine: "custom_nemo",
+        before_asr: 1,
+        after_asr: 0,
+        reduction_pct: 100,
+        total_failed: 0,
+        rule_hits: { self_check_input: 1 },
+        top_failure_type: "attack_coverage",
+        avg_latency_ms: 123,
+        fallback_used: true,
+      },
+    ],
+  });
+
+  assert.equal(rows[0].guardEngine, "custom_nemo");
+  assert.equal(rows[0].before, "100%");
+  assert.equal(rows[0].after, "0%");
+  assert.equal(rows[0].avgLatency, "123 ms");
+  assert.equal(rows[0].fallbackUsed, true);
+});
+
+test("buildRagCollectionRows normalizes collection summaries", () => {
+  const rows = buildRagCollectionRows({
+    collections: [
+      {
+        collection: "safe_docs",
+        chunks: 4,
+        document_count: 2,
+        trusted_chunks: 3,
+        quarantined_chunks: 1,
+        source_types: ["manual", "web"],
+      },
+    ],
+  });
+
+  assert.equal(rows[0].name, "safe_docs");
+  assert.equal(rows[0].chunks, 4);
+  assert.equal(rows[0].documents, 2);
+  assert.equal(rows[0].sourceTypes, "manual, web");
+});
+
+test("buildJobView summarizes async security-cycle jobs", () => {
+  const view = buildJobView({
+    job_id: "job-abc",
+    kind: "security_cycle",
+    status: "completed",
+    cancel_requested: false,
+    result: {
+      experiment_id: "base__guard",
+      paired: { comparison: { before_asr: 1, after_asr: 0.25 } },
+    },
+  });
+
+  assert.equal(view.jobId, "job-abc");
+  assert.equal(view.status, "completed");
+  assert.equal(view.experimentId, "base__guard");
+  assert.equal(view.beforeAsr, 1);
+  assert.equal(view.afterAsr, 0.25);
+});
+
 test("buildDefenseFeedbackView normalizes feedback files and next-round payloads", () => {
   const view = buildDefenseFeedbackView({
     run_id: "guarded-001",
@@ -396,4 +463,25 @@ test("report file helpers expose failure ingest payload artifacts", () => {
 
   assert.equal(buildReportFileHref("failure-ingest-001", files, "data"), "/report-files/failure-ingest-001/next_payloads");
   assert.equal(preferredDataKey(files), "next_payloads");
+});
+
+test("buildGraphRunView summarizes graph nodes and slowest step", () => {
+  const view = buildGraphRunView({
+    graph_id: "security_cycle-abc",
+    graph_backend: "langgraph",
+    blocked_at: "tool_authorize",
+    total_duration_ms: 42,
+    nodes: [
+      { name: "formal_baseline", public_name: "formal_baseline", duration_ms: 12, blocked: false },
+      { name: "formal_guarded", public_name: "formal_guarded", duration_ms: 30, blocked: true },
+    ],
+  });
+
+  assert.equal(view.graphId, "security_cycle-abc");
+  assert.equal(view.backend, "langgraph");
+  assert.equal(view.blockedAt, "tool_authorize");
+  assert.equal(view.nodeCount, 2);
+  assert.equal(view.slowestNode.name, "formal_guarded");
+  assert.equal(view.rows[1].blocked, true);
+  assert.match(view.reportChain, /graph-run artifact security_cycle-abc/);
 });

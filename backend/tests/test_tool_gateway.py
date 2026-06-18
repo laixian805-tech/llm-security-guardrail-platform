@@ -45,3 +45,26 @@ def test_search_kb_blocks_bulk_wildcard_query() -> None:
     assert verdict.decision == ToolDecision.BLOCK
     assert verdict.args_check == "block"
     assert "dangerous argument pattern" in verdict.reason
+
+
+def test_tool_gateway_enforces_manifest_enum_and_type_constraints() -> None:
+    gateway = ToolGateway(default_tool_catalog())
+    context = CallerContext(caller_role="admin", user_id="admin")
+
+    invalid_enum = gateway.authorize(
+        "export_data",
+        {"scope": "public_reports", "format": "json"},
+        context,
+    )
+    invalid_type = gateway.authorize(
+        "search_kb",
+        {"query": "policy", "limit": "5"},
+        context,
+    )
+
+    assert invalid_enum.decision == ToolDecision.BLOCK
+    assert "scope" in invalid_enum.reason
+    assert "one of" in invalid_enum.reason
+    assert invalid_type.decision == ToolDecision.BLOCK
+    assert "limit" in invalid_type.reason
+    assert "integer" in invalid_type.reason

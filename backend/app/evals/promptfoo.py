@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.evals.runner import EvalArtifacts
-from app.guardrails.pipeline import GuardMode
+from app.guardrails.pipeline import GuardEngine, GuardMode
 from app.schemas.security import AttackCategory, AttackResult, EvalRun, EvalStatus
 
 _BENCHMARK_CASES: dict[str, dict[str, str | AttackCategory]] = {
@@ -56,6 +56,7 @@ class PromptfooEvalRunner:
         *,
         probes: list[str],
         guard_mode: GuardMode,
+        guard_engine: GuardEngine | None = None,
         run_id: str | None = None,
         promptfoo_cases: list[dict[str, str]] | None = None,
     ) -> EvalArtifacts:
@@ -74,6 +75,7 @@ class PromptfooEvalRunner:
         config_payload = self._build_config(
             probes=probes,
             guard_mode=guard_mode,
+            guard_engine=guard_engine,
             promptfoo_cases=promptfoo_cases,
             output_path=results_path,
         )
@@ -150,10 +152,14 @@ class PromptfooEvalRunner:
         *,
         probes: list[str],
         guard_mode: GuardMode,
+        guard_engine: GuardEngine | None,
         promptfoo_cases: list[dict[str, str]] | None,
         output_path: Path,
     ) -> dict:
         tests = promptfoo_cases or self._default_tests(probes)
+        extra_body = {"guard_mode": guard_mode.value}
+        if guard_engine is not None:
+            extra_body["guard_engine"] = guard_engine.value
         return {
             "description": "Promptfoo security benchmark for the guarded local endpoint",
             "providers": [
@@ -163,7 +169,7 @@ class PromptfooEvalRunner:
                         "apiBaseUrl": f"{self.service_base_url}/v1",
                         "apiKey": "dummy",
                         "temperature": 0,
-                        "extraBody": {"guard_mode": guard_mode.value},
+                        "extraBody": extra_body,
                     },
                 }
             ],

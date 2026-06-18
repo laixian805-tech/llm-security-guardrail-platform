@@ -19,6 +19,7 @@ import {
   Settings,
   Shield,
   Terminal,
+  Trash2,
   Zap,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -27,9 +28,13 @@ import {
   buildComparisonSnapshot,
   buildDefenseFeedbackView,
   buildAutoDLModelRows,
+  buildGraphRunView,
+  buildGuardEngineMatrixRows,
+  buildJobView,
   currentModelName,
   buildDashboardSnapshot,
   buildModelMatrixRows,
+  buildRagCollectionRows,
   buildLatestGarakComparisonReport,
   buildReportFileHref,
   buildRunRowsFromReports,
@@ -90,9 +95,15 @@ export default function App() {
   const [pairedEval, setPairedEval] = useState(null);
   const [formalExperiment, setFormalExperiment] = useState(null);
   const [modelMatrix, setModelMatrix] = useState(null);
+  const [guardEngineMatrix, setGuardEngineMatrix] = useState(null);
+  const [securityCycleJob, setSecurityCycleJob] = useState(null);
   const [autodlModelStatus, setAutodlModelStatus] = useState(null);
   const [switchingModel, setSwitchingModel] = useState("");
   const [reportList, setReportList] = useState(null);
+  const [ragCollections, setRagCollections] = useState(null);
+  const [benignPreview, setBenignPreview] = useState(null);
+  const [regressionSet, setRegressionSet] = useState(null);
+  const [guardPackActivation, setGuardPackActivation] = useState(null);
   const [evalAdapter, setEvalAdapter] = useState("local");
   const [targetSurface, setTargetSurface] = useState("all");
   const [guardProfile, setGuardProfile] = useState("combined");
@@ -119,11 +130,15 @@ export default function App() {
     return diskRows.length ? diskRows : buildRunRows(evalRun, t);
   }, [evalRun, reportList, t]);
   const modelMatrixRows = useMemo(() => buildModelMatrixRows(modelMatrix), [modelMatrix]);
+  const guardEngineMatrixRows = useMemo(() => buildGuardEngineMatrixRows(guardEngineMatrix), [guardEngineMatrix]);
+  const ragCollectionRows = useMemo(() => buildRagCollectionRows(ragCollections), [ragCollections]);
+  const securityCycleJobView = useMemo(() => buildJobView(securityCycleJob), [securityCycleJob]);
   const autodlModelRows = useMemo(() => buildAutoDLModelRows(autodlModelStatus), [autodlModelStatus]);
   const feedbackView = useMemo(
     () => buildDefenseFeedbackView(defenseFeedback ?? formalExperiment?.defense_feedback),
     [defenseFeedback, formalExperiment],
   );
+  const graphRunView = useMemo(() => buildGraphRunView(formalExperiment?.graph_run), [formalExperiment]);
   const statusText = statusDetail ? `${t(statusKey)} ${statusDetail}` : t(statusKey);
 
   async function postJson(path, body) {
@@ -146,6 +161,17 @@ export default function App() {
     setStatusKey("status.loading");
     setStatusDetail(path);
     const response = await fetch(path);
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return response.json();
+  }
+
+  async function deleteJson(path) {
+    setError("");
+    setStatusKey("status.calling");
+    setStatusDetail(path);
+    const response = await fetch(path, { method: "DELETE" });
     if (!response.ok) {
       throw new Error(await response.text());
     }
@@ -298,6 +324,72 @@ export default function App() {
     }
   }
 
+  async function startFormalExperimentJob() {
+    try {
+      const request = {
+        adapter: evalAdapter,
+        probes: defaultEvalRun.probes,
+        include_regression_payloads: true,
+        target_surface: targetSurface,
+        guard_profile: guardProfile,
+      };
+      if (evalAdapter === "garak" && probeSpec.trim()) {
+        request.garak_probe_spec = probeSpec.trim();
+      }
+      const payload = await postJson("/jobs/security-cycle", request);
+      setSecurityCycleJob(payload);
+      setStatusKey("status.evalComplete");
+      setStatusDetail(payload.job_id);
+    } catch (caught) {
+      setError(String(caught));
+      setStatusKey("status.evalFailed");
+      setStatusDetail("");
+    }
+  }
+
+  async function refreshSecurityCycleJob() {
+    const jobId = securityCycleJob?.job_id;
+    if (!jobId) {
+      return;
+    }
+    try {
+      const payload = await getJson(`/jobs/${jobId}`);
+      setSecurityCycleJob(payload);
+      if (payload.result) {
+        setFormalExperiment(payload.result);
+        setPairedEval(payload.result.paired);
+        setEvalRun(payload.result.paired?.guarded);
+        setReportId(payload.result.paired?.guarded?.run?.run_id ?? reportId);
+        setExperimentReport(payload.result.report);
+        setDefenseFeedback(payload.result.defense_feedback);
+        await loadReports({ quiet: true });
+      }
+      setStatusKey("status.reportLoaded");
+      setStatusDetail(payload.status);
+    } catch (caught) {
+      setError(String(caught));
+      setStatusKey("status.reportUnavailable");
+      setStatusDetail("");
+    }
+  }
+
+  async function cancelSecurityCycleJob() {
+    const jobId = securityCycleJob?.job_id;
+    if (!jobId) {
+      return;
+    }
+    try {
+      const payload = await postJson(`/jobs/${jobId}/cancel`, {});
+      setSecurityCycleJob((current) => ({ ...(current ?? {}), ...payload }));
+      setStatusKey("status.evalComplete");
+      setStatusDetail(payload.status);
+    } catch (caught) {
+      setError(String(caught));
+      setStatusKey("status.evalFailed");
+      setStatusDetail("");
+    }
+  }
+
   async function runModelMatrix() {
     try {
       const request = {
@@ -310,6 +402,27 @@ export default function App() {
       }
       const payload = await postJson("/experiments/model-matrix", request);
       setModelMatrix(payload);
+      setStatusKey("status.evalComplete");
+      setStatusDetail("");
+    } catch (caught) {
+      setError(String(caught));
+      setStatusKey("status.evalFailed");
+      setStatusDetail("");
+    }
+  }
+
+  async function runGuardEngineMatrix() {
+    try {
+      const request = {
+        adapter: evalAdapter,
+        guard_engines: ["custom", "custom_nemo", "nemo"],
+        probes: defaultEvalRun.probes,
+      };
+      if (evalAdapter === "garak" && probeSpec.trim()) {
+        request.garak_probe_spec = probeSpec.trim();
+      }
+      const payload = await postJson("/experiments/guard-engine-matrix", request);
+      setGuardEngineMatrix(payload);
       setStatusKey("status.evalComplete");
       setStatusDetail("");
     } catch (caught) {
@@ -364,6 +477,98 @@ export default function App() {
         setStatusKey("status.reportUnavailable");
         setStatusDetail("");
       }
+    }
+  }
+
+  async function loadRagCollections({ quiet = false } = {}) {
+    try {
+      const payload = await getJson("/rag/collections");
+      setRagCollections(payload);
+      if (!quiet) {
+        setStatusKey("status.reportLoaded");
+        setStatusDetail("");
+      }
+    } catch (caught) {
+      if (!quiet) {
+        setError(String(caught));
+        setStatusKey("status.reportUnavailable");
+        setStatusDetail("");
+      }
+    }
+  }
+
+  async function deleteRagCollection(collection) {
+    try {
+      await deleteJson(`/rag/collections/${encodeURIComponent(collection)}`);
+      await loadRagCollections({ quiet: true });
+      setStatusKey("status.reportLoaded");
+      setStatusDetail(collection);
+    } catch (caught) {
+      setError(String(caught));
+      setStatusKey("status.reportUnavailable");
+      setStatusDetail("");
+    }
+  }
+
+  async function runBenignPreview() {
+    try {
+      const payload = await postJson("/experiments/benign-preview", {
+        guard_engine: "nemo",
+        payloads: [],
+      });
+      setBenignPreview(payload);
+      setStatusKey("status.reportLoaded");
+      setStatusDetail(`FPR ${formatPercent(payload.false_positive_rate ?? 0)}`);
+    } catch (caught) {
+      setError(String(caught));
+      setStatusKey("status.reportUnavailable");
+      setStatusDetail("");
+    }
+  }
+
+  async function createRegressionSetFromFeedback() {
+    const payloads = feedbackView?.nextRoundPayloads ?? [];
+    if (!payloads.length) {
+      setError("No next-round payloads available. Run defense feedback first.");
+      return;
+    }
+    try {
+      const payload = await postJson("/experiments/regression-sets", {
+        name: "dashboard-regression",
+        source: "dashboard-defense-feedback",
+        original_run_id: feedbackView?.runId ?? reportId,
+        payloads,
+      });
+      setRegressionSet(payload);
+      setStatusKey("status.reportLoaded");
+      setStatusDetail(payload.set_id);
+    } catch (caught) {
+      setError(String(caught));
+      setStatusKey("status.reportUnavailable");
+      setStatusDetail("");
+    }
+  }
+
+  async function approveCandidateGuardPack() {
+    const guardPack = formalExperiment?.candidate_guard_pack;
+    if (!guardPack) {
+      setError("No candidate guard pack available. Run a formal security cycle first.");
+      return;
+    }
+    try {
+      const payload = await postJson("/guard-packs/approve-activate", {
+        guard_pack: guardPack,
+        approved_by: "dashboard",
+        approval_note: "Approved from mature loop panel.",
+        regression_payloads: feedbackView?.nextRoundPayloads ?? [],
+      });
+      setGuardPackActivation(payload);
+      setStatusKey("status.reportLoaded");
+      setStatusDetail(`rules ${payload.rule_count}`);
+    } catch (caught) {
+      setError(String(caught));
+      setStatusKey("status.reportUnavailable");
+      setStatusDetail("");
     }
   }
 
@@ -459,6 +664,7 @@ export default function App() {
     loadHealth();
     loadAutoDLModelStatus({ quiet: true });
     loadReports({ quiet: true });
+    loadRagCollections({ quiet: true });
   }, []);
 
   return (
@@ -558,9 +764,15 @@ export default function App() {
               runEval={runEval}
               runPairedEval={runPairedEval}
               runFormalExperiment={runFormalExperiment}
+              startFormalExperimentJob={startFormalExperimentJob}
+              refreshSecurityCycleJob={refreshSecurityCycleJob}
+              cancelSecurityCycleJob={cancelSecurityCycleJob}
               runModelMatrix={runModelMatrix}
+              runGuardEngineMatrix={runGuardEngineMatrix}
               formalExperiment={formalExperiment}
               modelMatrixRows={modelMatrixRows}
+              guardEngineMatrixRows={guardEngineMatrixRows}
+              securityCycleJob={securityCycleJobView}
               runRows={runRows}
               setReportId={setReportId}
               setActivePage={setActivePage}
@@ -578,12 +790,19 @@ export default function App() {
               reportList={reportList}
               experimentReport={experimentReport}
               defenseFeedback={feedbackView}
+              graphRun={graphRunView}
               autodlModelStatus={autodlModelStatus}
               activeModelName={activeModelName}
               loadReport={loadReport}
               loadReports={loadReports}
               generateExperimentReport={generateExperimentReport}
               loadDefenseFeedback={loadDefenseFeedback}
+              runBenignPreview={runBenignPreview}
+              createRegressionSetFromFeedback={createRegressionSetFromFeedback}
+              approveCandidateGuardPack={approveCandidateGuardPack}
+              benignPreview={benignPreview}
+              regressionSet={regressionSet}
+              guardPackActivation={guardPackActivation}
               t={t}
             />
           )}
@@ -596,6 +815,9 @@ export default function App() {
               switchingModel={switchingModel}
               loadAutoDLModelStatus={loadAutoDLModelStatus}
               switchAutoDLModel={switchAutoDLModel}
+              ragCollectionRows={ragCollectionRows}
+              loadRagCollections={loadRagCollections}
+              deleteRagCollection={deleteRagCollection}
               t={t}
             />
           )}
@@ -772,9 +994,15 @@ function EvaluationPage({
   runEval,
   runPairedEval,
   runFormalExperiment,
+  startFormalExperimentJob,
+  refreshSecurityCycleJob,
+  cancelSecurityCycleJob,
   runModelMatrix,
+  runGuardEngineMatrix,
   formalExperiment,
   modelMatrixRows,
+  guardEngineMatrixRows,
+  securityCycleJob,
   runRows,
   setReportId,
   setActivePage,
@@ -800,9 +1028,17 @@ function EvaluationPage({
                 <FileText size={15} />
                 {t("eval.formalRun")}
               </button>
+              <button className="secondaryButton" onClick={startFormalExperimentJob} type="button">
+                <Terminal size={15} />
+                Job
+              </button>
               <button className="secondaryButton" onClick={runModelMatrix} type="button">
                 <BarChart3 size={15} />
                 {t("eval.modelMatrix")}
+              </button>
+              <button className="secondaryButton" onClick={runGuardEngineMatrix} type="button">
+                <Shield size={15} />
+                Guard Matrix
               </button>
             </div>
           }
@@ -863,6 +1099,30 @@ function EvaluationPage({
             </p>
           </div>
         ) : null}
+        {securityCycleJob ? (
+          <div className="summaryList">
+            <p>Job: {securityCycleJob.jobId} · {securityCycleJob.status}</p>
+            <p>Cancel requested: {securityCycleJob.cancelRequested ? "yes" : "no"}</p>
+            {securityCycleJob.experimentId ? (
+              <p>
+                Result: {securityCycleJob.experimentId} · ASR {formatPercent(securityCycleJob.beforeAsr)}
+                {" -> "}
+                {formatPercent(securityCycleJob.afterAsr)}
+              </p>
+            ) : null}
+            {securityCycleJob.error ? <p>{securityCycleJob.error}</p> : null}
+            <div className="buttonCluster">
+              <button className="secondaryButton" onClick={refreshSecurityCycleJob} type="button">
+                <RefreshCw size={15} />
+                Refresh Job
+              </button>
+              <button className="secondaryButton" onClick={cancelSecurityCycleJob} type="button">
+                <Lock size={15} />
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       {modelMatrixRows.length ? (
@@ -891,6 +1151,40 @@ function EvaluationPage({
                     <td>{row.totalFailed}</td>
                     <td>{row.failureType}</td>
                     <td>{row.avgLatency}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {guardEngineMatrixRows.length ? (
+        <section className="panel">
+          <SectionHeader eyebrow="Guard Engine Matrix" title="Custom / NeMo Comparison" />
+          <div className="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Engine</th>
+                  <th>{t("eval.beforeAsr")}</th>
+                  <th>{t("eval.afterAsr")}</th>
+                  <th>{t("eval.reduction")}</th>
+                  <th>{t("attack.failures")}</th>
+                  <th>Fallback</th>
+                  <th>{t("eval.topFailureType")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {guardEngineMatrixRows.map((row) => (
+                  <tr key={row.guardEngine}>
+                    <td>{row.guardEngine}</td>
+                    <td>{row.before}</td>
+                    <td>{row.after}</td>
+                    <td>{row.reduction}</td>
+                    <td>{row.totalFailed}</td>
+                    <td>{row.fallbackUsed ? "yes" : "no"}</td>
+                    <td>{row.topFailureType}</td>
                   </tr>
                 ))}
               </tbody>
@@ -990,12 +1284,19 @@ function ReportsPage({
   reportList,
   experimentReport,
   defenseFeedback,
+  graphRun,
   autodlModelStatus,
   activeModelName,
   loadReport,
   loadReports,
   generateExperimentReport,
   loadDefenseFeedback,
+  runBenignPreview,
+  createRegressionSetFromFeedback,
+  approveCandidateGuardPack,
+  benignPreview,
+  regressionSet,
+  guardPackActivation,
   t,
 }) {
   const currentReport = reportResponse ?? evalRun ?? { run: activeRun, report_dir: "", files: {} };
@@ -1065,6 +1366,49 @@ function ReportsPage({
       </div>
 
       <div className="panel">
+        <SectionHeader
+          eyebrow="Mature Loop"
+          title="Approve, Preview, Regression, Retest"
+          action={
+            <div className="buttonCluster">
+              <button className="secondaryButton" onClick={approveCandidateGuardPack} type="button">
+                <Shield size={15} />
+                Approve Pack
+              </button>
+              <button className="secondaryButton" onClick={runBenignPreview} type="button">
+                <CheckCircle2 size={15} />
+                Benign Preview
+              </button>
+              <button className="secondaryButton" onClick={createRegressionSetFromFeedback} type="button">
+                <Database size={15} />
+                Regression Set
+              </button>
+            </div>
+          }
+        />
+        <div className="summaryList">
+          <p>Candidate pack: {guardPackActivation ? `${guardPackActivation.rule_count} rules active` : "waiting for approval"}</p>
+          <p>
+            Benign preview:{" "}
+            {benignPreview
+              ? `${benignPreview.false_positives}/${benignPreview.total_payloads} false positives (${formatPercent(benignPreview.false_positive_rate)})`
+              : "not run"}
+          </p>
+          <p>Regression set: {regressionSet?.set_id ?? "not created"}</p>
+          <p>Next payloads: {defenseFeedback?.nextRoundPayloads?.length ?? 0}</p>
+        </div>
+        {guardPackActivation?.regression_preview ? (
+          <div className="summaryList">
+            <p>
+              Regression preview blocked {guardPackActivation.regression_preview.blocked}
+              {" / "}
+              {guardPackActivation.regression_preview.total_payloads}
+            </p>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="panel">
         <SectionHeader eyebrow={t("reports.feedback")} title={t("reports.defenseFeedback")} />
         {defenseFeedback ? (
           <div className="stackCompact">
@@ -1112,6 +1456,44 @@ function ReportsPage({
           </div>
         )}
       </div>
+
+      {graphRun ? (
+        <div className="panel">
+          <SectionHeader eyebrow="Graph Run" title="LangGraph Trace" />
+          <div className="summaryList">
+            <p>Graph ID: {graphRun.graphId}</p>
+            <p>Backend: {graphRun.backend}</p>
+            <p>Total duration: {graphRun.totalDurationMs} ms</p>
+            <p>Blocked at: {graphRun.blockedAt}</p>
+            <p>Slowest node: {graphRun.slowestNode ? `${graphRun.slowestNode.name} (${graphRun.slowestNode.durationMs} ms)` : "-"}</p>
+            <p>{graphRun.reportChain}</p>
+          </div>
+          <div className="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Node</th>
+                  <th>Duration</th>
+                  <th>Blocked</th>
+                  <th>Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {graphRun.rows.map((node) => (
+                  <tr key={`${node.index}-${node.name}`}>
+                    <td>{node.index}</td>
+                    <td>{node.name}</td>
+                    <td>{node.durationMs} ms</td>
+                    <td>{node.blocked ? "yes" : "no"}</td>
+                    <td>{node.error ?? "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1124,6 +1506,9 @@ function SettingsPage({
   switchingModel,
   loadAutoDLModelStatus,
   switchAutoDLModel,
+  ragCollectionRows,
+  loadRagCollections,
+  deleteRagCollection,
   t,
 }) {
   return (
@@ -1189,6 +1574,57 @@ function SettingsPage({
             <p>{t("settings.recoveryHint")}</p>
           </div>
         ) : null}
+      </section>
+
+      <section className="panel">
+        <SectionHeader
+          eyebrow="RAG Collections"
+          title="Source Trust Store"
+          action={
+            <button className="secondaryButton" onClick={() => loadRagCollections()} type="button">
+              <RefreshCw size={15} />
+              Refresh
+            </button>
+          }
+        />
+        <div className="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Collection</th>
+                <th>Chunks</th>
+                <th>Documents</th>
+                <th>Trusted</th>
+                <th>Quarantined</th>
+                <th>Sources</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(ragCollectionRows ?? []).map((row) => (
+                <tr key={row.name}>
+                  <td>{row.name}</td>
+                  <td>{row.chunks}</td>
+                  <td>{row.documents}</td>
+                  <td>{row.trusted}</td>
+                  <td>{row.quarantined}</td>
+                  <td>{row.sourceTypes}</td>
+                  <td>
+                    <button className="secondaryButton" onClick={() => deleteRagCollection(row.name)} type="button">
+                      <Trash2 size={15} />
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!(ragCollectionRows ?? []).length ? (
+                <tr>
+                  <td colSpan={7}>No RAG collections indexed yet.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
   );

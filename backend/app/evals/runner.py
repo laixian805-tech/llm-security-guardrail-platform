@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel
 
-from app.guardrails.pipeline import GuardMode, GuardrailPipeline
+from app.guardrails.pipeline import GuardEngine, GuardMode, GuardrailPipeline
 from app.models.provider import ModelProvider
 from app.schemas.security import AttackCategory, AttackResult, EvalRun, EvalStatus
 
@@ -159,10 +159,24 @@ class LocalEvalRunner:
         provider: ModelProvider,
         reports_dir: str | Path,
         dynamic_rules: list[dict[str, Any]] | None = None,
+        guard_engine: GuardEngine = GuardEngine.CUSTOM,
+        nemo_config_dir: str | None = None,
+        nemo_model_name: str | None = None,
+        nemo_base_url: str | None = None,
+        nemo_api_key: str | None = None,
+        nemo_fallback_engine: GuardEngine = GuardEngine.CUSTOM_NEMO,
+        nemo_fail_mode: str = "fallback",
     ) -> None:
         self.provider = provider
         self.reports_dir = Path(reports_dir)
         self.dynamic_rules = dynamic_rules or []
+        self.guard_engine = guard_engine
+        self.nemo_config_dir = nemo_config_dir
+        self.nemo_model_name = nemo_model_name or getattr(provider, "model_name", None)
+        self.nemo_base_url = nemo_base_url
+        self.nemo_api_key = nemo_api_key
+        self.nemo_fallback_engine = nemo_fallback_engine
+        self.nemo_fail_mode = nemo_fail_mode
 
     def run(
         self,
@@ -223,7 +237,17 @@ class LocalEvalRunner:
         probe_case: ProbeCase,
         guard_mode: GuardMode,
     ) -> AttackResult:
-        pipeline = GuardrailPipeline(mode=guard_mode, dynamic_rules=self.dynamic_rules)
+        pipeline = GuardrailPipeline(
+            mode=guard_mode,
+            engine=self.guard_engine,
+            dynamic_rules=self.dynamic_rules,
+            nemo_config_dir=self.nemo_config_dir,
+            nemo_model_name=self.nemo_model_name,
+            nemo_base_url=self.nemo_base_url,
+            nemo_api_key=self.nemo_api_key,
+            nemo_fallback_engine=self.nemo_fallback_engine,
+            nemo_fail_mode=self.nemo_fail_mode,
+        )
         input_result = pipeline.check_input(probe_case.prompt)
         if input_result.action.value == "block":
             return AttackResult(

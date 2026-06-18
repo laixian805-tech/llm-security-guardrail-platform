@@ -203,6 +203,10 @@ class ToolGateway:
             if re.search(pattern, combined_args, re.I):
                 return f"Blocked dangerous argument pattern: {pattern}."
 
+        schema_reason = _validate_json_schema_subset(manifest.parameters, args)
+        if schema_reason is not None:
+            return schema_reason
+
         if manifest.name == "search_kb" and int(args.get("limit", 1)) > 5:
             return "Argument 'limit' exceeds maximum allowed value 5."
 
@@ -212,3 +216,45 @@ class ToolGateway:
                 return "Calculator expression contains non-arithmetic characters."
 
         return None
+
+
+def _validate_json_schema_subset(schema: dict[str, Any], args: dict[str, Any]) -> str | None:
+    properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+    for name, spec in properties.items():
+        if name not in args or not isinstance(spec, dict):
+            continue
+        value = args[name]
+        expected_type = spec.get("type")
+        if expected_type and not _matches_type(value, str(expected_type)):
+            return f"Argument '{name}' must be {expected_type}."
+        enum_values = spec.get("enum")
+        if isinstance(enum_values, list) and value not in enum_values:
+            return f"Argument '{name}' must be one of: {', '.join(str(item) for item in enum_values)}."
+        if isinstance(value, str):
+            max_length = spec.get("maxLength")
+            if max_length is not None and len(value) > int(max_length):
+                return f"Argument '{name}' exceeds maximum length {max_length}."
+        if isinstance(value, int | float):
+            minimum = spec.get("minimum")
+            maximum = spec.get("maximum")
+            if minimum is not None and value < float(minimum):
+                return f"Argument '{name}' is below minimum value {minimum}."
+            if maximum is not None and value > float(maximum):
+                return f"Argument '{name}' exceeds maximum value {maximum}."
+    return None
+
+
+def _matches_type(value: Any, expected_type: str) -> bool:
+    if expected_type == "string":
+        return isinstance(value, str)
+    if expected_type == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected_type == "number":
+        return isinstance(value, int | float) and not isinstance(value, bool)
+    if expected_type == "boolean":
+        return isinstance(value, bool)
+    if expected_type == "object":
+        return isinstance(value, dict)
+    if expected_type == "array":
+        return isinstance(value, list)
+    return True

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import time
-from typing import Protocol
+import re
+from typing import Any, Protocol
 
 import httpx
 from pydantic import BaseModel
@@ -86,7 +87,7 @@ class OllamaModelProvider:
         )
         response.raise_for_status()
         payload = response.json()
-        content = payload.get("message", {}).get("content", "")
+        content = sanitize_model_output(payload.get("message", {}).get("content", ""))
         return ModelResponse(
             content=content,
             model=self.model_name,
@@ -121,6 +122,8 @@ class OpenAICompatibleModelProvider:
             "temperature": 0 if temperature is None else temperature,
             "stream": False,
         }
+        if "qwen" in self.model_name.lower():
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
         response = httpx.post(
@@ -134,7 +137,8 @@ class OpenAICompatibleModelProvider:
         choices = payload.get("choices", [])
         content = ""
         if choices:
-            content = choices[0].get("message", {}).get("content", "")
+            message = choices[0].get("message", {})
+            content = sanitize_model_output(message.get("content", ""), message=message)
         return ModelResponse(
             content=content,
             model=str(payload.get("model") or self.model_name),
@@ -151,3 +155,18 @@ def _last_user_message(messages: list[dict[str, str]]) -> str:
 
 def _elapsed_ms(started: float) -> int:
     return max(0, int((time.perf_counter() - started) * 1000))
+
+
+def sanitize_model_output(content: str, *, message: dict[str, Any] | None = None) -> str:
+    """Remove model reasoning traces before content reaches APIs or reports."""
+    text = str(content or "")
+    reasoning = ""
+    if message:
+        reasoning = str(message.get("reasoning_content") or "")
+    if reasoning and text.startswith(reasoning):
+        text = text[len(reasoning) :]
+    text = re.sub(r"(?is)<think>.*?</think>", "", text)
+    stripped = text.lstrip()
+    if stripped.lower().startswith("<think>"):
+        return "I cannot provide a final answer from that response."
+    return stripped.strip()

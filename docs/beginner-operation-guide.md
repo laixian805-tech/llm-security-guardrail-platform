@@ -52,7 +52,7 @@ flowchart LR
 | 后端服务 | 提供评测、RAG、报告 API | `GET /health` 返回 `status: ok` |
 | AutoDL 模型 | 当前推理后端 | `/health` 中 `model_provider` 为 `autodl` |
 
-普通 API、LangGraph 编排、RAG demo、防御包预览和单元测试不需要 AutoDL 在线；只有真实 `qwen3:8b`/`mistral-7b` 推理、正式 `formal-run`/`security-cycle`、Garak 或 Promptfoo 评测才需要 AutoDL。
+普通 API、LangGraph 编排、RAG demo、防御包预览和单元测试不需要 AutoDL 在线；只有真实 `qwen3:8b`/`mistral-7b` 推理、正式 `formal-run`/`security-cycle`、Garak 或 Promptfoo 评测才需要 AutoDL。NeMo Guardrails runtime 运行在腾讯云后端进程内：确定性 NeMo rails 不需要 AutoDL，`self check input/output` 模型自检会通过 OpenAI-compatible endpoint 调用 AutoDL。
 
 ### 第一次检查服务
 
@@ -69,9 +69,20 @@ Invoke-RestMethod -Uri "http://43.139.77.64:8000/health"
   "status": "ok",
   "model_provider": "autodl",
   "model_name": "qwen3:8b",
-  "inference_base_url": "http://127.0.0.1:18000/v1"
+  "inference_base_url": "http://127.0.0.1:18000/v1",
+  "guard_engine": "nemo",
+  "nemo_runtime_available": true,
+  "nemo_fallback_engine": "custom_nemo"
 }
 ```
+
+再看护栏 runtime 详情：
+
+```powershell
+Invoke-RestMethod -Uri "http://43.139.77.64:8000/guardrails/status"
+```
+
+正常应看到 `nemo_runtime_available=true` 和 `nemo_config_loaded=true`。如果这里是 `false`，说明 NeMo 配置或依赖异常，当前只是在走 `custom_nemo` 降级链路，需要先修后端环境再把它写进简历或展示。
 
 > ⚠️ **注意:** 不要把 SSH 密码、AutoDL 密钥、私钥路径写进报告或截图。展示时只展示模型状态和运行结果。
 

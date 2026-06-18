@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.evals.runner import EvalArtifacts
-from app.guardrails.pipeline import GuardMode
+from app.guardrails.pipeline import GuardEngine, GuardMode
 from app.schemas.security import AttackCategory, AttackResult, EvalRun, EvalStatus
 
 _LOCAL_TO_GARAK_PROBES: dict[str, tuple[str, ...]] = {
@@ -67,6 +67,7 @@ class GarakEvalRunner:
         *,
         probes: list[str],
         guard_mode: GuardMode,
+        guard_engine: GuardEngine | None = None,
         run_id: str | None = None,
         garak_probe_spec: str | None = None,
         garak_detector_spec: str | None = None,
@@ -81,7 +82,7 @@ class GarakEvalRunner:
         probe_spec = garak_probe_spec or self._resolve_probe_spec(probes)
         report_prefix = run_dir / "garak"
         config_path = run_dir / "garak-config.json"
-        config_payload = self._build_config(guard_mode=guard_mode, report_dir=run_dir)
+        config_payload = self._build_config(guard_mode=guard_mode, guard_engine=guard_engine, report_dir=run_dir)
         config_path.write_text(
             json.dumps(config_payload, ensure_ascii=True, indent=2),
             encoding="utf-8",
@@ -190,7 +191,10 @@ class GarakEvalRunner:
             files=files,
         )
 
-    def _build_config(self, *, guard_mode: GuardMode, report_dir: Path) -> dict:
+    def _build_config(self, *, guard_mode: GuardMode, guard_engine: GuardEngine | None, report_dir: Path) -> dict:
+        extra_body = {"guard_mode": guard_mode.value}
+        if guard_engine is not None:
+            extra_body["guard_engine"] = guard_engine.value
         return {
             "system": {
                 "lite": True,
@@ -212,9 +216,7 @@ class GarakEvalRunner:
                             "uri": f"{self.service_base_url}/v1/",
                             "temperature": 0.0,
                             "retry_json": True,
-                            "extra_params": {
-                                "extra_body": {"guard_mode": guard_mode.value}
-                            },
+                            "extra_params": {"extra_body": extra_body},
                         }
                     }
                 }

@@ -154,12 +154,26 @@ def _record_node(
         "metadata": {
             "canonical_node": spec.name,
             "public_node": public_name,
+            **_guard_metadata(state),
         },
     }
     graph_run.setdefault("nodes", []).append(node_record)
     if (blocked or error) and graph_run.get("blocked_at") is None:
         graph_run["blocked_at"] = public_name
     state["graph_run"] = graph_run
+
+
+def _guard_metadata(state: dict[str, Any]) -> dict[str, Any]:
+    pipeline = state.get("pipeline")
+    if pipeline is not None and hasattr(pipeline, "runtime_metadata"):
+        try:
+            return dict(pipeline.runtime_metadata())
+        except Exception:
+            return {}
+    guard_engine = state.get("guard_engine")
+    if guard_engine:
+        return {"guard_engine": guard_engine}
+    return {}
 
 
 def _summarize_state(state: dict[str, Any]) -> dict[str, Any]:

@@ -1,4 +1,4 @@
-from app.models.provider import StubModelProvider
+from app.models.provider import StubModelProvider, sanitize_model_output
 
 
 def test_stub_provider_returns_deterministic_response() -> None:
@@ -14,8 +14,6 @@ def test_stub_provider_returns_deterministic_response() -> None:
     assert response.model == "stub-security-model"
     assert response.content == "Stub response: Summarize the handbook."
     assert response.latency_ms >= 0
-
-
 
 def test_openai_compatible_provider_posts_chat_completion(monkeypatch) -> None:
     import httpx
@@ -56,6 +54,7 @@ def test_openai_compatible_provider_posts_chat_completion(monkeypatch) -> None:
     assert captured["url"] == "https://autodl.example.com/v1/chat/completions"
     assert captured["json"]["model"] == "qwen3:8b"
     assert captured["json"]["messages"] == [{"role": "user", "content": "hello"}]
+    assert captured["json"]["chat_template_kwargs"] == {"enable_thinking": False}
     assert captured["json"]["max_tokens"] == 16
     assert captured["json"]["temperature"] == 0.2
     assert captured["headers"]["Authorization"] == "Bearer secret-token"
@@ -78,3 +77,15 @@ def test_build_model_provider_accepts_autodl_alias() -> None:
     provider = build_model_provider(settings)
 
     assert isinstance(provider, OpenAICompatibleModelProvider)
+
+
+def test_sanitize_model_output_removes_reasoning_blocks() -> None:
+    assert sanitize_model_output("<think>private reasoning</think>\nFinal answer.") == "Final answer."
+    assert sanitize_model_output("<think>\npartial reasoning") == "I cannot provide a final answer from that response."
+    assert (
+        sanitize_model_output(
+            "visible answer",
+            message={"reasoning_content": "hidden chain of thought"},
+        )
+        == "visible answer"
+    )

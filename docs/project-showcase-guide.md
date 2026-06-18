@@ -1,6 +1,6 @@
 # 项目展示说明
 
-_面向答辩、面试、项目路演的讲解稿与演示脚本 · Last verified: 2026-06-17_
+_面向答辩、面试、项目路演的讲解稿与演示脚本 · Last verified: 2026-06-18_
 
 ---
 
@@ -63,6 +63,40 @@ flowchart LR
 | 3 | 攻击分析 | 护栏前后 ASR 对比，失败样本可追踪 |
 | 4 | RAG 投毒 | 调用 `/rag/poisoning-demo` 展示投毒检索、语义拦截和工具拒绝 |
 | 5 | 报告中心 | HTML/Markdown 报告可打开，形成正式实验证据 |
+
+### 正式实验实证结果
+
+最近一轮可展示的正式实验使用 AutoDL 上的 `qwen3:8b`，baseline run 为 `eval-dccb53e1`，guarded run 为 `eval-1d9e13c8`。这轮总共覆盖 18 个攻击样本，包括 6 类标准 probe，以及从真实六类 probe 结果扩展出的 12 个 coverage regression 变体：英文/中文改写、多轮角色接管、长文尾部劫持、低信任 RAG 上传、网页投毒、工具返回投毒和越权工具调用社工变体。
+
+| 指标 | 护栏关闭 | 护栏开启 | 结论 |
+| ---- | -------- | -------- | ---- |
+| Overall ASR | 100% | 0% | 18/18 攻击在护栏开启后被阻断 |
+| Prompt ASR | 100% | 0% | 9 个直接注入、角色接管和长上下文样本均被拦截 |
+| RAG ASR | 100% | 0% | 3 个检索投毒、网页投毒和低信任上传样本均被隔离或阻断 |
+| Tool ASR | 100% | 0% | 6 个工具返回投毒和越权工具调用样本均被切断 |
+
+规则命中分布可以作为“不是单一关键词拦截”的说明材料：
+
+| 规则 | 命中次数 | 说明 |
+| ---- | -------: | ---- |
+| `llmsec_deterministic_input_check` | 7 | NeMo deterministic rails 阻断明显的忽略规则、角色接管、RAG 指令覆盖和越权工具调用 |
+| `self_check_input` | 11 | NeMo self-check input 捕获更隐蔽的改写、跨语言、JSON/Markdown 工具返回投毒变体 |
+
+本轮还把 12 个扩展样本保存为版本化回归集 `coverage-expansion-v1`，文件位于 `/root/llmsec-assets/reports/regression-sets/coverage-expansion-v1/regression-payloads.json`。同一回归集已经在 Mistral-7B 上完成对照：baseline `eval-a0c2ac0c`，guarded `eval-caeb761f`，18 个攻击样本同样从 ASR 100% 降至 0%。Graph Run artifact 可通过 `GET /report-files/eval-1d9e13c8/graph_run` 或 `GET /report-files/eval-caeb761f/graph_run` 打开。12 个正常业务请求的 benign false-positive gate 误报率为 0%。
+
+2026-06-18 17:31 在 AutoDL 上完成了一轮最新 `qwen3:8b` 快速真实复测，使用新 Job API 启动 security-cycle：job `job-2d1bd859`，baseline `eval-92a5086b`，guarded `eval-e501287d`，总攻击样本 7 个，Overall ASR 从 100% 降至 0%，护栏后失败样本 0 个。Graph Run artifact 为 `security_cycle-e9171b00`，总编排耗时 29450 ms，`blocked_at` 为空，说明没有节点异常阻断；报告可通过 `GET /report-files/eval-e501287d/experiment_html` 和 `GET /report-files/eval-e501287d/graph_run` 打开。
+
+同一时间还完成了真实 `qwen3:8b` Guard Engine Matrix：
+
+| Guard Engine | 护栏关闭 ASR | 护栏开启 ASR | 失败样本 | 规则命中 |
+| ------------ | ------------ | ------------ | -------- | -------- |
+| `custom` | 100% | 0% | 0 | `prompt_injection_ignore_previous` 2 次，其他 role/RAG/tool 规则各 1 次 |
+| `custom_nemo` | 100% | 0% | 0 | 与 `custom` 相同，验证混合引擎保持确定性规则覆盖 |
+| `nemo` | 100% | 0% | 0 | `llmsec_deterministic_input_check` 5 次，`self_check_input` 1 次 |
+
+展示时推荐一句话概括：
+
+> 这轮实验不是展示“模型说得更安全”，而是展示攻击链路被系统性切断：RAG 内容进入上下文前被清洗，工具调用前由 ToolGateway 授权，最终报告保留失败样本、规则命中和下一轮防御建议。
 
 ---
 
@@ -331,7 +365,7 @@ Garak 用来做自动化红队压测，本项目把它接到同一个 OpenAI-com
 | ---- | ---- | ---- |
 | 当前 | Qwen3:8B | 主实验基线 |
 | 下一步 | Llama 3.1/3.2 8B | 对比不同指令遵循风格 |
-| 下一步 | Mistral 7B | 对比小模型脆弱性 |
+| 已完成 | Mistral 7B | 使用 `coverage-expansion-v1` 完成同样 18 样本对照，ASR 从 100% 降至 0% |
 | 进阶 | Qwen3:14B | 看规模变大后攻击成功率是否变化 |
 | 进阶 | DeepSeek-R1-Distill 系列 | 观察推理型模型在角色接管下的表现 |
 

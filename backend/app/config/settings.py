@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     openai_base_url: str = "http://127.0.0.1:8000/v1"
     openai_api_key: str = "dummy"
     openai_model: str = "qwen3:8b"
+    guard_engine: str = "nemo"
+    nemo_config_dir: str = ""
+    nemo_fallback_engine: str = "custom_nemo"
+    nemo_fail_mode: str = "fallback"
     garak_timeout_seconds: int = 900
     chroma_persist_directory: str = "/home/tlx/llmsec-assets/chroma"
     reports_dir: str = "/home/tlx/llmsec-assets/reports"

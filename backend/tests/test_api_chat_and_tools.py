@@ -18,7 +18,9 @@ def test_chat_blocks_prompt_injection() -> None:
     payload = response.json()
     assert payload["blocked"] is True
     assert payload["response"] == "I cannot comply with that request."
-    assert payload["guard_results"][0]["rule_name"] == "prompt_injection_ignore_previous"
+    assert payload["guard_results"][0]["rule_name"] == "llmsec_deterministic_input_check"
+    assert payload["guard_results"][0]["metadata"]["guard_engine"] == "nemo"
+    assert payload["guard_results"][0]["metadata"]["fallback_used"] is False
     assert payload["security_report"]["guardrail_blocks"] == 1
 
 

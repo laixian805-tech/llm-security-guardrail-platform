@@ -35,6 +35,15 @@ class RetrievalResult(BaseModel):
     audit: RAGAuditRecord
 
 
+class RAGCollectionSummary(BaseModel):
+    collection: str
+    documents: int
+    chunks: int
+    source_types: dict[str, int] = Field(default_factory=dict)
+    trust_levels: dict[str, int] = Field(default_factory=dict)
+    poison_labels: dict[str, int] = Field(default_factory=dict)
+
+
 class InMemoryRAGService:
     def __init__(self) -> None:
         self._chunks: list[DocumentChunk] = []
@@ -111,6 +120,48 @@ class InMemoryRAGService:
                 action="allow",
             ),
         )
+
+    def collection_summaries(self) -> list[RAGCollectionSummary]:
+        collections: dict[str, dict[str, Any]] = {}
+        for chunk in self._chunks:
+            metadata = dict(chunk.metadata)
+            _apply_default_collection_metadata(metadata)
+            collection = str(metadata.get("collection") or "default")
+            bucket = collections.setdefault(
+                collection,
+                {
+                    "documents": set(),
+                    "chunks": 0,
+                    "source_types": {},
+                    "trust_levels": {},
+                    "poison_labels": {},
+                },
+            )
+            bucket["documents"].add(chunk.document_id)
+            bucket["chunks"] += 1
+            _increment(bucket["source_types"], str(metadata.get("source_type") or "manual"))
+            _increment(bucket["trust_levels"], str(metadata.get("trust_level") or "standard"))
+            _increment(bucket["poison_labels"], str(metadata.get("poison_label") or "unknown"))
+        return [
+            RAGCollectionSummary(
+                collection=collection,
+                documents=len(values["documents"]),
+                chunks=values["chunks"],
+                source_types=values["source_types"],
+                trust_levels=values["trust_levels"],
+                poison_labels=values["poison_labels"],
+            )
+            for collection, values in sorted(collections.items())
+        ]
+
+    def delete_collection(self, collection: str) -> int:
+        before = len(self._chunks)
+        self._chunks = [
+            chunk
+            for chunk in self._chunks
+            if str(chunk.metadata.get("collection") or "default") != collection
+        ]
+        return before - len(self._chunks)
 
     def _score_chunk(self, query: str, chunk: DocumentChunk) -> RetrievedChunk:
         score = self._score(query, chunk.text)
@@ -218,6 +269,12 @@ class PersistentHybridRAGService(InMemoryRAGService):
         self._save()
         return chunks
 
+    def delete_collection(self, collection: str) -> int:
+        removed = super().delete_collection(collection)
+        if removed:
+            self._save()
+        return removed
+
     def _score_chunk(self, query: str, chunk: DocumentChunk) -> RetrievedChunk:
         keyword_score = self._keyword_score(query, chunk.text)
         dense_score = self._dense_overlap_score(query, chunk.text)
@@ -294,3 +351,7 @@ def _apply_default_collection_metadata(metadata: dict[str, Any]) -> None:
     metadata.setdefault("source_type", "manual")
     metadata.setdefault("trust_level", "standard")
     metadata.setdefault("poison_label", "unknown")
+
+
+def _increment(counts: dict[str, int], key: str) -> None:
+    counts[key] = counts.get(key, 0) + 1

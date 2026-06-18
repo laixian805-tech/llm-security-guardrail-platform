@@ -48,9 +48,14 @@ def test_build_experiment_report_contains_metrics_failures_and_next_steps() -> N
     assert "100%" in report.markdown
     assert "After ASR" in report.markdown
     assert "0%" in report.markdown
+    assert "Top Failed Samples" in report.markdown
+    assert "Rule Hit Distribution" in report.markdown
+    assert "prompt_injection_ignore_previous" in report.markdown
+    assert "Report Chain" in report.markdown
     assert "direct_injection" in report.markdown
     assert "Next Defense Iteration" in report.markdown
     assert "<h1>LLM Security Guardrail Experiment Report</h1>" in report.html
+    assert "<h2>Rule Hit Distribution</h2>" in report.html
     assert "<table>" in report.html
 
 
@@ -106,3 +111,20 @@ def test_build_experiment_report_includes_graph_run_summary() -> None:
     assert "security_cycle-test" in report.markdown
     assert "tool_output_guard" in report.markdown
     assert "<h2>Graph Run</h2>" in report.html
+
+
+def test_build_experiment_report_ranks_top_failed_samples_and_rule_hits() -> None:
+    baseline = make_run("baseline-top", guard_mode="off", blocked=False)
+    guarded = make_run("guarded-top", guard_mode="on", blocked=False)
+
+    report = build_experiment_report(
+        baseline=baseline,
+        guarded=guarded,
+        model_name="qwen3:8b",
+        provider="autodl",
+        inference_base_url="http://127.0.0.1:18000/v1",
+    )
+
+    assert "| 1 | direct_injection | injection | ignore_previous |" in report.markdown
+    assert "No guardrail rule hits were recorded." in report.markdown
+    assert "<h2>Top Failed Samples</h2>" in report.html

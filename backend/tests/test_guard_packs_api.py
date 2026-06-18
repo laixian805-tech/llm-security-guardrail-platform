@@ -122,3 +122,45 @@ def test_guard_pack_activate_rejects_invalid_regex(monkeypatch, tmp_path) -> Non
 
     assert response.status_code == 400
     assert "errors" in response.json()["detail"]
+
+
+def test_guard_pack_approve_activate_records_approval_and_runs_regression_preview(monkeypatch, tmp_path) -> None:
+    from app.api import main
+
+    monkeypatch.setattr(
+        main,
+        "get_settings",
+        lambda: main.Settings(
+            assets_root=str(tmp_path / "assets"),
+            reports_dir=str(tmp_path / "reports"),
+            chroma_persist_directory=str(tmp_path / "chroma"),
+            model_provider="stub",
+        ),
+    )
+    client = TestClient(main.create_app())
+
+    response = client.post(
+        "/guard-packs/approve-activate",
+        json={
+            "approved_by": "security-reviewer",
+            "approval_note": "Reviewed candidate rule.",
+            "guard_pack": {
+                "rule_templates": [
+                    {
+                        "rule_name": "approved_custom_rule",
+                        "stage": "pre_input",
+                        "pattern": r"\bapproved-block-token\b",
+                        "reason": "Block approved token.",
+                    }
+                ],
+            },
+            "regression_payloads": [{"payload": "approved-block-token"}],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["active"] is True
+    assert payload["approved_by"] == "security-reviewer"
+    assert payload["guard_pack"]["approved_by"] == "security-reviewer"
+    assert payload["regression_preview"]["blocked"] == 1
