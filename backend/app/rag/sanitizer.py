@@ -68,7 +68,7 @@ def sanitize_retrieved_context(
                 },
             )
         elif low_trust:
-            guard_result = pipeline.check_input(chunk.text)
+            guard_result = pipeline.check_input(chunk.text, surface="rag", context={"source_trust": metadata.get("trust_level") or "low"})
         else:
             guard_result = GuardResult(
                 stage=GuardStage.PRE_INPUT,
@@ -106,7 +106,7 @@ def sanitize_retrieved_context(
 
     if first_guard_result is None:
         joined_context = "\n".join(chunk.text for chunk in chunks)
-        first_guard_result = pipeline.check_input(joined_context)
+        first_guard_result = pipeline.check_input(joined_context, surface="rag")
 
     sanitized_context = "\n".join(context_parts).strip()
     if isolated_chunks:

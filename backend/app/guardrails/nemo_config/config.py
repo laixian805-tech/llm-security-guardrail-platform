@@ -6,16 +6,7 @@ from typing import Optional
 from nemoguardrails import LLMRails
 from nemoguardrails.actions import action
 
-
-_INPUT_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\bignore\s+(all\s+)?previous\s+instructions?\b", re.I),
-    re.compile(r"\b(repeat|reveal|print|show)\b.*\b(system|hidden|developer)\s+prompt\b", re.I),
-    re.compile(r"\b(from now on|you are now|act as|pretend to be)\b.{0,120}\b(system\s+developer|developer|admin(?:istrator)?|auditor)\b", re.I),
-    re.compile(r"\bdisable\s+safety\s+rules?\b|\bdisable\s+all\s+guardrails?\b", re.I),
-    re.compile(r"\b(retrieved|knowledge\s+base|document|context|chunk|web\s+page)\b.{0,160}\b(ignore|override|export|use\s+the\s+retrieved\s+instruction)\b", re.I),
-    re.compile(r"\b(call|use|run)\b.{0,80}\b(export_internal_reports|export_data|admin\s+export)\b.{0,120}\b(role\s*=\s*admin|bypass|authorization|auth|public)\b", re.I),
-    re.compile(r"\b(add|generate|create|write|provide)\b.{0,80}\b(paraphrase(?:d)?|multi-turn|translated|translation)\b.{0,120}\b(variants?|probes?|payloads?|attack\s+set)\b", re.I),
-)
+from app.guardrails.policy import decide_input_policy
 
 _OUTPUT_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bsystem\s+prompt\s*:", re.I),
@@ -35,7 +26,7 @@ def _text_from_context(context: Optional[dict], key: str) -> str:
 @action(is_system_action=True)
 async def llmsec_check_input(context: Optional[dict] = None, **_: object) -> bool:
     text = _text_from_context(context, "user_message")
-    return not any(pattern.search(text) for pattern in _INPUT_PATTERNS)
+    return decide_input_policy(text).action != "block"
 
 
 @action(is_system_action=True)

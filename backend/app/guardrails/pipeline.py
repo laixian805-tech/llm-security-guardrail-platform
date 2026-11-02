@@ -5,6 +5,8 @@ from enum import Enum
 from typing import Any
 
 from app.guardrails.nemo_runtime import default_nemo_config_dir, get_nemo_runtime, nemo_runtime_status
+from app.guardrails.policy import PolicyDecision, decide_input_policy
+from app.guardrails.risk import enrich_policy_with_risk
 from app.schemas.security import GuardAction, GuardResult, GuardStage
 
 
@@ -271,17 +273,50 @@ class GuardrailPipeline:
         self.nemo_fail_mode = nemo_fail_mode
         self._last_runtime_metadata: dict[str, Any] = {}
 
-    def check_input(self, text: str) -> GuardResult:
+    def check_input(self, text: str, *, surface: str = "prompt", context: dict[str, Any] | None = None) -> GuardResult:
         if self.mode == GuardMode.OFF:
             return self._guard_off_result(GuardStage.PRE_INPUT)
+        policy = enrich_policy_with_risk(decide_input_policy(text), text, surface=surface, context=context)
+        policy_engines_checked = self._policy_engines_checked()
+        if policy.action == "block":
+            return self._policy_result(
+                GuardStage.PRE_INPUT,
+                policy,
+                engine=self.engine,
+                engines_checked=policy_engines_checked,
+            )
+        if policy.action == "audit":
+            result = self._policy_result(
+                GuardStage.PRE_INPUT,
+                policy,
+                engine=self.engine,
+                engines_checked=policy_engines_checked,
+            )
+            return result
+        if policy.action == "allow" and policy.intent in {
+            "benign_security_education",
+            "benign_rag_query",
+            "benign_low_risk_tool_request",
+        }:
+            result = self._policy_result(
+                GuardStage.PRE_INPUT,
+                policy,
+                engine=self.engine,
+                engines_checked=policy_engines_checked,
+            )
+            return self._attach_policy(
+                self._with_dynamic_fallback(GuardStage.PRE_INPUT, text, result),
+                policy,
+            )
         if self.engine == GuardEngine.NEMO:
-            return self._check_nemo_first(
+            result = self._check_nemo_first(
                 stage=GuardStage.PRE_INPUT,
                 text=text,
                 primary_rules=self._NEMO_INPUT_RULES,
             )
+            return self._attach_policy(result, policy)
         if self.engine == GuardEngine.CUSTOM_NEMO:
-            return self._check_custom_nemo_input(text)
+            return self._attach_policy(self._check_custom_nemo_input(text), policy)
         result = self._check_rules(
             GuardStage.PRE_INPUT,
             text,
@@ -290,7 +325,7 @@ class GuardrailPipeline:
             engines_checked=[GuardEngine.CUSTOM.value],
         )
         result = self._with_semantic_fallback(GuardStage.PRE_INPUT, text, result)
-        return self._with_dynamic_fallback(GuardStage.PRE_INPUT, text, result)
+        return self._attach_policy(self._with_dynamic_fallback(GuardStage.PRE_INPUT, text, result), policy)
 
     def check_output(self, text: str) -> GuardResult:
         if self.mode == GuardMode.OFF:
@@ -473,6 +508,51 @@ class GuardrailPipeline:
     def _with_runtime_metadata(self, result: GuardResult) -> GuardResult:
         metadata = {**result.metadata, **self._last_runtime_metadata}
         return result.model_copy(update={"metadata": metadata})
+
+    def _policy_result(
+        self,
+        stage: GuardStage,
+        policy: PolicyDecision,
+        *,
+        engine: GuardEngine,
+        engines_checked: list[str],
+    ) -> GuardResult:
+        if policy.action == "block":
+            action = GuardAction.AUDIT if self.mode == GuardMode.AUDIT else GuardAction.BLOCK
+            triggered = True
+        elif policy.action == "audit":
+            action = GuardAction.AUDIT
+            triggered = True
+        else:
+            action = GuardAction.ALLOW
+            triggered = False
+        metadata: dict[str, Any] = {
+            "guard_engine": engine.value,
+            "requested_guard_engine": engine.value,
+            "engines_checked": engines_checked,
+            "policy": policy.model_dump(),
+            "nemo_runtime_called": False,
+            "fallback_used": False,
+        }
+        return GuardResult(
+            stage=stage,
+            rule_name=policy.rule_name or ("policy_audit" if action == GuardAction.AUDIT else "policy_allow"),
+            triggered=triggered,
+            confidence=policy.confidence,
+            action=action,
+            reason=policy.reason,
+            metadata=metadata,
+        )
+
+    @staticmethod
+    def _attach_policy(result: GuardResult, policy: PolicyDecision) -> GuardResult:
+        metadata = {**result.metadata, "policy": policy.model_dump()}
+        return result.model_copy(update={"metadata": metadata})
+
+    def _policy_engines_checked(self) -> list[str]:
+        if self.engine == GuardEngine.CUSTOM_NEMO:
+            return [GuardEngine.CUSTOM.value, GuardEngine.NEMO.value, "policy_decision"]
+        return [self.engine.value, "policy_decision"]
 
     def _guard_off_result(self, stage: GuardStage) -> GuardResult:
         self._last_runtime_metadata = {

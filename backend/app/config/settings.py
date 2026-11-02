@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     nemo_config_dir: str = ""
     nemo_fallback_engine: str = "custom_nemo"
     nemo_fail_mode: str = "fallback"
+    judge_provider: str = "deepseek"
+    judge_base_url: str = "https://api.deepseek.com"
+    judge_model: str = "deepseek-v4-pro"
+    judge_api_key: str = ""
+    judge_timeout_seconds: int = 60
     garak_timeout_seconds: int = 900
     chroma_persist_directory: str = "/home/tlx/llmsec-assets/chroma"
     reports_dir: str = "/home/tlx/llmsec-assets/reports"

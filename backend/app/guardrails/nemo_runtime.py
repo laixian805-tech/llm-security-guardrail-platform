@@ -208,6 +208,7 @@ def _materialize_runtime_config(
         "|".join(
             [
                 str(source_dir),
+                _source_config_hash(source_dir),
                 model_name or "",
                 base_url or "",
                 api_key or "",
@@ -229,6 +230,20 @@ def _materialize_runtime_config(
             shutil.copy2(child, target)
     _rewrite_config_model(config_path, model_name=model_name, base_url=base_url, api_key=api_key)
     return target_dir
+
+
+def _source_config_hash(source_dir: Path) -> str:
+    digest = hashlib.sha256()
+    if not source_dir.exists():
+        return ""
+    for path in sorted(source_dir.rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts:
+            continue
+        digest.update(str(path.relative_to(source_dir)).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def _rewrite_config_model(

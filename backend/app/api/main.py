@@ -26,6 +26,12 @@ from app.agent.tool_agent import (
 )
 from app.config.settings import Settings
 from app.config.settings import get_settings
+from app.evals.adaptive_redteam import (
+    AdaptiveRedTeamRequest,
+    AdaptiveRedTeamResponse,
+    build_redteam_generator,
+    run_adaptive_redteam,
+)
 from app.evals.defense_feedback import DefenseFeedbackRequest, DefenseFeedbackResponse, write_defense_feedback
 from app.evals.failure_ingest import FailureIngestRequest, FailureIngestResponse, ingest_failures
 from app.evals.garak import GarakEvalRunner
@@ -39,6 +45,7 @@ from app.evals.formal import (
     build_model_matrix_row,
     unavailable_model_matrix_row,
 )
+from app.evals.guardbench import GuardBenchV2Request, GuardBenchV2Response, build_judge_client, run_guardbench_v2
 from app.evals.paired import PairedEvalResponse, paired_response
 from app.evals.promptfoo import PromptfooEvalRunner
 from app.evals.runner import EvalArtifacts, LocalEvalRunner
@@ -669,6 +676,85 @@ def create_app() -> FastAPI:
                 runtime_state["active_model"] = online_supported[0]
                 return online_supported[0]
         return str(runtime_state["active_model"])
+
+    def run_guardbench_experiment(request: GuardBenchV2Request) -> GuardBenchV2Response:
+        model_name = request.model or active_model_name(available_model_names(settings))
+        judge_provider = request.judge_provider or settings.judge_provider
+        if judge_provider not in {"deepseek", "heuristic"}:
+            raise HTTPException(status_code=400, detail=f"Unsupported judge provider: {judge_provider}")
+        try:
+            judge_client = build_judge_client(
+                provider=judge_provider,  # type: ignore[arg-type]
+                api_key=settings.judge_api_key,
+                base_url=request.judge_base_url or settings.judge_base_url,
+                model_name=request.judge_model or settings.judge_model,
+                timeout_seconds=settings.judge_timeout_seconds,
+            )
+            return run_guardbench_v2(
+                request=request,
+                provider=build_model_provider(settings, model_override=model_name),
+                reports_dir=Path(settings.reports_dir),
+                model_name=model_name,
+                judge_client=judge_client,
+                dynamic_rules=active_dynamic_rules(),
+                nemo_config_dir=resolved_nemo_config_dir(settings),
+                nemo_base_url=settings.openai_base_url,
+                nemo_api_key=settings.openai_api_key,
+                nemo_fallback_engine=fallback_engine_from_settings(settings),
+                nemo_fail_mode=settings.nemo_fail_mode,
+            )
+        except RuntimeError as caught:
+            raise HTTPException(status_code=400, detail=str(caught)) from caught
+        except Exception as caught:
+            raise HTTPException(
+                status_code=502,
+                detail=f"GuardBench v2 experiment failed: {type(caught).__name__}: {caught}",
+            ) from caught
+
+    def run_adaptive_redteam_experiment(request: AdaptiveRedTeamRequest) -> AdaptiveRedTeamResponse:
+        model_name = request.model or active_model_name(available_model_names(settings))
+        judge_provider = request.judge_provider or settings.judge_provider
+        generator_provider = request.generator_provider or judge_provider
+        if judge_provider not in {"deepseek", "heuristic"}:
+            raise HTTPException(status_code=400, detail=f"Unsupported judge provider: {judge_provider}")
+        if generator_provider not in {"deepseek", "heuristic"}:
+            raise HTTPException(status_code=400, detail=f"Unsupported generator provider: {generator_provider}")
+        try:
+            judge_client = build_judge_client(
+                provider=judge_provider,  # type: ignore[arg-type]
+                api_key=settings.judge_api_key,
+                base_url=request.judge_base_url or settings.judge_base_url,
+                model_name=request.judge_model or settings.judge_model,
+                timeout_seconds=settings.judge_timeout_seconds,
+            )
+            generator = build_redteam_generator(
+                provider=generator_provider,  # type: ignore[arg-type]
+                api_key=settings.judge_api_key,
+                base_url=request.generator_base_url or request.judge_base_url or settings.judge_base_url,
+                model_name=request.generator_model or request.judge_model or settings.judge_model,
+                timeout_seconds=settings.judge_timeout_seconds,
+            )
+            return run_adaptive_redteam(
+                request=request,
+                provider=build_model_provider(settings, model_override=model_name),
+                reports_dir=Path(settings.reports_dir),
+                model_name=model_name,
+                judge_client=judge_client,
+                generator=generator,
+                dynamic_rules=active_dynamic_rules(),
+                nemo_config_dir=resolved_nemo_config_dir(settings),
+                nemo_base_url=settings.openai_base_url,
+                nemo_api_key=settings.openai_api_key,
+                nemo_fallback_engine=fallback_engine_from_settings(settings),
+                nemo_fail_mode=settings.nemo_fail_mode,
+            )
+        except RuntimeError as caught:
+            raise HTTPException(status_code=400, detail=str(caught)) from caught
+        except Exception as caught:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Adaptive red-team experiment failed: {type(caught).__name__}: {caught}",
+            ) from caught
 
     def run_eval_artifacts(
         *,
@@ -1374,6 +1460,14 @@ def create_app() -> FastAPI:
                 status_code=502,
                 detail=f"Security cycle graph failed: {type(caught).__name__}: {caught}",
             ) from caught
+
+    @app.post("/experiments/guardbench-v2", response_model=GuardBenchV2Response)
+    def run_guardbench_v2_endpoint(request: GuardBenchV2Request) -> GuardBenchV2Response:
+        return run_guardbench_experiment(request)
+
+    @app.post("/experiments/adaptive-redteam", response_model=AdaptiveRedTeamResponse)
+    def run_adaptive_redteam_endpoint(request: AdaptiveRedTeamRequest) -> AdaptiveRedTeamResponse:
+        return run_adaptive_redteam_experiment(request)
 
     @app.post("/jobs/security-cycle", response_model=JobCreateResponse)
     def create_security_cycle_job(request: SecurityCycleRequest) -> JobCreateResponse:

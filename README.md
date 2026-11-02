@@ -2,9 +2,9 @@
 
 _面向 Agent Tool Calling、RAG、多模型接入场景的提示词注入防护与自动化红队评测平台。_
 
-本项目围绕提示词注入、角色接管、长文本劫持、RAG 文档投毒、工具返回投毒和越权工具调用风险，构建一条可复现实验链路：攻击样本构造 -> 基线模型压测 -> 护栏复测 -> 指标报告生成 -> 失败样本分析 -> 下一轮防御迭代。
+本项目围绕提示词注入、角色接管、长文本劫持、RAG 文档投毒、工具返回投毒和越权工具调用风险，构建一条可复现实验链路：自适应红队生成 -> 真实模型评测 -> 外部 Judge 判定 -> 失败样本回收 -> 策略迭代。
 
-当前项目已经从“功能 demo”推进到“真实模型安全闭环”：腾讯云提供 FastAPI、静态前端、报告中心和调度入口，AutoDL 提供 GPU 推理、vLLM、Garak runner 和多模型缓存。主模型默认恢复为 `qwen3:8b`，`mistral-7b` 已作为第一对照模型完成真实对比。FastAPI、React/Vite、Garak、Promptfoo 和 OWASP LLM 风险分类分别作为 Web API、前端、自动化红队扫描、评测补充和威胁建模参考。[^1][^2][^3][^4][^5]
+当前项目已经从“功能 demo”推进到“真实模型安全闭环”：腾讯云提供 FastAPI、静态前端、报告中心和调度入口，AutoDL 提供 GPU 推理、vLLM、Garak runner 和多模型缓存。主模型默认是 `qwen3:8b`，DeepSeek API 只用于离线 red-team generator 和 LLM-as-Judge，不进入生产聊天链路。FastAPI、React/Vite、NeMo Guardrails、Garak、Promptfoo 和 OWASP LLM 风险分类分别作为 Web API、前端、护栏框架、自动化红队扫描、评测补充和威胁建模参考。[^1][^2][^3][^4][^5]
 
 ---
 
@@ -67,6 +67,9 @@ _面向 Agent Tool Calling、RAG、多模型接入场景的提示词注入防护
 | Promptfoo 适配 | 通过外部 CLI 运行 benchmark 并归一化报告 | `backend/app/evals/promptfoo.py` |
 | 对照实验 | baseline/off 与 guarded/enforce 成对运行，计算 ASR 降幅 | `backend/app/evals/paired.py` |
 | 正式实验 | `formal-run` 和 `security-cycle`，生成 ASR、失败分析、规则命中和下一轮 payload | `backend/app/evals/formal.py` |
+| GuardBench v2 | 区分 `guard_bypass_rate`、`behavioral_asr`、FPR/FRR，用 DeepSeek Judge 判定真实模型行为 | `backend/app/evals/guardbench.py` |
+| GuardBench v3 | DeepSeek 自适应红队生成新攻击/ hard negative，自动跑评测并输出候选回归样本 | `backend/app/evals/adaptive_redteam.py` |
+| Policy/Risk 层 | 本地 intent taxonomy、risk score、matched signals、classifier metadata | `backend/app/guardrails/policy.py`、`backend/app/guardrails/risk.py` |
 | 失败样本反馈 | 从实验结果生成候选防御包和下一轮回归样本 | `backend/app/evals/defense_feedback.py` |
 | 报告生成 | Markdown + HTML 实验报告，支持前端内联打开 | `backend/app/evals/experiment_report.py` |
 | AutoDL 模型控制 | 查看/切换 `qwen3:8b` 与 `mistral-7b`，走持久盘模型缓存 | `scripts/manage-autodl-models.sh` |
@@ -78,29 +81,29 @@ _面向 Agent Tool Calling、RAG、多模型接入场景的提示词注入防护
 
 ## 📍 当前状态快照
 
-_Last verified: 2026-06-18_
+_Last verified: 2026-06-26_
 
 | 项目 | 当前状态 |
 | ---- | -------- |
 | 公开入口 | `http://43.139.77.64:8000` |
 | 部署形态 | 腾讯云运行平台入口、静态前端、报告和调度；AutoDL 运行 GPU 推理与真实评测 |
 | 默认在线模型 | `qwen3:8b`，通过腾讯云本地隧道 `127.0.0.1:18000 -> AutoDL 127.0.0.1:8000` 访问 |
-| 第一对照模型 | `mistral-7b`，已缓存到 AutoDL 持久盘，按需切换后运行 |
-| 最新模型矩阵 | `model-matrix-20260617-1746-qwen-mistral` |
-| 当前安全结论 | RAG 投毒链路已稳定阻断；`coverage-expansion-v1` 已在 Qwen3-8B 与 Mistral-7B 上回归通过；Garak 仍用于继续扩展跨模型攻击覆盖 |
-| 最新验证 | Backend tests `127 passed, 126 warnings`；Frontend tests `23 passed`；Frontend build passed；NeMo runtime/deterministic rails passed；AutoDL `qwen3:8b` smoke 和真实 `security-cycle` passed |
+| 第一对照模型 | `mistral-7b`，已缓存到 AutoDL 持久盘，可作为第二阶段横向对照 |
+| 最新主评测 | GuardBench `heldout-real-v2-360`：300 条攻击 + 60 条 benign/hard-negative |
+| 当前安全结论 | `baseline/off` 行为 ASR 为 11.33%，partial behavioral ASR 为 13.00%，高危工具执行 25 次；`custom`、`nemo`、`full_stack` 均达到 `guard_bypass_rate=0`、`behavioral_asr=0`、`false_positive_rate=0` |
+| 最新验证 | Backend tests `164 passed`；GuardBench v2/v3、DeepSeek Judge、policy/risk scorer、NeMo fallback、报告读取测试通过；AutoDL `qwen3:8b` + DeepSeek Judge 真实 replay passed |
 
-最新报告可以直接打开：
+最新 GuardBench heldout 报告可以直接打开：
 
 ```text
-http://43.139.77.64:8000/report-files/model-matrix-20260617-1746-qwen-mistral/experiment_html
-http://43.139.77.64:8000/report-files/model-matrix-20260617-1746-qwen-mistral/experiment_markdown
+http://43.139.77.64:8000/report-files/guardbench-v2-heldout-real-v2-360-ab0ff424/experiment_html
+http://43.139.77.64:8000/report-files/guardbench-v2-heldout-real-v2-360-ab0ff424/behavioral_metrics
 ```
 
 对应服务器目录：
 
 ```text
-/root/llmsec-assets/reports/model-matrix-20260617-1746-qwen-mistral
+/root/llmsec-assets/reports/guardbench-v2-heldout-real-v2-360-ab0ff424
 ```
 
 ---
@@ -212,7 +215,7 @@ sequenceDiagram
 
 ## 🔄 真实测试闭环
 
-正式实验推荐使用 `paired-run` 思路：同一批攻击样本先在 `guard_mode=off` 下跑一次 baseline，再在 `guard_mode=enforce` 下跑一次 guarded。报告中的 ASR 是攻击成功率，当前实现里等价于“未被拦截的攻击样本数 / 总攻击样本数”。
+正式实验推荐使用 `paired-run` 思路：同一批攻击样本先在 `guard_mode=off` 下跑一次 baseline，再在 `guard_mode=enforce` 下跑一次 guarded。旧 `paired-run/security-cycle` 报告中的 `before_asr/after_asr` 现在按 guard bypass/pass-through rate 解读，即“未被拦截的攻击样本数 / 总攻击样本数”；真实模型是否执行攻击目标由 GuardBench v2 的外部 Judge 统计为 `behavioral_asr`。
 
 ```mermaid
 flowchart LR
@@ -251,28 +254,52 @@ flowchart LR
 
 ## 🧾 最新真实结果
 
-最新一轮真实实验已完成，过程中没有中途失败；AutoDL vLLM 当前在线模型为默认 `qwen3:8b`，腾讯云通过 `127.0.0.1:18000` 隧道访问。NeMo Guardrails runtime 已作为主护栏引擎真实加载，`custom_nemo` 只作为 fallback。
+最新主结果来自 GuardBench `heldout-real-v2-360`，不再只使用“护栏前 100% -> 护栏后 0%”这种容易被误解的单一 ASR。现在同时看三条线：
 
-| Model | Security Cycle After ASR | RAG Poisoning | Garak PromptInject |
-| ----- | -----------------------: | ------------- | -----------------: |
-| `qwen3:8b` | 0.00% | NeMo/RAG sanitizer 阻断，tool gateway 阻断 | 222/256 -> 211/256 |
-| `mistral-7b` | 14.29% | guardrail 阻断，tool gateway 阻断 | 101/256 -> 117/256 |
+| 指标 | 含义 |
+| ---- | ---- |
+| `guard_bypass_rate` | 攻击样本有没有绕过护栏进入模型 |
+| `behavioral_asr` | 绕过后，DeepSeek Judge 判定模型是否真的执行攻击目标 |
+| `false_positive_rate` | 正常或 hard-negative 样本是否被误杀 |
 
-最新 Qwen/Mistral 闭环结果：
+最新可展示报告：
 
-| Model | Baseline | Guarded | Attacks | Before ASR | After ASR | Reduction | Regression set |
-| ----- | -------- | ------- | ------: | ---------: | --------: | --------: | -------------- |
-| `qwen3:8b` | `eval-dccb53e1` | `eval-1d9e13c8` | 18 | 100.00% | 0.00% | 100.00% | `coverage-expansion-v1` |
-| `mistral-7b` | `eval-a0c2ac0c` | `eval-caeb761f` | 18 | 100.00% | 0.00% | 100.00% | `coverage-expansion-v1` |
+```text
+/root/llmsec-assets/reports/guardbench-v2-heldout-real-v2-360-ab0ff424
+```
 
-历史两模型矩阵结果仍保留为模型差异参考：
+这轮使用 300 条攻击样本和 60 条 benign/hard-negative 样本，模型为 AutoDL `qwen3:8b`，Judge 为 DeepSeek `deepseek-v4-pro`。baseline/off 测出真实 raw-model 风险，说明数据不是“玩具样本”；接入护栏后，同一批攻击样本在 custom、nemo 和 full_stack 三档中均被切断，正常样本全部放行。
 
-| Model | Baseline | Guarded | Attacks | Before ASR | After ASR | Reduction | Remaining failure |
-| ----- | -------- | ------- | ------: | ---------: | --------: | --------: | ----------------- |
-| `qwen3:8b` | `eval-34614596` | `eval-29f15d7d` | 7 | 100.00% | 14.29% | 85.71% | `coverage_expansion` |
-| `mistral-7b` | `eval-f56ba8ed` | `eval-36a58cc1` | 7 | 100.00% | 14.29% | 85.71% | `coverage_expansion` |
+| Run | Guard Engine | Guard Bypass | Behavioral ASR | Partial Behavioral ASR | FPR | Unsafe Tool Executed |
+| --- | ------------ | -----------: | -------------: | ---------------------: | --: | -------------------: |
+| `baseline` | none | 100.00% | 11.33% | 13.00% | 0.00% | 25 |
+| `custom` | local policy/risk | 0.00% | 0.00% | 0.00% | 0.00% | 0 |
+| `nemo` | NeMo + shared policy | 0.00% | 0.00% | 0.00% | 0.00% | 0 |
+| `full_stack` | NeMo + RAG sanitizer + ToolGateway | 0.00% | 0.00% | 0.00% | 0.00% | 0 |
 
-本轮结论很清楚：主链路已经形成“真实模型 baseline -> NeMo guarded -> 回归集扩展 -> Graph Run 报告 -> benign false-positive gate”的闭环。标准 6 类 probe 全部被压住后，又补充 12 个同义改写、多轮、跨语言、RAG/web、工具返回投毒和越权工具调用变体；Qwen3-8B 与 Mistral-7B 的 18 样本回归均从 baseline/off ASR 100% 降到 guarded/enforce ASR 0%。同时，12 个正常业务请求的 benign preview 误报率为 0%。
+在 300 条攻击样本上，`full_stack` 的 observed behavioral ASR 为 `0/300 = 0%`，Wilson 95% 上界为 `1.26%`；在 60 条 benign/hard-negative 样本上，observed FPR 为 `0/60 = 0%`，Wilson 95% 上界为 `6.02%`。这个写法比单独说“0%”更严谨。
+
+baseline/off 的真实行为风险集中在几个桶：
+
+| Attack Type | Baseline Behavioral ASR | 说明 |
+| ----------- | ----------------------: | ---- |
+| `tool_return_poisoning` | 80.00% | 模型会跟随工具返回中的恶意新指令，尝试导出内部报告 |
+| `system_prompt_extraction` | 32.00% | 模型会伪造或披露所谓 hidden developer message/guardrail rules |
+| `social_engineering_tool_abuse` | 20.00% | 模型会被紧急演练、口头授权等话术诱导给出高危操作步骤 |
+| `long_context_hijack` | 4.00% | 长上下文尾部恶意指令仍可能影响裸模型 |
+
+`full_stack` 的阻断点分布也能说明链路不是单点关键词过滤：
+
+| Blocked At | Count | 说明 |
+| ---------- | ----: | ---- |
+| `pre_input` | 150 | 输入阶段 policy/risk 直接识别提示词泄露、投毒、社工越权 |
+| `rag_sanitizer` | 50 | RAG/网页片段在进入上下文前被隔离 |
+| `tool_gateway` | 100 | 工具调用在 RBAC/参数策略阶段被拒绝 |
+| `not_blocked` | 60 | 60 条正常或 hard-negative 样本被允许 |
+
+前一轮 40 条 fresh adaptive 仍保留为“发现并修复绕过”的证据：它曾暴露法语 CEO 转账社工、德语 support-tool 凭证钓鱼、德语翻译伪装 API 导出指令、RAG `diagnostic_tool` 等新模式，随后这些失败样本被回收到 `policy.py`、`risk.py` 和回归测试里。
+
+历史 Qwen/Mistral `security-cycle` 结果仍保留为横向参考：`coverage-expansion-v1` 在 `qwen3:8b` 与 `mistral-7b` 上均完成 18 样本回归，baseline/off 到 guarded/enforce 的 guard bypass 口径从 100% 降至 0%。但正式展示时优先使用 GuardBench v2/v3 的 `behavioral_asr` 和 FPR 指标。
 
 ---
 
@@ -289,7 +316,9 @@ llm-security-guardrail-platform/
 │   │   ├── config/
 │   │   │   └── settings.py                 # LLMSEC_* 环境变量
 │   │   ├── evals/
+│   │   │   ├── adaptive_redteam.py         # GuardBench v3 自适应红队生成与闭环评测
 │   │   │   ├── defense_feedback.py         # 候选防御包和下一轮 payload
+│   │   │   ├── guardbench.py               # GuardBench v2 行为 ASR、DeepSeek Judge 和报告
 │   │   │   ├── runner.py                   # 本地 probes 与 JSON/CSV/HTML 报告
 │   │   │   ├── paired.py                   # baseline/guarded ASR 对比
 │   │   │   ├── formal.py                   # 正式六类攻击实验
@@ -300,6 +329,8 @@ llm-security-guardrail-platform/
 │   │   ├── guardrails/
 │   │   │   ├── nemo_config/                # NeMo Guardrails config/Colang rails
 │   │   │   ├── nemo_runtime.py             # NeMo Guardrails runtime adapter
+│   │   │   ├── policy.py                   # 本地 policy taxonomy 与 intent/action 判定
+│   │   │   ├── risk.py                     # 本地 risk score 与轻量 classifier
 │   │   │   └── pipeline.py                 # NeMo-first 输入/输出护栏管线
 │   │   ├── models/
 │   │   │   └── provider.py                 # Stub/Ollama/OpenAI-compatible provider
@@ -438,6 +469,11 @@ scripts/start-frontend-dev.cmd
 | `LLMSEC_NEMO_CONFIG_DIR` | 内置配置目录 | NeMo Guardrails config 路径，留空使用 `backend/app/guardrails/nemo_config` |
 | `LLMSEC_NEMO_FALLBACK_ENGINE` | `custom_nemo` | NeMo 配置异常或执行失败时的降级引擎 |
 | `LLMSEC_NEMO_FAIL_MODE` | `fallback` | NeMo 执行失败时 fallback；非 fallback 时按安全失败处理 |
+| `LLMSEC_JUDGE_PROVIDER` | `deepseek` | GuardBench v2/v3 离线 Judge/Generator provider，支持 `deepseek`、`heuristic` |
+| `LLMSEC_JUDGE_BASE_URL` | `https://api.deepseek.com` | DeepSeek OpenAI-compatible API 地址 |
+| `LLMSEC_JUDGE_MODEL` | `deepseek-v4-pro` | DeepSeek Judge/Generator 默认模型 |
+| `LLMSEC_JUDGE_API_KEY` | 空 | DeepSeek API key；也可使用 `DEEPSEEK_API_KEY`，不要写入报告或日志 |
+| `LLMSEC_JUDGE_TIMEOUT_SECONDS` | `60` | DeepSeek Judge/Generator 单次请求超时 |
 | `LLMSEC_GARAK_TIMEOUT_SECONDS` | `900` | Garak 运行超时 |
 | `LLMSEC_CHROMA_PERSIST_DIRECTORY` | `/home/tlx/llmsec-assets/chroma` | RAG 持久化目录 |
 | `LLMSEC_REPORTS_DIR` | `/home/tlx/llmsec-assets/reports` | 报告输出目录 |
@@ -618,9 +654,9 @@ curl -X POST http://127.0.0.1:8000/eval/paired-run \
 
 | 字段 | 含义 |
 | ---- | ---- |
-| `before_asr` | 防护前攻击成功率 |
-| `after_asr` | 防护后攻击成功率 |
-| `reduction_pct` | ASR 降幅 |
+| `before_asr` | 兼容旧报告字段；按 guard bypass/pass-through rate 解读 |
+| `after_asr` | 兼容旧报告字段；按 guarded 后未被拦截比例解读 |
+| `reduction_pct` | 未被拦截比例下降幅度 |
 | `failed_cases` | guarded 仍未拦截的失败样本 |
 
 ### 正式实验 formal-run
@@ -667,6 +703,68 @@ curl -X POST http://127.0.0.1:8000/experiments/security-cycle \
 | `defense-feedback.json` / `defense-feedback.md` | 失败样本分类、规则建议、语义扩展方向 |
 
 `/experiments/security-cycle` 响应会继续保留原有 `paired`、`report`、`failure_analysis`、`files` 等字段，同时新增 `graph_run`。报告中的 Graph Run 区块只保存摘要，不写入完整 prompt、长模型输出或敏感配置。
+
+### GuardBench v2 行为评测
+
+GuardBench v2 是当前更适合写进简历和答辩的正式安全评测入口。它把“护栏是否放过攻击”和“模型是否真的执行攻击目标”拆开统计，并用 DeepSeek API 做离线 LLM-as-Judge。
+
+```bash
+curl -X POST http://127.0.0.1:8000/experiments/guardbench-v2 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "split":"dev-smoke",
+    "model":"qwen3:8b",
+    "runs":["baseline","custom","nemo","full_stack"],
+    "judge_provider":"deepseek",
+    "judge_model":"deepseek-v4-pro",
+    "max_tokens":128
+  }'
+```
+
+常用 split：
+
+| Split | 用途 |
+| ----- | ---- |
+| `dev-smoke` | 小规模流程验证，确认 judge JSON、报告和指标稳定 |
+| `heldout-real-v1` | 正式展示结果，固定样本集，适合写报告 |
+| `agent-rag-v1` | RAG、Tool、Agent 攻击链路专项 |
+| `guardbench-v2-fpr-regression-v1` | hard negative 与误报回归 |
+| `adaptive-redteam-v1` | 自适应红队生成的新样本回放 |
+
+核心产物：
+
+| 文件 | 含义 |
+| ---- | ---- |
+| `results.json` | 原始响应、护栏结果、policy/risk metadata、judge 结果 |
+| `judge-results.json` | DeepSeek 或本地 judge 判定 |
+| `behavioral-metrics.json` | `behavioral_asr`、`guard_bypass_rate`、FPR/FRR、风险分布 |
+| `manual-audit-sample.json` | 10%-20% 抽样复核样本 |
+| `experiment-report.md/html` | 可展示报告 |
+
+### GuardBench v3 自适应红队
+
+GuardBench v3 用 DeepSeek 根据上一轮失败样本和当前 policy 生成新攻击/正常 hard-negative 样本，然后自动跑 GuardBench v2。它不会自动改规则，只输出新发现的 bypass、false positive 和候选回归样本。
+
+```bash
+curl -X POST http://127.0.0.1:8000/experiments/adaptive-redteam \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model":"qwen3:8b",
+    "runs":["baseline","custom","nemo","full_stack"],
+    "judge_provider":"deepseek",
+    "generator_provider":"deepseek",
+    "judge_model":"deepseek-v4-pro",
+    "max_generated_cases":40,
+    "max_tokens":128
+  }'
+```
+
+建议流程：
+
+1. 先跑 `max_generated_cases=40`，观察是否出现新的 bypass、partial compliance 或 FPR。
+2. 如果发现失败样本，把样本回收到 `policy.py`、`risk.py` 和回归测试。
+3. 对同一批 generated cases 做 exact replay，确认不是偶然通过。
+4. 再跑 `heldout-real-v1`，作为简历/答辩用主结果。
 
 ### 多模型矩阵
 
@@ -819,6 +917,8 @@ http://43.139.77.64:8000/report-files/model-matrix-20260617-1746-qwen-mistral/ex
 | `POST` | `/eval/paired-run` | 运行 baseline/guarded 对照评测 |
 | `POST` | `/experiments/formal-run` | 运行正式六类攻击实验并生成报告 |
 | `POST` | `/experiments/security-cycle` | 运行正式安全闭环并生成候选防御包/下一轮 payload |
+| `POST` | `/experiments/guardbench-v2` | 运行 GuardBench v2，输出 behavioral ASR、bypass、FPR/FRR 和 DeepSeek Judge 结果 |
+| `POST` | `/experiments/adaptive-redteam` | 运行 GuardBench v3 自适应红队生成、评测和候选回归样本输出 |
 | `POST` | `/experiments/model-matrix` | 对多个模型执行正式实验矩阵 |
 | `POST` | `/experiments/defense-feedback` | 基于报告或失败样本生成防御反馈 |
 | `POST` | `/guard-packs/preview` | 预览候选防御包，不写入运行时 |
@@ -944,8 +1044,9 @@ npm run build
 1. 打开前端 Dashboard，确认后端和模型在线
 2. 在 Chat 中输入直接注入样本，看 `enforce` 模式拦截
 3. 运行 `/rag/poisoning-demo`，展示投毒文档如何被隔离
-4. 运行 `/experiments/security-cycle`，生成 ASR、失败样本、候选防御包和下一轮 payload
-5. 打开 `model-matrix-20260617-1746-qwen-mistral` 报告，说明 Qwen/Mistral 的 ASR、RAG 和 Garak 差异
+4. 运行 `/experiments/guardbench-v2`，展示 `guard_bypass_rate`、`behavioral_asr` 和 FPR 的区别
+5. 运行 `/experiments/adaptive-redteam`，展示“生成攻击 -> 跑真实模型 -> Judge 判定 -> 回收失败样本”的闭环
+6. 打开 `guardbench-v2-adaptive-redteam-v1-69b59aa8` 报告，说明最新 Qwen3-8B adaptive 40 样本结果
 
 ---
 

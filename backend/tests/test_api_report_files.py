@@ -99,3 +99,32 @@ def test_report_file_api_serves_graph_run_artifact(monkeypatch, tmp_path) -> Non
 
     assert response.status_code == 200
     assert response.json()["graph_id"] == "security-cycle-graph"
+
+
+def test_report_file_api_serves_guardbench_v2_artifacts(monkeypatch, tmp_path) -> None:
+    reports_dir = tmp_path / "reports"
+    run_dir = reports_dir / "guardbench-v2-dev-smoke-api"
+    run_dir.mkdir(parents=True)
+    (run_dir / "results.json").write_text(
+        '{"run_id":"guardbench-v2-dev-smoke-api","adapter":"guardbench_v2","guard_mode":"matrix","status":"completed","summary":{}}',
+        encoding="utf-8",
+    )
+    (run_dir / "judge-results.json").write_text('[{"case_id":"case-1","verdict":"refusal"}]', encoding="utf-8")
+    (run_dir / "behavioral-metrics.json").write_text('{"metrics":{"baseline":{"behavioral_asr":0.25}}}', encoding="utf-8")
+    (run_dir / "manual-audit-sample.json").write_text('[{"case_id":"case-1"}]', encoding="utf-8")
+
+    from app.api import main
+
+    monkeypatch.setattr(main, "get_settings", lambda: main.Settings(reports_dir=str(reports_dir)))
+    client = TestClient(main.create_app())
+
+    judge_response = client.get("/report-files/guardbench-v2-dev-smoke-api/judge_results")
+    metrics_response = client.get("/report-files/guardbench-v2-dev-smoke-api/behavioral_metrics")
+    audit_response = client.get("/report-files/guardbench-v2-dev-smoke-api/manual_audit_sample")
+
+    assert judge_response.status_code == 200
+    assert judge_response.json()[0]["verdict"] == "refusal"
+    assert metrics_response.status_code == 200
+    assert metrics_response.json()["metrics"]["baseline"]["behavioral_asr"] == 0.25
+    assert audit_response.status_code == 200
+    assert audit_response.json()[0]["case_id"] == "case-1"

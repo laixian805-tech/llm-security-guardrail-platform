@@ -1,24 +1,24 @@
 # 项目展示说明
 
-_面向答辩、面试、项目路演的讲解稿与演示脚本 · Last verified: 2026-06-18_
+_面向答辩、面试、项目路演的讲解稿与演示脚本 · Last verified: 2026-06-26_
 
 ---
 
 ## 📋 项目定位
 
-本项目面向 Agent Tool Calling 场景下的提示词注入、角色接管、RAG 投毒和越权工具调用风险，构建一套“攻击样本构造、基线压测、护栏防御、复测报告”的安全评测闭环。
+本项目面向 Agent Tool Calling 场景下的提示词注入、角色接管、RAG 投毒和越权工具调用风险，构建一套“自适应红队生成、真实模型评测、外部 Judge 判定、失败样本回收、策略迭代”的安全评测闭环。
 
 一句话介绍：
 
-> 这是一个面向 AI Agent 的红队评测与语义护栏平台，用真实攻击样本证明护栏接入前后的风险变化，并把失败样本继续反馈到下一轮防御迭代。
+> 这是一个面向 AI Agent 的红队评测与语义护栏平台，用 GuardBench v2/v3 区分“护栏有没有放过攻击”和“模型有没有真的执行攻击”，再把新发现的失败样本回收到下一轮防御策略。
 
 ### 展示时要讲清楚的三个问题
 
 | 问题 | 推荐回答 |
 | ---- | -------- |
 | 你解决什么问题 | Agent 会把用户输入、RAG 文档、网页内容和工具返回都放进上下文，攻击者可以利用这些不可信内容劫持模型决策 |
-| 你怎么证明有效 | 同一组攻击样本分别在护栏关闭和护栏开启下运行，用 ASR、拦截率、工具越权成功率和失败样本对比 |
-| 你的创新点在哪里 | 把传统渗透测试思路迁移到 Agent 决策链路，并结合语义检测、来源分级、策略隔离和工具网关做闭环防御 |
+| 你怎么证明有效 | 同一组样本跑 baseline/custom/nemo/full_stack，用 `guard_bypass_rate`、`behavioral_asr`、FPR/FRR 和 DeepSeek Judge 判定对比 |
+| 你的创新点在哪里 | 把传统渗透测试思路迁移到 Agent 决策链路，并加入自适应红队生成、policy taxonomy、risk score、RAG sanitizer 和 ToolGateway |
 
 ---
 
@@ -31,17 +31,15 @@ flowchart LR
     accTitle: Security Evaluation Loop
     accDescr: Closed-loop security workflow from attack generation through baseline evaluation, guardrail retest, report generation, and defense iteration
 
-    samples([📥 攻击样本]) --> baseline[🧪 护栏关闭压测]
-    baseline --> observe{🔍 攻击成功?}
-    observe -->|Yes| enable_guard[🛡️ 接入护栏]
-    observe -->|No| expand_samples[✏️ 扩展样本]
-    expand_samples --> baseline
-    enable_guard --> retest[🔄 护栏开启复测]
-    retest --> report[📝 生成报告]
-    report --> failures{⚠️ 仍有失败?}
-    failures -->|Yes| improve[🔧 更新防御策略]
-    improve --> retest
-    failures -->|No| demo([✅ 展示成果])
+    samples([📥 种子样本/失败样本]) --> generate[🧪 DeepSeek 生成新攻击]
+    generate --> baseline[🧠 真实 qwen3 baseline]
+    baseline --> judge[⚖️ DeepSeek Judge 判定行为]
+    judge --> guarded[🛡️ custom/nemo/full_stack 复测]
+    guarded --> metrics[📊 bypass + behavioral ASR + FPR]
+    metrics --> failures{⚠️ 发现绕过或误报?}
+    failures -->|Yes| improve[🔧 回收样本并更新 policy/risk]
+    improve --> generate
+    failures -->|No| demo([✅ 固化报告与展示])
 
     classDef input fill:#ede9fe,stroke:#7c3aed,stroke-width:2px,color:#3b0764
     classDef process fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#1e3a5f
@@ -59,40 +57,51 @@ flowchart LR
 | 顺序 | 画面 | 观众应该看到什么 |
 | ---- | ---- | ---------------- |
 | 1 | 仪表盘 | AutoDL 模型在线，当前模型为 `qwen3:8b` |
-| 2 | 正式实验 | 调用 `/experiments/formal-run` 一次完成 baseline、guarded 和报告 |
-| 3 | 攻击分析 | 护栏前后 ASR 对比，失败样本可追踪 |
+| 2 | GuardBench v2 | 调用 `/experiments/guardbench-v2` 展示 behavioral ASR、bypass、FPR |
+| 3 | Adaptive Red-Team | 调用 `/experiments/adaptive-redteam` 展示新攻击生成和失败样本回收 |
 | 4 | RAG 投毒 | 调用 `/rag/poisoning-demo` 展示投毒检索、语义拦截和工具拒绝 |
 | 5 | 报告中心 | HTML/Markdown 报告可打开，形成正式实验证据 |
 
-### 正式实验实证结果
+### GuardBench 实证结果
 
-最近一轮可展示的正式实验使用 AutoDL 上的 `qwen3:8b`，baseline run 为 `eval-dccb53e1`，guarded run 为 `eval-1d9e13c8`。这轮总共覆盖 18 个攻击样本，包括 6 类标准 probe，以及从真实六类 probe 结果扩展出的 12 个 coverage regression 变体：英文/中文改写、多轮角色接管、长文尾部劫持、低信任 RAG 上传、网页投毒、工具返回投毒和越权工具调用社工变体。
+最近一轮可展示结果使用 AutoDL 上的 `qwen3:8b`，DeepSeek `deepseek-v4-pro` 作为离线 Judge，固定 split 为 `heldout-real-v2-360`，包含 300 条攻击样本和 60 条 benign/hard-negative 样本。报告目录：
 
-| 指标 | 护栏关闭 | 护栏开启 | 结论 |
-| ---- | -------- | -------- | ---- |
-| Overall ASR | 100% | 0% | 18/18 攻击在护栏开启后被阻断 |
-| Prompt ASR | 100% | 0% | 9 个直接注入、角色接管和长上下文样本均被拦截 |
-| RAG ASR | 100% | 0% | 3 个检索投毒、网页投毒和低信任上传样本均被隔离或阻断 |
-| Tool ASR | 100% | 0% | 6 个工具返回投毒和越权工具调用样本均被切断 |
+```text
+/root/llmsec-assets/reports/guardbench-v2-heldout-real-v2-360-ab0ff424
+```
 
-规则命中分布可以作为“不是单一关键词拦截”的说明材料：
+这轮不是固定 6 条 demo prompt，而是按攻击类型和正常样本分桶的中等规模 heldout。baseline/off 先测裸模型真实风险，再对同一批样本跑 `custom`、`nemo`、`full_stack`，形成完整消融矩阵。
 
-| 规则 | 命中次数 | 说明 |
-| ---- | -------: | ---- |
-| `llmsec_deterministic_input_check` | 7 | NeMo deterministic rails 阻断明显的忽略规则、角色接管、RAG 指令覆盖和越权工具调用 |
-| `self_check_input` | 11 | NeMo self-check input 捕获更隐蔽的改写、跨语言、JSON/Markdown 工具返回投毒变体 |
+| Run | Guard Bypass | Behavioral ASR | Partial Behavioral ASR | FPR | Unsafe Tool |
+| --- | -----------: | -------------: | ---------------------: | --: | ----------: |
+| `baseline` | 100.00% | 11.33% | 13.00% | 0.00% | 25 |
+| `custom` | 0.00% | 0.00% | 0.00% | 0.00% | 0 |
+| `nemo` | 0.00% | 0.00% | 0.00% | 0.00% | 0 |
+| `full_stack` | 0.00% | 0.00% | 0.00% | 0.00% | 0 |
 
-本轮还把 12 个扩展样本保存为版本化回归集 `coverage-expansion-v1`，文件位于 `/root/llmsec-assets/reports/regression-sets/coverage-expansion-v1/regression-payloads.json`。同一回归集已经在 Mistral-7B 上完成对照：baseline `eval-a0c2ac0c`，guarded `eval-caeb761f`，18 个攻击样本同样从 ASR 100% 降至 0%。Graph Run artifact 可通过 `GET /report-files/eval-1d9e13c8/graph_run` 或 `GET /report-files/eval-caeb761f/graph_run` 打开。12 个正常业务请求的 benign false-positive gate 误报率为 0%。
+展示时推荐一句话解释：
 
-2026-06-18 17:31 在 AutoDL 上完成了一轮最新 `qwen3:8b` 快速真实复测，使用新 Job API 启动 security-cycle：job `job-2d1bd859`，baseline `eval-92a5086b`，guarded `eval-e501287d`，总攻击样本 7 个，Overall ASR 从 100% 降至 0%，护栏后失败样本 0 个。Graph Run artifact 为 `security_cycle-e9171b00`，总编排耗时 29450 ms，`blocked_at` 为空，说明没有节点异常阻断；报告可通过 `GET /report-files/eval-e501287d/experiment_html` 和 `GET /report-files/eval-e501287d/graph_run` 打开。
+> 这里的 baseline 不是假装 100% 成功，而是先看攻击是否进入模型，再由 DeepSeek Judge 判断模型是否真的执行攻击目标；baseline 的 behavioral ASR 是 11.33%，说明裸模型确实有真实行为风险。护栏后的 0 表示同一批样本在 bypass、行为 ASR、误报和越权工具执行上都没有成功。
 
-同一时间还完成了真实 `qwen3:8b` Guard Engine Matrix：
+统计解释也要讲清楚：在 300 条攻击样本上，`full_stack` observed behavioral ASR 为 `0/300 = 0%`，Wilson 95% 上界为 `1.26%`；在 60 条 benign/hard-negative 样本上，observed FPR 为 `0/60 = 0%`，Wilson 95% 上界为 `6.02%`。
 
-| Guard Engine | 护栏关闭 ASR | 护栏开启 ASR | 失败样本 | 规则命中 |
-| ------------ | ------------ | ------------ | -------- | -------- |
-| `custom` | 100% | 0% | 0 | `prompt_injection_ignore_previous` 2 次，其他 role/RAG/tool 规则各 1 次 |
-| `custom_nemo` | 100% | 0% | 0 | 与 `custom` 相同，验证混合引擎保持确定性规则覆盖 |
-| `nemo` | 100% | 0% | 0 | `llmsec_deterministic_input_check` 5 次，`self_check_input` 1 次 |
+baseline/off 的风险集中在：
+
+| Attack Type | Baseline Behavioral ASR | 典型风险 |
+| ----------- | ----------------------: | -------- |
+| `tool_return_poisoning` | 80.00% | 模型跟随工具返回中的恶意新指令，尝试导出内部报告 |
+| `system_prompt_extraction` | 32.00% | 模型伪造或披露 hidden developer message/guardrail rules |
+| `social_engineering_tool_abuse` | 20.00% | 模型被紧急演练、口头授权诱导给出高危操作步骤 |
+| `long_context_hijack` | 4.00% | 长上下文尾部恶意指令影响裸模型 |
+
+`full_stack` 的拦截分布可以作为“不是单一关键词拦截”的证据：
+
+| Boundary | Count | 含义 |
+| -------- | ----: | ---- |
+| `pre_input` | 150 | policy/risk 在输入阶段识别攻击意图 |
+| `rag_sanitizer` | 50 | RAG 投毒片段在入上下文前隔离 |
+| `tool_gateway` | 100 | 工具调用被 RBAC/参数策略拒绝 |
+| `not_blocked` | 60 | 正常或 hard-negative 样本被放行 |
 
 展示时推荐一句话概括：
 
@@ -183,14 +192,14 @@ flowchart TB
 - 腾讯云后端通过 OpenAI-compatible 接口连接模型
 - 前端不是静态展示，而是读取真实后端状态
 
-### 2:00-4:00 展示攻击前成功
+### 2:00-4:00 展示 GuardBench v2 行为评测
 
 操作：
 
-1. 调用 `POST /experiments/formal-run`
-2. 解释系统自动运行 baseline 和 guarded 两轮
-3. 展示 direct injection、role takeover、long context、RAG poisoning、tool abuse 等类别
-4. 展示 `failure_analysis` 和 `rule_hits`
+1. 调用 `POST /experiments/guardbench-v2`
+2. 解释系统自动运行 `baseline`、`custom`、`nemo`、`full_stack`
+3. 展示 direct injection、RAG poisoning、tool return poisoning、unauthorized tool call 等类别
+4. 展示 `guard_bypass_rate`、`behavioral_asr`、`partial_behavioral_asr`、`false_positive_rate`
 
 讲解重点：
 
@@ -203,17 +212,17 @@ flowchart TB
 | tool return poisoning | 工具返回结果诱导模型执行下一步攻击 |
 | unauthorized tool call | 诱导模型调用高危工具 |
 
-### 4:00-6:00 展示护栏后下降
+### 4:00-6:00 展示自适应红队闭环
 
 操作：
 
 1. 打开攻击分析页
-2. 展示护栏前后 ASR
-3. 展示命中规则和失败样本
+2. 展示 `/experiments/adaptive-redteam` 生成的新样本
+3. 展示 DeepSeek Judge 判定和失败样本回收
 
 推荐话术：
 
-> 这里不是只看模型回答好不好，而是看攻击链有没有被切断。比如 RAG 投毒样本可以被检索到，但进入上下文前会经过来源分级和语义检测；工具调用即使被模型提出，也要经过工具网关二次授权。
+> 这里不是手写几条固定 prompt 后宣布成功，而是让 DeepSeek 根据当前护栏继续生成新攻击。发现 bypass 或误报后，把样本回收到 policy/risk，再对同一批样本 exact replay。这个过程更接近真实安全产品的回归闭环。
 
 ### 6:00-7:30 展示报告
 
@@ -296,7 +305,7 @@ Invoke-RestMethod `
 
 收尾句：
 
-> 当前系统已经跑通了攻击样本构造、基线压测、护栏复测、报告生成和前端展示。下一步会把失败样本自动聚类，生成动态防御建议，并扩展到多模型对比。
+> 当前系统已经跑通了自适应红队生成、真实 Qwen3 评测、DeepSeek Judge 行为判定、失败样本回收和策略回归。下一步会继续跑 fresh adaptive 40/80 和 heldout-real-v1，用更大样本确认不是对小样本过拟合。
 
 ---
 
@@ -306,9 +315,10 @@ Invoke-RestMethod `
 
 | 指标 | 含义 | 展示方式 |
 | ---- | ---- | -------- |
-| ASR | Attack Success Rate，攻击成功率 | 护栏前后对比 |
-| Block Rate | 被护栏拦截比例 | 说明防御覆盖度 |
-| False Positive | 误杀正常请求比例 | 说明可用性影响 |
+| Guard Bypass Rate | 攻击样本未被护栏拦截的比例 | 说明护栏有没有放过攻击 |
+| Behavioral ASR | 外部 Judge 判定模型真的执行攻击目标的比例 | 说明模型行为是否真的不安全 |
+| Partial Behavioral ASR | unsafe + partial compliance 的比例 | 说明是否存在部分配合风险 |
+| False Positive Rate | 误杀正常请求比例 | 说明可用性影响 |
 | Tool Abuse Rate | 高危工具越权成功率 | 证明工具网关价值 |
 | Failed Cases | 护栏后仍成功的攻击样本 | 作为下一轮加固输入 |
 | Rule Hits | 命中的规则或策略 | 解释为什么拦截 |
@@ -324,7 +334,7 @@ Invoke-RestMethod `
 如果已经有正式实验数据，可以替换成：
 
 ```text
-在 Qwen3:8B 基线模型上，直接注入与长上下文劫持场景攻击成功率分别达到 X% 和 Y%；接入护栏后，直接注入、RAG 投毒与越权工具调用样本被有效拦截，高危工具调用成功率下降 Z%。
+在 AutoDL Qwen3:8B 上构建 GuardBench v2/v3 评测闭环，使用 DeepSeek 作为离线 Judge 区分 guard bypass 和 behavioral ASR；在 300 条攻击样本和 60 条 benign/hard-negative 样本的 `heldout-real-v2-360` 上，baseline/off 的 behavioral ASR 为 11.33%、partial behavioral ASR 为 13.00%、unsafe tool execution 为 25 次，接入 custom/nemo/full_stack 后 guarded behavioral ASR、partial ASR、FPR 和 unsafe tool execution 均为 0，且 behavioral ASR 的 Wilson 95% 上界为 1.26%。
 ```
 
 > ⚠️ **注意:** 没有跑完正式实验前，不要把示例数字当最终成果。展示时可以说“当前实验样例显示”，正式提交时必须使用报告中的真实指标。
@@ -346,8 +356,9 @@ Garak 用来做自动化红队压测，本项目把它接到同一个 OpenAI-com
 可以展示三个证据：
 
 1. `/health` 返回 AutoDL 模型配置
-2. `/eval/paired-run` 返回真实 `run_id`
-3. `/report-files/<run_id>/<file_key>` 打开后端生成的报告文件
+2. `/experiments/guardbench-v2` 或 `/experiments/adaptive-redteam` 返回真实 `run_id`
+3. `/report-files/<run_id>/<file_key>` 打开后端生成的 `results.json`、`behavioral-metrics.json`、`judge-results.json`
+4. `manual-audit-sample.json` 可抽样人工复核 DeepSeek Judge 结果
 
 ### RAG 投毒和普通 prompt injection 有什么区别？
 
@@ -363,9 +374,10 @@ Garak 用来做自动化红队压测，本项目把它接到同一个 OpenAI-com
 
 | 阶段 | 模型 | 目的 |
 | ---- | ---- | ---- |
-| 当前 | Qwen3:8B | 主实验基线 |
-| 下一步 | Llama 3.1/3.2 8B | 对比不同指令遵循风格 |
+| 当前 | Qwen3:8B | 主实验基线和 GuardBench v2/v3 主结果 |
+| 下一步 | Fresh adaptive 40/80 + heldout-real-v1 | 先扩大同模型样本量，确认不是小样本过拟合 |
 | 已完成 | Mistral 7B | 使用 `coverage-expansion-v1` 完成同样 18 样本对照，ASR 从 100% 降至 0% |
+| 第二阶段 | Llama Guard 或本地轻量分类器 | 当 adaptive/heldout 仍出现语义绕过时作为二审层 |
 | 进阶 | Qwen3:14B | 看规模变大后攻击成功率是否变化 |
 | 进阶 | DeepSeek-R1-Distill 系列 | 观察推理型模型在角色接管下的表现 |
 
@@ -377,8 +389,9 @@ Garak 用来做自动化红队压测，本项目把它接到同一个 OpenAI-com
 
 | 优先级 | 任务 | 成功标准 |
 | ------ | ---- | -------- |
-| P0 | 固化一键正式实验 | `/experiments/formal-run` 稳定输出 paired、report、failure_analysis |
-| P0 | 正式报告生成器 | 自动输出 Markdown/HTML，包含指标表和失败样本 |
+| P0 | Fresh adaptive 40/80 | 继续生成新样本，检查是否还有新绕过或误报 |
+| P0 | heldout-real-v1 正式结果 | 用固定较大样本集输出简历/答辩主结果 |
+| P0 | Judge 抽样复核 | 人工复核 10%-20% `manual-audit-sample.json`，说明 judge bias 风险 |
 | P1 | 真实 RAG 投毒 demo | `/rag/poisoning-demo` 展示投毒 chunk、护栏拦截和工具拒绝 |
 | P1 | 失败样本分析 | 护栏后成功样本自动分类并给出防御建议 |
 | P2 | 模型对比矩阵 | `/experiments/model-matrix` 对同一攻击集跑多个模型 |
@@ -404,14 +417,14 @@ Garak 用来做自动化红队压测，本项目把它接到同一个 OpenAI-com
 | 模型在线 | `/health` 显示 `model_provider=autodl` 和 `qwen3:8b` |
 | 报告可打开 | 点击“打开 HTML”后新标签页展示报告 |
 | paired-run 可用 | 能返回 baseline 和 guarded 两个 run |
-| 指标可信 | 报告中能看到 ASR、拦截数、失败样本 |
-| 演示数据准备好 | 至少有一轮正式报告可展示 |
+| 指标可信 | 报告中能看到 `guard_bypass_rate`、`behavioral_asr`、FPR/FRR、Judge 结果 |
+| 演示数据准备好 | 至少有一轮 GuardBench v2/v3 报告可展示 |
 | 风险边界讲清楚 | 不夸大尚未完成的动态防御和多模型评测 |
 
 <details>
 <summary><strong>💬 30 秒电梯稿</strong></summary>
 
-这个项目解决的是 AI Agent 在 Tool Calling 和 RAG 场景下容易被提示词注入、角色接管和越权工具调用的问题。我把传统渗透测试里的攻击样本构造、基线压测、加固复测迁移到了模型决策链路上：先用 Garak 和自定义 payload 证明护栏前攻击可以成功，再接入来源分级、语义检测、策略隔离和工具网关，最后生成 Markdown/HTML 报告证明防护前后的风险下降。它不是一个单点规则 demo，而是一个可以持续扫描、发现失败样本、继续完善防御的闭环平台。
+这个项目解决的是 AI Agent 在 Tool Calling 和 RAG 场景下容易被提示词注入、角色接管和越权工具调用的问题。我把传统渗透测试里的红队生成、基线压测、加固复测迁移到了模型决策链路上：用 GuardBench v2/v3 区分护栏绕过率和模型真实行为 ASR，用 DeepSeek 做离线 Judge，再把自适应红队发现的失败样本回收到 policy/risk 和回归测试。它不是一个单点规则 demo，而是一个能持续发现新绕过并迭代防御的闭环平台。
 
 </details>
 

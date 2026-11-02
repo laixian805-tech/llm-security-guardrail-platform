@@ -826,6 +826,6 @@ def test_regression_preview_checks_payloads_without_model(monkeypatch, tmp_path)
     assert payload["total_payloads"] == 2
     assert payload["blocked"] == 1
     assert payload["results"][0]["blocked"] is True
-    assert payload["results"][0]["guard_triggered"] == "llmsec_deterministic_input_check"
+    assert payload["results"][0]["guard_triggered"] == "semantic_attack_coverage_expansion"
     assert payload["results"][1]["blocked"] is False
     assert payload["model_invoked"] is False
