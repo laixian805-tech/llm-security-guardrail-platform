@@ -66,7 +66,7 @@ _把《企业 Agent 安全调研》收敛为个人/小团队可执行版本：Ag
 
 | 编号 | 角色标签 | 典型系统 | 部署模块 | 职责 |
 | --- | --- | --- | --- | --- |
-| D1 | `workstation` 办公终端 | macOS / Windows | Scanner + Hook | 日常 Claude Code / Codex 使用，阻断敏感路径 |
+| D1 | `workstation` 办公终端 | Windows | Scanner + Hook | 日常 Claude Code / Codex 使用，阻断敏感路径；无 macOS 设备 |
 | D2 | `dev` 开发机 | Linux（含 WSL2） | Scanner + Hook + Monitor | 全量采集：auditd/eBPF + 进程树关联 |
 | D3 | `cloud` 云主机 | Tencent Cloud Linux | 平台层 | FastAPI + SQLite + Web 看板，公网 8000 |
 | D4 | `compute` GPU 机 | AutoDL | 不部署 | 只跑推理，避免安全 agent 干扰实验链路 |
@@ -79,7 +79,7 @@ _把《企业 Agent 安全调研》收敛为个人/小团队可执行版本：Ag
 | --- | --- | --- | --- | --- |
 | Extension Scanner | ✅ | ✅ | ✅（云端扫描任务） | — |
 | Runtime Guard（Hook） | ✅ | ✅ | — | — |
-| Behavior Monitor | 可选（轻量规则） | ✅（auditd/eBPF） | —（平台自身审计） | — |
+| Behavior Monitor | —（Windows 采集为覆盖缺口，见 5.1） | ✅（auditd/eBPF） | —（平台自身审计） | — |
 | 汇聚平台（API + SQLite + Web） | — | — | ✅ | — |
 
 ### 2.3 网络与数据流
@@ -276,7 +276,7 @@ prod_hosts: [d4-compute, "prod-*"]   # 这些主机上 ask_commands 升级为 bl
 | 平台 | 采集方式 | 事件 |
 | --- | --- | --- |
 | Linux（D2） | auditd 规则 + 可选 eBPF（bpftrace/bcc） | execve、openat、connect |
-| macOS（D1） | 端点日志 / `fs_usage`、`nettop` 采样 | 文件、连接（轻量版） |
+| Windows（D1） | 本期不采集（明确记录的覆盖缺口） | 后续可评估 ETW 或轻量轮询补齐，本期不做，不假装覆盖 |
 | 云主机（D3） | 平台自身请求日志 | API 调用审计 |
 
 auditd 规则示例：
@@ -546,7 +546,7 @@ CREATE TABLE assets (
 
 - **个人版与企业版的边界**：不做全网发现、统一下发、SSO、审批流；这些依赖企业终端和身份体系，个人环境如实标注"未覆盖"，不虚构。
 - **隐私红线**：只采集自己的设备和自己发起的会话；工具参数、命令行、文件内容在上报前脱敏；平台不存储任何真实密钥。
-- **性能边界**：auditd 全量 execve 在开发机可接受；办公终端用轻量规则（只监控敏感路径和网络），避免影响日常使用。
+- **性能边界**：auditd 全量 execve 在 Linux 开发机（D2）可接受；Windows 办公终端（D1）不跑 Monitor，只靠 Scanner + Hook，避免影响日常使用。
 - **防绕过**：Hook 可被手动禁用、Monitor 可被 kill，所以 S21–S23 把"防护自身失效"当成一类事件来监控，失联即告警。
 - **与推理实验的隔离**：D4（AutoDL）不部署安全 agent，避免影响 GuardBench / Garak 实验链路；平台生产形态遵守 `AGENTS.md` 约定。
 

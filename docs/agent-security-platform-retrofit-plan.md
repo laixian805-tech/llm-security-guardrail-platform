@@ -16,7 +16,7 @@ _把《Agent 运行时安全治理落地文档》的设计落入 llm-security-gu
 
 | # | 假设 | 影响 |
 | --- | --- | --- |
-| A1 | 设备 = 1 台办公终端（macOS 或 Windows）+ 1 台 Linux/WSL 开发机 + 1 台腾讯云轻量主机 | Monitor 采集方案（auditd 仅在 Linux 全量）；macOS/Windows 只做 Scanner + Hook |
+| A1 | 设备 = 1 台 Windows 办公终端 + 1 台 Linux/WSL 开发机 + 1 台腾讯云轻量主机；无 macOS | Monitor 全量采集（auditd/eBPF）仅在 Linux 开发机；Windows 只做 Scanner + Hook，Monitor 为明确记录的覆盖缺口 |
 | A2 | 在用 Agent = Claude Code 为主，Codex CLI 为辅；MCP 以 filesystem 类和少量自定义 Server 为主 | Hook 配置目标、Scanner 解析目标（`.mcp.json` / `claude_desktop_config.json` / `~/.codex/config.toml`） |
 | A3 | 改造范围 = 端到端闭环优先：P0–P2 产出"Scanner + Hook Guard + 平台 API + 审计页面"可演示闭环，P3 补 Monitor，P4/P5 打磨与 POC | 交付顺序 |
 | A4 | agent_security 作为现有 FastAPI 进程内的新模块接入（新增 `APIRouter`，不改现有路由） | 部署形态：不新增进程和端口 |
@@ -45,7 +45,7 @@ _把《Agent 运行时安全治理落地文档》的设计落入 llm-security-gu
 
 ```mermaid
 flowchart TB
-    subgraph edge1["D1 办公终端（macOS/Windows）"]
+    subgraph edge1["D1 办公终端（Windows）"]
         s1["agentsec scanner"] --> b1["本地 SQLite 缓冲"]
         h1["Claude Code Hook<br/>pre/post_tool_use"] --> b1
     end
@@ -82,7 +82,7 @@ backend/tests/fixtures/agentsec/   # 测试样本：evil-skill / clean-skill / m
 backend/tests/test_agentsec_*.py   # 6 个测试文件（见第 9 节）
 web/src/agentSecurityModel.js      # 视图逻辑（纯函数，node:test 覆盖）
 scripts/agentsec-edge-bundle.sh    # 边缘设备打包（agent_security 目录 + 最小依赖清单）
-scripts/agentsec-hook-install.sh    # Hook 安装/卸载（幂等，自动备份 settings.json）
+scripts/agentsec-hook-install.sh    # Hook 安装/卸载的 Linux 便捷包装（主体为跨平台 Python：agentsec guard install）
 ```
 
 ### 3.2 边缘部署形态（关键决策）
@@ -90,7 +90,9 @@ scripts/agentsec-hook-install.sh    # Hook 安装/卸载（幂等，自动备份
 边缘设备不安装整个 backend（会拖入 nemoguardrails 等重依赖）。做法：
 
 - `scripts/agentsec-edge-bundle.sh` 把 `backend/app/agent_security/` 打成自包含 bundle（`~/.agentsec/agentsec/`），附带 `requirements-agentsec.txt`（仅 `pydantic`、`pyyaml`、`httpx`）。
-- Hook 回调与 collector 统一入口：`~/.agentsec/venv/bin/python -m agentsec <子命令>`。
+- Hook 回调与 collector 统一入口：Linux 为 `~/.agentsec/venv/bin/python -m agentsec <子命令>`，Windows 为 `%USERPROFILE%\.agentsec\.venv\Scripts\python -m agentsec <子命令>`。
+- Windows 办公终端（D1）不部署 collector（无 Monitor 采集源）；Hook 回调同步执行，事件写本地 SQLite，由计划任务（或手动）定时调 `agentsec upload` 补传。
+- Hook 安装器主体是跨平台 Python 实现（`agentsec guard install`）：自动定位 `settings.json`（Windows `%USERPROFILE%\.claude\settings.json`，Linux `~/.claude/settings.json`），JSON 合并、先备份、幂等；bash 脚本只是 Linux 便捷包装。
 - 平台侧（D3）直接从仓库导入同一份代码，`APIRouter` 挂载。**单一事实源仍在仓库**，bundle 只是分发形态。
 
 若后续边缘设备增多，再评估拆成独立包（`packages/agentsec/`），本期不做。
@@ -167,16 +169,16 @@ WAL 模式 + `busy_timeout`，collector 与平台进程可安全并发读写同�
 
 - 策略文件 `policies/guard-policies.yaml`（block_paths / block_commands / ask_commands / prod_hosts），平台侧落 `policies` 表，边缘侧读 YAML——同一份语义，两种载体。
 - 决策引擎 `policy.py`：`decide(tool_name, tool_input, ctx, policies) -> Decision`。纯函数，无 IO；任何内部异常按 fail-closed 返回 `block` 并写 `alert` 事件（落地文档 4.6）。
-- Hook 协议（Claude Code）：stdin JSON → 决策 → `exit 0`（allow，可附 context）/ `exit 2`（block，stderr 说明原因）/ JSON `{"decision":"ask"}`。安装器把 hooks 合并进现有 `settings.json`（先备份，幂等，重复执行不重复插入）。
+- Hook 协议（Claude Code）：stdin JSON → 决策 → `exit 0`（allow，可附 context）/ `exit 2`（block，stderr 说明原因）/ JSON `{"decision":"ask"}`。安装器（跨平台 Python 实现）把 hooks 合并进现有 `settings.json`：Windows/Linux 路径自动识别，先备份，JSON 合并而非覆盖，幂等。
 - 事件上报：pre/post 每次调用写一条 `tool_call` 事件到本地缓冲，collector 统一上传；平台侧 `POST /hooks/decision` 提供同步决策（边缘离线时用本地策略）。
-- 防绕过：`settings.json` 与 `~/.agentsec/hooks/` 纳入 Monitor 基线（S21/S22），collector 心跳 60s（S23）。
+- 防绕过：`settings.json` 与 Hook 回调目录（Linux `~/.agentsec/hooks/`，Windows `%USERPROFILE%\.agentsec\hooks\`）纳入 Monitor 基线（S21/S22），collector 心跳 60s（S23）。
 
 ### 5.3 Monitor（P3）
 
-- auditd 规则（`scripts/agentsec-audit.rules`）：敏感路径 `-p rwa`、`execve` 全量、`connect` 可选；`augenrules`/`auditctl` 加载，文档化 root 要求。
+- auditd 规则（`scripts/agentsec-audit.rules`）：敏感路径 `-p rwa`、`execve` 全量、`connect` 可选；`augenrules`/`auditctl` 加载，文档化 root 要求。**仅在 D2 Linux 开发机部署。**
 - 解析：读 `/var/log/audit/audit.log`（或 `ausearch -i`），归一化为 `process_exec / file_access / net_connect` 事件。
 - 会话关联：`SessionStart` hook 把 `session_id` 写入进程环境并登记 `pid -> session_id`；collector 对每个 execve 沿 ppid 链向上查找已登记 Agent 进程，继承 `session_id`；关联不上的标 `orphan`（S28）。
-- macOS/Windows：明确记录为覆盖缺口，只跑 Scanner + Hook；不做假装覆盖（落地文档第 13 节）。
+- Windows（D1）：明确记录为覆盖缺口，只跑 Scanner + Hook；进程/文件/网络采集本期不做，后续可评估 ETW 或轻量轮询补齐（落地文档第 13 节：不假装覆盖）。
 
 ### 5.4 脱敏与隐私（P2 起全程生效）
 
@@ -236,8 +238,8 @@ WAL 模式 + `busy_timeout`，collector 与平台进程可安全并发读写同�
 | --- | --- | --- | --- | --- |
 | P0 资产发现 | 第 1–2 天 | `models.py`、`store.py`、`cli.py`(assets 子命令)、fixtures | 资产清单 + SQLite 台账 | D1–D3 的 Agent/MCP/Skill 100% 入库 |
 | P1 Scanner | 第 3–5 天 | `rules.py`、`scanner.py`、`cli.py`(scan)、测试 | 28 条规则 + ScanReport | 对 fixtures 中恶意样本检出率 100%，干净样本 0 误报 |
-| P2 Runtime Guard | 第 6–8 天 | `policy.py`、`redact.py`、`hook.py`、`scripts/agentsec-hook-install.sh`、policies yaml、测试 | PreToolUse block/ask 生效 + 决策审计 | T07/T08/T10 按策略动作；卸载脚本可完整回滚 |
-| P3 Monitor | 第 9–11 天 | `monitor.py`、`collector.py`、`scripts/agentsec-audit.rules`、systemd unit、测试 | 会话时间线可回放 | T12 进程链关联 ≥95%；S23 失联告警可达 |
+| P2 Runtime Guard | 第 6–8 天 | `policy.py`、`redact.py`、`hook.py`、`cli.py`（guard 子命令）、`scripts/agentsec-hook-install.sh`、policies yaml、测试 | PreToolUse block/ask 生效 + 决策审计 | T07/T08/T10 按策略动作；Windows/Linux 双端 settings.json 合并与卸载回滚均验证 |
+| P3 Monitor | 第 9–11 天 | `monitor.py`、`collector.py`、`scripts/agentsec-audit.rules`、systemd unit、测试 | 会话时间线可回放（仅 D2 Linux） | T12 进程链关联 ≥95%；S23 失联告警可达；Windows 侧记录为覆盖缺口 |
 | P4 平台与前端 | 第 12–13 天 | `api.py`、`main.py`（挂载一行）、`settings.py`、`agentSecurityModel.js`、`App.jsx`、`i18n.js`、测试 | 全链路打通 + 审计页面 | 事件完整率 ≥99%；页面可演示 |
 | P5 POC 与调优 | 第 14 天 | T01–T15 执行记录、规则修订 | POC 报告 | 阻断用例 100% 按预期；误报率 <20% |
 | P6 TI 灰度（可选） | 之后两周 | `ti.py` 完善、shadow 运行 | 一致率报告 | 一致率 >90% 且日均 <100 次后切 enforce |
@@ -269,6 +271,7 @@ WAL 模式 + `busy_timeout`，collector 与平台进程可安全并发读写同�
 | 误伤日常开发 | block 清单保持保守，不确定的一律 ask；平台可一键加例外 |
 | 脱敏遗漏导致密钥外泄 | `redact.py` 单测覆盖常见格式；上报前强制过脱敏（`REDACT=false` 需显式配置） |
 | 影响现有护栏/评测链路 | 独立路由前缀、独立库文件、独立前端页；AutoDL 不部署 |
+| Windows 办公终端无 Monitor 覆盖 | 明确记录为缺口并写入文档；该机只跑 Scanner + Hook；后续评估 ETW/轻量轮询，本期不假装覆盖 |
 
 回滚：feature 分支随时可弃；`agentsec-hook-uninstall` 移除 Hook 与 auditd 规则；删除 `agentsec.db` 即清空平台侧数据，不影响现有 JSON 资产。
 
