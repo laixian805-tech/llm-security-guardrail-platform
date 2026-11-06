@@ -42,3 +42,9 @@ bash scripts/sync-autodl-compute-assets.sh --check-only
 AutoDL shutdown stops running processes, but `/root/autodl-tmp` should keep the Qwen3-8B model cache, Garak runner, vLLM launcher, and reports. After restart, use `scripts/check-autodl-recovery.sh --start-vllm` instead of reinstalling.
 
 For clean shutdown previews, run `bash scripts/stop-autodl-compute.sh`. Only run `bash scripts/stop-autodl-compute.sh --apply` when the user intentionally wants to stop AutoDL compute processes.
+
+## Working Rules
+
+- **No remote upload without permission**: never `git push` or publish to any remote unless the user explicitly asks in the current conversation. Stop and ask first. Local commits are fine.
+- **No secrets in the repo**: API keys, tokens, and credentials must never be committed or pushed. Store them in environment variables or gitignored local files (e.g. `.agentsec.local.env`); verify `.gitignore` coverage before any commit. Keys must never appear in logs, reports, or uploaded events.
+- **No minimal-MVP delivery**: deliver complete, working, validated results. Do not hand off stubs, TODOs, or half-finished features as "done"; if scope must shrink, state it explicitly and confirm with the user first.

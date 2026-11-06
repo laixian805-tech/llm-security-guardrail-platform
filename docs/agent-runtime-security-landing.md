@@ -370,6 +370,8 @@ CREATE TABLE assets (
 | `agentsec guard install --agent claude-code` | 生成/安装 hook 配置与回调脚本 |
 | `agentsec monitor start` | 启动采集（auditd 规则加载 + 事件循环） |
 | `agentsec report --session <id>` | 输出单会话审计摘要 |
+| `agentsec ti check --ioc <domain\|ip\|sha256>` | 查询第三方威胁情报（微步，默认 off） |
+| `agentsec ti stats` | 查看当日情报查询用量与缓存命中率 |
 
 ### 7.2 平台 API（D3，与现有 FastAPI 集成）
 
@@ -395,6 +397,40 @@ CREATE TABLE assets (
 - 复用现有 FastAPI 应用与部署形态（公网 8000），`agent_security` 作为独立路由模块接入，不影响现有护栏 / 评测链路。
 - 事件模型与现有 `GuardResult` / `ToolCallVerdict` 枚举保持同源（`allow/block/audit`），后续可把 Agent 靶场的工具授权记录并入同一事件流。
 - 前端新增"行为审计"视图，与现有仪表盘、报告页并列。
+
+### 7.4 第三方威胁情报验证（微步 ThreatBook）预留设计
+
+**为什么需要**：本地规则有三个固有缺口，靠加正则解决不了：
+
+1. **域名/IP 信誉**：本地只有黑名单片段（pastebin 等），未知恶意域判不出、正常 CDN/CI 域易误报。
+2. **文件 Hash**：S17 只能发现"内容变了"，判定不了"变了之后是否恶意"。
+3. **样本定性**：S20 二次下载的载荷落地后是什么，本地静态规则答不了。
+
+**评估结论：需要，但第二阶段启用。本期只做接口、缓存和模式预留，默认 `off`，不影响本地决策链路。**
+
+**微步免费版预算设计（300 次/天）**：
+
+- 只对"告警级及以上"事件发起查询，不逐事件查询。
+- 同一 IOC 缓存 7 天；按个人场景估算，日均告警去重后 IOC < 50，远低于 300。
+- 查询优先级：`sha256`（文件判定）> `domain` > `ip`。
+- 超时 2s、失败降级为"情报未知"——情报是增强，不是依赖。
+
+**三种工作模式**：
+
+| 模式 | 行为 |
+| --- | --- |
+| `off`（默认） | 不查询，事件只带本地规则结论 |
+| `shadow` | 查询并写入 `ti` 字段，但不改变决策；跑两周统计命中率和与本地规则的一致率 |
+| `enforce` | 命中恶意时动作升一档（alert→block，ask→block） |
+
+**接口与数据预留**：
+
+- 事件模型新增可选字段：`"ti": {"provider": "threatbook", "verdict": "malicious|suspicious|clean|unknown", "confidence": 0.99, "cached": true}`
+- 决策函数预留 `ti_lookup(ioc) -> TIVerdict`，`off` 时直接返回 `unknown`，本地策略不感知。
+- 配置项：`ti.provider: threatbook`、`ti.mode: off|shadow|enforce`、`ti.cache_ttl_days: 7`、`ti.threatbook.api_key_env: THREATBOOK_API_KEY`。
+- 密钥只从环境变量或 `.agentsec.local.env`（已加入 `.gitignore`）读取；任何情况下不进 Git、不进上报事件、不进日志明文。
+
+**启用条件（P5 之后）**：shadow 跑满两周、情报与本地规则一致率 >90%、日均用量 <100 次，再切 `enforce`。
 
 ---
 
@@ -466,6 +502,7 @@ CREATE TABLE assets (
 | P3 Monitor | 第 9–11 天 | auditd 规则 + 进程树关联 + SQLite | 会话时间线可回放 | T12 进程链关联成功率 ≥95% |
 | P4 平台与看板 | 第 12–13 天 | FastAPI 模块 + 前端行为审计页 + 通知 | 全链路打通 | 事件完整率 ≥99% |
 | P5 POC 与调优 | 第 14 天 | T01–T15 个人安全版 + 误报治理 | POC 报告 + 策略修订 | 误报率 <20%（首轮） |
+| P6 情报灰度（可选） | 第 15 天起两周 | 微步 shadow 模式 + 缓存 + 用量统计 | 一致率报告 + 模式切换决策 | 一致率 >90% 且日均 <100 次后切 enforce |
 
 ---
 
@@ -483,7 +520,7 @@ CREATE TABLE assets (
 | T06 | 通过 MCP 读测试文件 | 自建 `/tmp/agentsec-test/data.txt` | 记录工具调用与目标路径 |
 | T07 | 访问未授权目录 | 让 Agent 读 `~/.ssh` | S08 block，事件留痕 |
 | T08 | 访问测试密钥文件 | 自建假 `.env`（无真实密钥） | S08 block |
-| T09 | 向测试接收端发模拟数据 | 本地 `nc -l` 监听，发假数据 | S11/S12 告警（外联记录） |
+| T09 | 向测试接收端发模拟数据 | 本地 `nc -l` 监听，发假数据 | S11/S12 告警（外联记录）；shadow 模式追加 TI 判定 |
 | T10 | 执行危险 Shell 命令 | `rm -rf /tmp/agentsec-test` | S04 block |
 | T11 | 修改 Hook 配置 | 手动改 `settings.json` | S21 告警 |
 | T12 | Agent 启动 Python 子进程 | 让 Agent 跑脚本写文件 | 进程树关联到 session |
@@ -501,6 +538,7 @@ CREATE TABLE assets (
 - 事件完整率：断网缓冲场景下补传后 100% 不丢。
 - 误报率：两周内从首轮 <20% 降到 <10%，每条误报都有原因归类。
 - 检测延迟：Hook 决策 p95 < 200ms（本地策略，不走网络）。
+- 情报一致率（P6 可选）：微步 shadow 结论与本地规则一致率 >90%。
 
 ---
 

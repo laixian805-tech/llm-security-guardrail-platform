@@ -31,3 +31,11 @@ web/dist/
 
 # Superpowers brainstorming artifacts
 .superpowers/
+
+# Agent security local secrets (never commit API keys or tokens)
+.agentsec.local.*
+*.key
+*.pem
+secrets.yaml
+secrets.yml
+ti-cache/
