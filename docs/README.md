@@ -15,6 +15,7 @@ _LLM Security Guardrail Platform 的操作、展示与实现说明索引 · Last
 | 4 | [实现说明](./implementation-notes.md) | 查看当前后端模块、设计默认值和评测方向 |
 | 5 | [Agent 运行时安全治理落地文档](./agent-runtime-security-landing.md) | 把企业 Agent 安全调研落地为个人/小团队版：Scanner + Runtime Guard + Behavior Monitor |
 | 6 | [Agent 运行时安全简历项目文档](./agent-security-resume-project.md) | 投递大模型应用安全岗：实习经历与个人项目的简历优化、面试问答 |
+| 7 | [平台改造技术落地方案](./agent-security-platform-retrofit-plan.md) | 把 Agent 安全设计落入代码：目录结构、SQLite Schema、API、分阶段计划与回滚 |
 
 > AutoDL 已进入“单模型在线、缓存持久化、按需切换”的模式。多模型管理、`qwen3:8b`/`mistral-7b` 切换、磁盘余量和 Hugging Face 镜像说明见 [平台使用手册 - AutoDL 多模型管理](./platform-user-manual.md#autodl-多模型管理)。
 
