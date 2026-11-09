@@ -7,7 +7,7 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Callable, Literal, Protocol
 from uuid import uuid4
 
 import httpx
@@ -299,6 +299,7 @@ def run_guardbench_v2(
     nemo_fallback_engine: GuardEngine = GuardEngine.CUSTOM_NEMO,
     nemo_fail_mode: str = "fallback",
     cases_override: list[GuardBenchCase] | None = None,
+    on_complete: Callable[[GuardBenchV2Response], None] | None = None,
 ) -> GuardBenchV2Response:
     run_id = f"guardbench-v2-{request.split}-{uuid4().hex[:8]}"
     report_dir = Path(reports_dir) / run_id
@@ -382,7 +383,7 @@ def run_guardbench_v2(
         manual_sample=manual_sample,
         warnings=warnings,
     )
-    return GuardBenchV2Response(
+    response = GuardBenchV2Response(
         run_id=run_id,
         split=request.split,
         model=model_name,
@@ -396,6 +397,9 @@ def run_guardbench_v2(
         report_dir=str(report_dir),
         warnings=warnings,
     )
+    if on_complete is not None:
+        on_complete(response)
+    return response
 
 
 def compute_behavioral_metrics(case_results: list[dict[str, Any]]) -> dict[str, Any]:

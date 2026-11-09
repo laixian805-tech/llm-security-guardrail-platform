@@ -9,8 +9,8 @@
 #     grows too fast on a busy machine, drop these two lines to "-p wa"
 #     (writes/attribute-changes only) or remove them and rely on the hook
 #     guard's Read/Write/Edit checks instead.
-#   - connect watches are commented out by default: enable them only when
-#     network egress from Agent sessions needs OS-level correlation.
+#   - connect watches are enabled for the D2 test machine so R005 can be
+#     measured. Do not copy this broad rule set to a multi-user host.
 
 # --- credential and sensitive paths: read/write/attribute-change ---
 -w /root/.ssh/ -p rwa -k agentsec_cred
@@ -26,6 +26,6 @@
 -a always,exit -F arch=b64 -S execve -F key=agentsec_exec
 -a always,exit -F arch=b32 -S execve -F key=agentsec_exec
 
-# --- outbound connects (optional, high volume) ---
-# -a always,exit -F arch=b64 -S connect -F key=agentsec_net
-# -a always,exit -F arch=b32 -S connect -F key=agentsec_net
+# --- outbound connects (D2 test machine; high volume) ---
+-a always,exit -F arch=b64 -S connect -F key=agentsec_net
+-a always,exit -F arch=b32 -S connect -F key=agentsec_net

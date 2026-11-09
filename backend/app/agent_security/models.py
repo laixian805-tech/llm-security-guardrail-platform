@@ -28,6 +28,8 @@ class EventSource(str, Enum):
     HOOK = "hook"
     MONITOR = "monitor"
     PLATFORM = "platform"
+    GUARDRAIL = "guardrail"
+    EVAL = "eval"
 
 
 class EventType(str, Enum):
@@ -38,6 +40,8 @@ class EventType(str, Enum):
     CONFIG_CHANGE = "config_change"
     SCAN_FINDING = "scan_finding"
     HEARTBEAT = "heartbeat"
+    GUARDRAIL_DECISION = "guardrail_decision"
+    EVAL_RUN = "eval_run"
 
 
 class AssetKind(str, Enum):
@@ -207,6 +211,7 @@ class ScanReport(BaseModel):
     ti_verdict: str = "unknown"
     ti_confidence: float = 0.0
     ti_iocs: list[dict[str, Any]] = Field(default_factory=list)
+    execution_origin: dict[str, Any] = Field(default_factory=dict)
     product: str = ""
     logical_id: str = ""
     instance_id: str = ""

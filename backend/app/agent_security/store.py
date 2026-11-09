@@ -191,6 +191,7 @@ CREATE TABLE IF NOT EXISTS scans (
   ,scope TEXT NOT NULL DEFAULT 'host'
   ,inventory_only INTEGER NOT NULL DEFAULT 0
   ,ti_iocs TEXT NOT NULL DEFAULT '[]'
+  ,execution_origin TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_scans_ts ON scans(ts);
 
@@ -452,6 +453,7 @@ class AgentSecStore:
                 ("scope", "TEXT NOT NULL DEFAULT 'host'"),
                 ("inventory_only", "INTEGER NOT NULL DEFAULT 0"),
                 ("ti_iocs", "TEXT NOT NULL DEFAULT '[]'"),
+                ("execution_origin", "TEXT NOT NULL DEFAULT '{}'"),
             ):
                 if column not in scan_columns:
                     conn.execute(f"ALTER TABLE scans ADD COLUMN {column} {declaration}")
@@ -1391,8 +1393,8 @@ class AgentSecStore:
                 " target_path, sha256, verdict, findings, risk_assessment,risk_score,ranking_score,risk_breakdown,"
                 " assessment_reason,"
                 " ti_provider, ti_verdict, ti_confidence,product,logical_id,instance_id,"
-                "content_hash,carrier,state,scope,inventory_only,ti_iocs)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "content_hash,carrier,state,scope,inventory_only,ti_iocs,execution_origin)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (report.scan_id, report.ts, report.host, report.target_kind.value,
                  report.target_name, report.target_path, report.sha256,
                  report.verdict.value,
@@ -1403,7 +1405,8 @@ class AgentSecStore:
                  report.ti_verdict, report.ti_confidence, product, logical_id,
                  instance_id, report.content_hash or report.sha256, carrier.value,
                  state.value, report.scope, int(inventory_only),
-                 json.dumps(report.ti_iocs, ensure_ascii=False)),
+                 json.dumps(report.ti_iocs, ensure_ascii=False),
+                 json.dumps(report.execution_origin, ensure_ascii=False)),
             )
             matches = conn.execute(
                 "SELECT asset_id, registered, owner, source, provenance,"
@@ -1493,7 +1496,7 @@ class AgentSecStore:
                 "SELECT scan_id, ts, host, target_kind, target_name, target_path, sha256, verdict,"
                 " findings, risk_assessment, risk_score,ranking_score,risk_breakdown,assessment_reason,"
                 " ti_provider, ti_verdict, ti_confidence,"
-                " product,logical_id,instance_id,content_hash,carrier,state,scope,inventory_only,ti_iocs"
+                " product,logical_id,instance_id,content_hash,carrier,state,scope,inventory_only,ti_iocs,execution_origin"
                 f" FROM scans{clauses} ORDER BY ts DESC LIMIT ?", params
             ).fetchall()
         return [{
@@ -1501,6 +1504,7 @@ class AgentSecStore:
             "findings": json.loads(row["findings"] or "[]"),
             "risk_breakdown": json.loads(row["risk_breakdown"] or "[]"),
             "ti_iocs": json.loads(row["ti_iocs"] or "[]"),
+            "execution_origin": json.loads(row["execution_origin"] or "{}"),
         } for row in rows]
 
     # ---------- policies ----------
@@ -1614,6 +1618,12 @@ class AgentSecStore:
                     "SELECT action, COUNT(*) AS c FROM events GROUP BY action"
                 ).fetchall()
             }
+            by_source = {
+                row["source"]: row["c"]
+                for row in conn.execute(
+                    "SELECT source, COUNT(*) AS c FROM events GROUP BY source"
+                ).fetchall()
+            }
             by_rule: dict[str, int] = {}
             for row in conn.execute("SELECT rule_ids FROM events WHERE rule_ids != '[]'").fetchall():
                 for rule_id in json.loads(row["rule_ids"]):
@@ -1655,6 +1665,7 @@ class AgentSecStore:
             "events_total": total,
             "by_severity": by_severity,
             "by_action": by_action,
+            "by_source": by_source,
             "by_rule": dict(sorted(by_rule.items(), key=lambda kv: -kv[1])),
             "sessions": sessions,
             "assets": assets,

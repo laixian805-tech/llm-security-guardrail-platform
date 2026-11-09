@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -65,6 +66,19 @@ def test_malicious_mcp_config(empty_registry: Registry) -> None:
     assert report.verdict == ScanVerdict.BLOCK
     rule_ids = {f.rule_id for f in report.findings}
     assert {"S13", "S14", "S15", "S16"} <= rule_ids
+
+
+def test_mcp_scan_records_dynamic_execution_origin(tmp_path: Path) -> None:
+    config = tmp_path / "mcp.json"
+    config.write_text(json.dumps({"mcpServers": {
+        "remote": {"command": "npx", "args": ["-y", "example-mcp-server"]},
+        "local": {"command": "python3", "args": ["-m", "local_server"]},
+    }}), encoding="utf-8")
+    report = scan_path(config, host="test-host")[0]
+    origins = {item["server"]: item for item in report.execution_origin["servers"]}
+    assert origins["remote"]["resolution_status"] == "dynamic"
+    assert origins["local"]["resolution_status"] == "unknown"
+    assert report.execution_origin["resolution_status"] == "unknown"
 
 
 def test_clean_mcp_config_only_reports_unregistered(empty_registry: Registry) -> None:

@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from app.agent.graph import AgentGraphRunner, GraphExecutionError, GraphNodeSpec
 from app.agent_security.api import create_agent_security_router
+from app.agent_security.model_layer import eval_run_event, guardrail_decision_event
 from app.agent_security.store import AgentSecStore
 from app.agent.tool_agent import (
     AgentRunRequest,
@@ -564,6 +565,43 @@ def build_guardrail_pipeline(
     )
 
 
+def record_guardrail_decision(
+    agentsec_store: AgentSecStore | None,
+    *,
+    session_id: str,
+    guard_results: list[dict[str, Any]],
+) -> None:
+    """Persist a guardrail decision event; audit must never break chat."""
+    if agentsec_store is None:
+        return
+    try:
+        event = guardrail_decision_event(
+            session_id=session_id,
+            guard_results=guard_results,
+        )
+        if event is not None:
+            agentsec_store.insert_event(event)
+    except Exception:
+        pass
+
+
+def record_eval_run(agentsec_store: AgentSecStore | None, response: GuardBenchV2Response) -> None:
+    """Persist one eval-run summary event; audit must never break the experiment."""
+    if agentsec_store is None:
+        return
+    try:
+        agentsec_store.insert_event(eval_run_event(
+            run_id=response.run_id,
+            split=str(response.split),
+            model=response.model,
+            judge=response.judge,
+            matrix=response.matrix,
+            warnings=response.warnings,
+        ))
+    except Exception:
+        pass
+
+
 def guarded_chat(
     *,
     settings: Settings,
@@ -575,6 +613,7 @@ def guarded_chat(
     max_tokens: int | None = None,
     temperature: float | None = None,
     dynamic_rules: list[dict[str, Any]] | None = None,
+    agentsec_store: AgentSecStore | None = None,
 ) -> ChatResponse:
     user_message = next(
         (message["content"] for message in reversed(messages) if message["role"] == "user"),
@@ -591,6 +630,11 @@ def guarded_chat(
     guard_results = [input_result.model_dump(mode="json")]
 
     if input_result.action == "block":
+        record_guardrail_decision(
+            agentsec_store,
+            session_id=session_id,
+            guard_results=guard_results,
+        )
         step = AgentStep(
             step_index=0,
             guardrail_intervention=True,
@@ -612,6 +656,11 @@ def guarded_chat(
     output_result = pipeline.check_output(model_response.content)
     guard_results.append(output_result.model_dump(mode="json"))
     blocked = output_result.action == "block"
+    record_guardrail_decision(
+        agentsec_store,
+        session_id=session_id,
+        guard_results=guard_results,
+    )
     step = AgentStep(
         step_index=0,
         guardrail_intervention=output_result.triggered,
@@ -635,8 +684,9 @@ def create_app() -> FastAPI:
         version="0.1.0",
     )
     mount_static_frontend(app)
+    agentsec_store = AgentSecStore(resolved_agentsec_db_path(settings))
     app.include_router(create_agent_security_router(
-        AgentSecStore(resolved_agentsec_db_path(settings)),
+        agentsec_store,
         upload_key=settings.agentsec_upload_key,
         enroll_key=settings.agentsec_enroll_key,
         ti_mode=settings.agentsec_ti_mode,
@@ -715,6 +765,7 @@ def create_app() -> FastAPI:
                 nemo_api_key=settings.openai_api_key,
                 nemo_fallback_engine=fallback_engine_from_settings(settings),
                 nemo_fail_mode=settings.nemo_fail_mode,
+                on_complete=lambda response: record_eval_run(agentsec_store, response),
             )
         except RuntimeError as caught:
             raise HTTPException(status_code=400, detail=str(caught)) from caught
@@ -1232,6 +1283,7 @@ def create_app() -> FastAPI:
             session_id=request.session_id,
             provider=build_model_provider(settings, model_override=active_model_name()),
             dynamic_rules=active_dynamic_rules(),
+            agentsec_store=agentsec_store,
         )
 
     @app.post("/v1/chat/completions")
@@ -1246,6 +1298,7 @@ def create_app() -> FastAPI:
             max_tokens=request.max_tokens,
             temperature=request.temperature,
             dynamic_rules=active_dynamic_rules(),
+            agentsec_store=agentsec_store,
         )
         return {
             "id": "chatcmpl-local",

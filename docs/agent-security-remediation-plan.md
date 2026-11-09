@@ -22,6 +22,8 @@ _状态：P0 资产身份、release 字段、生命周期拆分、准入审计�
 
 评审修订已同步：logical asset 现在区分 publisher/namespace，release 绑定 version/content hash/source，instance 绑定 release；安装、激活、运行状态独立；准入 decision 写入不可变记录；Hook 动作写入 runtime enforcement 记录。当前仍不把文件写入视为完整 commit，下一阶段需要不可变 release 目录、原子 pointer switch、幂等键、补偿和 reconciliation。
 
+P0 测试机运行时实验见 `docs/agent-security-runtime-test-plan.md`；P1/P2 路线和 execution origin 见 `docs/agent-security-p1-p2-roadmap.md`。
+
 历史数字 `542 / 599 / 125 / 459` 属于 v1 路径计数，完成第 1、2 项后必须标记为废弃，不能继续作为当前资产规模或检出率。
 
 ## 1. 领域模型

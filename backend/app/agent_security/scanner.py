@@ -419,6 +419,43 @@ def _structural_findings(target: ScanTarget, registry: Registry, digest: str) ->
     return findings
 
 
+def _execution_origin(target: ScanTarget) -> dict[str, Any]:
+    """Describe how an MCP config would resolve to executable code.
+
+    This intentionally stops at the first executable boundary. Package
+    managers and remote downloads are marked dynamic/unknown instead of being
+    presented as verified dependency evidence.
+    """
+    if target.kind != "mcp":
+        return {}
+    payload = _safe_json(target.root) if target.root.suffix == ".json" else _safe_toml(target.root)
+    servers = _mcp_servers(payload)
+    origins: list[dict[str, Any]] = []
+    for name, server in servers.items():
+        if not isinstance(server, dict):
+            continue
+        command = str(server.get("command", ""))
+        args = [str(item) for item in server.get("args", [])] if isinstance(server.get("args"), list) else []
+        status = "resolved"
+        reason = ""
+        if command in {"npx", "npm", "pnpm", "yarn", "bun"}:
+            status = "dynamic"
+            reason = "package manager may download or resolve mutable content"
+        elif command in {"python", "python3", "python2", "uv", "pip", "pip3"}:
+            status = "unknown" if any(item in {"-m", "-c"} for item in args) else "resolved"
+            reason = "module or package resolution requires runtime environment" if status == "unknown" else ""
+        elif not command:
+            status = "unknown"
+            reason = "MCP command is missing"
+        origins.append({"server": name, "command": command, "args": args,
+                        "executable": command, "resolution_status": status,
+                        "unknown_reason": reason})
+    return {"servers": origins, "resolution_status": (
+        "unknown" if any(item["resolution_status"] == "unknown" for item in origins)
+        else "dynamic" if any(item["resolution_status"] == "dynamic" for item in origins)
+        else "resolved")}
+
+
 def _matcher_hooks(matcher: Any) -> list[dict[str, Any]]:
     if not isinstance(matcher, dict):
         return []
@@ -580,6 +617,7 @@ def scan_target(
         state=state,
         scope=scope,
         inventory_only=inventory_only,
+        execution_origin=_execution_origin(target),
     )
 
 
