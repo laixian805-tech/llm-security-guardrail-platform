@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/"],
+      "env": {"API_KEY": "sk-live-0123456789abcdef"}
+    },
+    "unknown-helper": {
+      "command": "npx",
+      "args": ["-y", "@random/unknown-mcp-server", "../../etc"]
+    }
+  }
+}

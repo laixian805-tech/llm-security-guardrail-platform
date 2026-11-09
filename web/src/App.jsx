@@ -43,6 +43,17 @@ import {
   normalizeEvalRun,
   summarizeEvalRun,
 } from "./dashboardModel";
+import {
+  buildAgentAssetRows,
+  buildApprovalRows,
+  buildPolicyGroups,
+  buildSessionRows,
+  buildTimeline,
+  buildTimelineFromEvents,
+  filterTimeline,
+  formatDateTime,
+  summarizeAgentSecurity,
+} from "./agentSecurityModel";
 import { createTranslator, languages } from "./i18n";
 
 const navItems = [
@@ -51,6 +62,10 @@ const navItems = [
   { id: "evals", labelKey: "nav.evals", icon: FlaskConical },
   { id: "attacks", labelKey: "nav.attacks", icon: BarChart3 },
   { id: "reports", labelKey: "nav.reports", icon: FileText },
+  { id: "agent-assets", labelKey: "nav.agentAssets", icon: Bot },
+  { id: "agent-sessions", labelKey: "nav.agentSessions", icon: Terminal },
+  { id: "agent-timeline", labelKey: "nav.agentTimeline", icon: Activity },
+  { id: "agent-policy", labelKey: "nav.agentPolicy", icon: Shield },
   { id: "settings", labelKey: "nav.settings", icon: Settings },
 ];
 
@@ -116,6 +131,23 @@ export default function App() {
   const [statusKey, setStatusKey] = useState("status.idle");
   const [statusDetail, setStatusDetail] = useState("");
   const [error, setError] = useState("");
+  const [agentAssets, setAgentAssets] = useState(null);
+  const [agentAssetSummary, setAgentAssetSummary] = useState(null);
+  const [agentScans, setAgentScans] = useState(null);
+  const [agentSessions, setAgentSessions] = useState(null);
+  const [agentSessionDetail, setAgentSessionDetail] = useState(null);
+  const [agentEvents, setAgentEvents] = useState(null);
+  const [agentPolicies, setAgentPolicies] = useState(null);
+  const [agentApprovals, setAgentApprovals] = useState(null);
+  const [agentStats, setAgentStats] = useState(null);
+  const [agentDeviceHealth, setAgentDeviceHealth] = useState(null);
+  const [selectedSessionId, setSelectedSessionId] = useState("");
+  const [timelineSeverity, setTimelineSeverity] = useState("all");
+  const [timelineKind, setTimelineKind] = useState("all");
+  const [policyDraft, setPolicyDraft] = useState({
+    kind: "path", name: "", pattern: "", severity: "high", action: "block", note: "",
+  });
+  const [agentNotice, setAgentNotice] = useState("");
 
   const activeModelName = useMemo(
     () => currentModelName({ autodlModelStatus, health, evalRun }),
@@ -176,6 +208,100 @@ export default function App() {
       throw new Error(await response.text());
     }
     return response.json();
+  }
+
+  async function putJson(path, body) {
+    setError("");
+    setStatusKey("status.calling");
+    setStatusDetail(path);
+    const response = await fetch(path, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return response.json();
+  }
+
+  async function loadAgentSecurity({ quiet = false } = {}) {
+    try {
+      const [assets, assetSummary, scans, sessions, policies, approvals, stats, deviceHealth] = await Promise.all([
+        getJson("/api/agent-security/assets"),
+        getJson("/api/agent-security/assets/summary"),
+        getJson("/api/agent-security/scans"),
+        getJson("/api/agent-security/sessions?limit=200"),
+        getJson("/api/agent-security/policies"),
+        getJson("/api/agent-security/approvals"),
+        getJson("/api/agent-security/stats"),
+        getJson("/api/agent-security/devices/health"),
+      ]);
+      setAgentAssets(assets);
+      setAgentAssetSummary(assetSummary);
+      setAgentScans(scans);
+      setAgentSessions(sessions);
+      setAgentPolicies(policies);
+      setAgentApprovals(approvals);
+      setAgentStats(stats);
+      setAgentDeviceHealth(deviceHealth);
+    } catch (err) {
+      if (!quiet) {
+        setError(err.message);
+      }
+    }
+  }
+
+  async function loadAgentTimelineData({ quiet = false } = {}) {
+    try {
+      if (selectedSessionId) {
+        setAgentSessionDetail(
+          await getJson(`/api/agent-security/sessions/${encodeURIComponent(selectedSessionId)}`),
+        );
+      } else {
+        setAgentEvents(await getJson("/api/agent-security/events?limit=300"));
+      }
+    } catch (err) {
+      if (!quiet) {
+        setError(err.message);
+      }
+    }
+  }
+
+  async function savePolicy(policyId, policy) {
+    const saved = await putJson(`/api/agent-security/policies/${encodeURIComponent(policyId)}`,
+                                policy);
+    setAgentPolicies(await getJson("/api/agent-security/policies"));
+    setAgentNotice(`${t("agentsec.policy.saved")} (${saved.policy_id})`);
+    return saved;
+  }
+
+  async function addPolicy() {
+    const policyId = `P-CUSTOM-${Date.now().toString(36)}`;
+    await savePolicy(policyId, {
+      policy_id: policyId,
+      name: policyDraft.name || policyId,
+      kind: policyDraft.kind,
+      pattern: policyDraft.pattern,
+      severity: policyDraft.severity,
+      action: policyDraft.action,
+      enabled: true,
+      note: policyDraft.note,
+    });
+    setPolicyDraft({ kind: "path", name: "", pattern: "", severity: "high",
+                     action: "block", note: "" });
+  }
+
+  async function decideApproval(eventId, decision) {
+    await postJson("/api/agent-security/approvals", { event_id: eventId, decision });
+    setAgentApprovals(await getJson("/api/agent-security/approvals"));
+    setAgentStats(await getJson("/api/agent-security/stats"));
+    setAgentNotice(t("agentsec.policy.approvals.recorded"));
+  }
+
+  function viewSessionTimeline(sessionId) {
+    setSelectedSessionId(sessionId);
+    setActivePage("agent-timeline");
   }
 
   async function runChat() {
@@ -665,7 +791,33 @@ export default function App() {
     loadAutoDLModelStatus({ quiet: true });
     loadReports({ quiet: true });
     loadRagCollections({ quiet: true });
+    loadAgentSecurity({ quiet: true });
   }, []);
+
+  useEffect(() => {
+    if (activePage === "agent-timeline") {
+      loadAgentTimelineData({ quiet: true });
+    }
+  }, [activePage, selectedSessionId]);
+
+  useEffect(() => {
+    const agentSecurityPages = new Set([
+      "agent-assets", "agent-sessions", "agent-timeline", "agent-policy",
+    ]);
+    if (!agentSecurityPages.has(activePage)) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+      loadAgentSecurity({ quiet: true });
+      if (activePage === "agent-timeline") {
+        loadAgentTimelineData({ quiet: true });
+      }
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, [activePage, selectedSessionId]);
 
   return (
     <div className="appShell">
@@ -818,6 +970,53 @@ export default function App() {
               ragCollectionRows={ragCollectionRows}
               loadRagCollections={loadRagCollections}
               deleteRagCollection={deleteRagCollection}
+              t={t}
+            />
+          )}
+          {activePage === "agent-assets" && (
+            <AgentAssetsPage
+              assetsPayload={agentAssets}
+              assetSummaryPayload={agentAssetSummary}
+              sessionsPayload={agentSessions}
+              scansPayload={agentScans}
+              statsPayload={agentStats}
+              devicesHealthPayload={agentDeviceHealth}
+              loadAgentSecurity={() => loadAgentSecurity()}
+              t={t}
+            />
+          )}
+          {activePage === "agent-sessions" && (
+            <AgentSessionsPage
+              sessionsPayload={agentSessions}
+              statsPayload={agentStats}
+              onViewTimeline={viewSessionTimeline}
+              t={t}
+            />
+          )}
+          {activePage === "agent-timeline" && (
+            <AgentTimelinePage
+              sessionsPayload={agentSessions}
+              detailPayload={agentSessionDetail}
+              eventsPayload={agentEvents}
+              selectedSessionId={selectedSessionId}
+              setSelectedSessionId={setSelectedSessionId}
+              timelineSeverity={timelineSeverity}
+              setTimelineSeverity={setTimelineSeverity}
+              timelineKind={timelineKind}
+              setTimelineKind={setTimelineKind}
+              t={t}
+            />
+          )}
+          {activePage === "agent-policy" && (
+            <AgentPolicyPage
+              policiesPayload={agentPolicies}
+              approvalsPayload={agentApprovals}
+              policyDraft={policyDraft}
+              setPolicyDraft={setPolicyDraft}
+              addPolicy={addPolicy}
+              savePolicy={savePolicy}
+              decideApproval={decideApproval}
+              notice={agentNotice}
               t={t}
             />
           )}
@@ -1630,6 +1829,590 @@ function SettingsPage({
   );
 }
 
+const AGENT_ASSET_STATUS_TONES = {
+  enforcing: "success",
+  warning: "warning",
+  violation: "danger",
+  registered: "info",
+  unregistered: "warning",
+};
+
+const ASSET_RISK_TONES = {
+  unassessed: "info",
+  no_findings: "success",
+  suspicious: "warning",
+  high_risk_candidate: "danger",
+  confirmed_malicious: "danger",
+  false_positive: "info",
+};
+
+const TIMELINE_KINDS = [
+  "session_start", "tool_call", "file_access", "net_connect",
+  "process_exec", "config_change", "scan_finding", "heartbeat", "session_end",
+];
+
+const TIMELINE_SEVERITIES = ["all", "risk", "critical", "high", "medium", "low", "info"];
+
+export function AgentAssetsPage({
+  assetsPayload, assetSummaryPayload, sessionsPayload, scansPayload, statsPayload, devicesHealthPayload,
+  loadAgentSecurity, t,
+}) {
+  const scanVerdicts = statsPayload?.scan_policy_verdicts ?? {};
+  const riskAssessment = statsPayload?.scan_risk_assessment ?? {};
+  const cacheSummary = assetSummaryPayload?.marketplace_cache ?? {};
+  const rows = buildAgentAssetRows({
+    assets: assetsPayload?.assets ?? [],
+    sessions: sessionsPayload?.sessions ?? [],
+    scans: scansPayload?.scans ?? [],
+  });
+  return (
+    <div className="stack">
+      <section className="panel">
+        <SectionHeader
+          eyebrow={t("nav.agentAssets")}
+          title={t("agentsec.assets.title")}
+          action={
+            <button className="secondaryButton" onClick={loadAgentSecurity} type="button">
+              <RefreshCw size={15} />
+              {t("agentsec.common.refresh")}
+            </button>
+          }
+        />
+        <p className="panelSubtitle">{t("agentsec.assets.subtitle")}</p>
+        <p className="panelSubtitle" role="status">
+          {t("agentsec.assets.cacheSummary", {
+            repositories: cacheSummary.repositories ?? 0,
+            plugins: cacheSummary.plugins ?? 0,
+            definitions: cacheSummary.definitions ?? 0,
+          })}
+        </p>
+        <div className="kpiGrid">
+          <KpiCard label={t("agentsec.assets.metric.pluginCache")}
+            value={String(cacheSummary.definitions ?? 0)} tone="info" />
+          <KpiCard label={t("agentsec.assets.metric.synthetic")}
+            value={String(provenance.synthetic_test ?? 0)} tone="info" />
+          <KpiCard label={t("agentsec.assets.metric.highRiskCandidate")}
+            value={String(riskAssessment.high_risk_candidate ?? 0)} tone="warning" />
+          <KpiCard label={t("agentsec.assets.metric.confirmedMalicious")}
+            value={String(riskAssessment.confirmed_malicious ?? 0)} tone="danger" />
+        </div>
+        <p className="panelSubtitle">
+          {t("agentsec.assets.scanCounts", {
+            clean: scanVerdicts.clean ?? 0,
+            alert: scanVerdicts.alert ?? 0,
+            block: scanVerdicts.block ?? 0,
+          })}
+        </p>
+        {statsPayload?.threat_intel ? (
+          <p className="panelSubtitle">
+            {t("agentsec.assets.tiStatus", {
+              mode: statsPayload.threat_intel.mode,
+              used: statsPayload.threat_intel.lookups_today,
+              soft: statsPayload.threat_intel.soft_budget,
+              hard: statsPayload.threat_intel.hard_budget,
+            })}
+          </p>
+        ) : null}
+        <section className="kpiGrid">
+          {(devicesHealthPayload?.devices ?? []).map((device) => (
+            <KpiCard
+              key={device.device_id}
+              label={`${device.hostname} · ${device.owner || "-"}`}
+              value={t(`agentsec.device.state.${device.state}`)}
+              delta={`${t("agentsec.device.lastHeartbeat")}: ${formatDateTime(device.heartbeat_at)} · ${t("agentsec.device.pending")}: ${device.pending_events} · ${t("agentsec.device.oldestPending")}: ${device.oldest_pending_age_seconds ?? 0}s · ${t("agentsec.device.uploadFailures")}: ${device.upload_fail_count}`}
+              tone={device.state === "online" ? "success"
+                : device.state === "degraded" ? "warning"
+                  : device.state === "revoked" ? "danger" : "danger"}
+            />
+          ))}
+        </section>
+        <div className="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{t("agentsec.assets.col.name")}</th>
+                <th>{t("agentsec.assets.col.kind")}</th>
+                <th>{t("agentsec.assets.col.version")}</th>
+                <th>{t("agentsec.assets.col.host")}</th>
+                <th>{t("agentsec.assets.col.user")}</th>
+                <th>{t("agentsec.assets.col.installed")}</th>
+                <th>{t("agentsec.assets.col.lastRun")}</th>
+                <th>{t("agentsec.assets.col.provenance")}</th>
+                <th>{t("agentsec.assets.col.state")}</th>
+                <th>{t("agentsec.assets.col.riskAssessment")}</th>
+                <th>{t("agentsec.assets.col.policyStatus")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.assetId}>
+                  <td>
+                    <strong>{row.name}</strong>
+                    <small className="cellSub">{row.path || "-"}</small>
+                  </td>
+                  <td>
+                    <span className="badge">{t(`agentsec.assets.kind.${row.kind}`)}</span>
+                  </td>
+                  <td>{row.version}</td>
+                  <td>{row.host}</td>
+                  <td>{row.user}</td>
+                  <td>{formatDateTime(row.installedAt)}</td>
+                  <td>{formatDateTime(row.lastRunAt)}</td>
+                  <td>{t(`agentsec.assets.provenance.${row.provenance}`)}</td>
+                  <td>{t(`agentsec.assets.state.${row.state}`)}</td>
+                  <td>
+                    <span className={`statusPill ${ASSET_RISK_TONES[row.riskAssessment] ?? "info"}`}>
+                      {t(`agentsec.assets.risk.${row.riskAssessment}`)} · {row.riskScore}
+                    </span>
+                    {row.riskBreakdown.length ? (
+                      <small className="cellSub">
+                        {row.riskBreakdown.map((item) => {
+                          const label = item.rule_id || item.chain || item.signal;
+                          return `${label} +${item.weight}`;
+                        }).join(" · ")}
+                      </small>
+                    ) : null}
+                    {row.findingRuleIds.length ? (
+                      <small className="cellSub">{row.findingRuleIds.join(" · ")}</small>
+                    ) : null}
+                  </td>
+                  <td>
+                    <span className={`statusPill ${AGENT_ASSET_STATUS_TONES[row.policyStatus] ?? "info"}`}>
+                      {t(`agentsec.assets.status.${row.policyStatus}`)}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {!rows.length ? (
+                <tr>
+                  <td colSpan={11}>{t("agentsec.assets.empty")}</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+export function AgentSessionsPage({ sessionsPayload, statsPayload, onViewTimeline, t }) {
+  const sessions = sessionsPayload?.sessions ?? [];
+  const rows = buildSessionRows(sessions);
+  const summary = summarizeAgentSecurity({ stats: statsPayload, sessions });
+  const kpis = [
+    { label: t("agentsec.kpi.sessions"), value: summary.sessions, tone: "info" },
+    { label: t("agentsec.kpi.running"), value: summary.runningSessions, tone: "success" },
+    { label: t("agentsec.kpi.riskEvents"), value: summary.riskEvents, tone: "warning" },
+    { label: t("agentsec.kpi.blocked"), value: summary.blocked, tone: "danger" },
+    { label: t("agentsec.kpi.pendingApprovals"), value: summary.pendingApprovals, tone: "warning" },
+  ];
+  return (
+    <div className="stack">
+      <section className="kpiGrid">
+        {kpis.map((kpi) => (
+          <KpiCard key={kpi.label} label={kpi.label} value={kpi.value} tone={kpi.tone} />
+        ))}
+      </section>
+      <section className="panel">
+        <SectionHeader eyebrow={t("nav.agentSessions")} title={t("agentsec.sessions.title")} />
+        <p className="panelSubtitle">{t("agentsec.sessions.subtitle")}</p>
+        <div className="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{t("agentsec.sessions.col.sessionId")}</th>
+                <th>{t("agentsec.sessions.col.user")}</th>
+                <th>{t("agentsec.sessions.col.host")}</th>
+                <th>{t("agentsec.sessions.col.agent")}</th>
+                <th>{t("agentsec.sessions.col.cwd")}</th>
+                <th>{t("agentsec.sessions.col.startedAt")}</th>
+                <th>{t("agentsec.sessions.col.duration")}</th>
+                <th>{t("agentsec.sessions.col.toolCalls")}</th>
+                <th>{t("agentsec.sessions.col.riskEvents")}</th>
+                <th>{t("agentsec.sessions.col.status")}</th>
+                <th>{t("agentsec.policy.col.actions")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.sessionId}>
+                  <td><code>{row.sessionId}</code></td>
+                  <td>{row.user}</td>
+                  <td>{row.host}</td>
+                  <td>
+                    {row.agentName}
+                    <small className="cellSub">{row.agentVersion}</small>
+                  </td>
+                  <td className="cwdCell">{row.cwd}</td>
+                  <td>{formatDateTime(row.startedAt)}</td>
+                  <td>{row.duration}</td>
+                  <td>{row.toolCalls}</td>
+                  <td>
+                    <span className={row.riskEvents ? "riskCount danger" : "riskCount"}>
+                      {row.riskEvents}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={`statusPill ${row.tone}`}>
+                      {t(`agentsec.sessions.status.${row.status}`)}
+                    </span>
+                  </td>
+                  <td>
+                    <button
+                      className="secondaryButton"
+                      onClick={() => onViewTimeline(row.sessionId)}
+                      type="button"
+                    >
+                      <Activity size={15} />
+                      {t("agentsec.sessions.viewTimeline")}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!rows.length ? (
+                <tr>
+                  <td colSpan={11}>{t("agentsec.sessions.empty")}</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+export function AgentTimelinePage({
+  sessionsPayload, detailPayload, eventsPayload, selectedSessionId,
+  setSelectedSessionId, timelineSeverity, setTimelineSeverity,
+  timelineKind, setTimelineKind, t,
+}) {
+  const sessions = sessionsPayload?.sessions ?? [];
+  const entries = selectedSessionId
+    ? buildTimeline({
+      session: detailPayload?.session ?? null,
+      timeline: detailPayload?.timeline ?? [],
+    })
+    : buildTimelineFromEvents(eventsPayload?.events ?? []);
+  const filtered = filterTimeline(entries, {
+    severity: timelineSeverity, kind: timelineKind,
+  });
+  return (
+    <div className="stack">
+      <section className="panel">
+        <SectionHeader eyebrow={t("nav.agentTimeline")} title={t("agentsec.timeline.title")} />
+        <p className="panelSubtitle">{t("agentsec.timeline.subtitle")}</p>
+        <div className="filterBar">
+          <label>
+            <span>{t("agentsec.timeline.sessionLabel")}</span>
+            <select
+              value={selectedSessionId}
+              onChange={(event) => setSelectedSessionId(event.target.value)}
+            >
+              <option value="">{t("agentsec.timeline.allSessions")}</option>
+              {sessions.map((session) => (
+                <option key={session.session_id} value={session.session_id}>
+                  {session.session_id} · {session.agent_name || "-"} · {session.host || "-"}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>{t("agentsec.timeline.severity")}</span>
+            <select
+              value={timelineSeverity}
+              onChange={(event) => setTimelineSeverity(event.target.value)}
+            >
+              {TIMELINE_SEVERITIES.map((severity) => (
+                <option key={severity} value={severity}>
+                  {severity === "all" ? t("agentsec.timeline.all")
+                    : severity === "risk" ? t("agentsec.timeline.risk")
+                      : t(`agentsec.policy.severity.${severity}`)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>{t("agentsec.timeline.kind")}</span>
+            <select
+              value={timelineKind}
+              onChange={(event) => setTimelineKind(event.target.value)}
+            >
+              <option value="all">{t("agentsec.timeline.all")}</option>
+              {TIMELINE_KINDS.map((kind) => (
+                <option key={kind} value={kind}>
+                  {t(`agentsec.timeline.kind.${kind}`)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {filtered.length ? (
+          <div className="timeline">
+            {filtered.map((entry) => (
+              <article className={`timelineItem ${entry.tone}`} key={entry.id}>
+                <span className="timelineDot" />
+                <div className="timelineBody">
+                  <strong>{t(entry.labelKey, entry.labelParams)}</strong>
+                  <small>
+                    {entry.clock} · {t(`agentsec.timeline.kind.${entry.kind}`)} ·{" "}
+                    {t(`agentsec.policy.action.${entry.action}`)}
+                  </small>
+                  {entry.ruleIds.length ? (
+                    <div className="badgeRow">
+                      {entry.ruleIds.map((ruleId) => (
+                        <span className="badge" key={ruleId}>{ruleId}</span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {entry.tiProvider ? (
+                    <small className="cellSub">
+                      {t("agentsec.timeline.tiShadow", {
+                        provider: entry.tiProvider,
+                        verdict: entry.tiVerdict,
+                        confidence: Math.round(entry.tiConfidence * 100),
+                      })}
+                    </small>
+                  ) : null}
+                  {entry.detail ? <small className="cellSub">{entry.detail}</small> : null}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="panelSubtitle">{t("agentsec.timeline.empty")}</p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+export function AgentPolicyPage({
+  policiesPayload, approvalsPayload, policyDraft, setPolicyDraft,
+  addPolicy, savePolicy, decideApproval, notice, t,
+}) {
+  const groups = buildPolicyGroups(policiesPayload?.policies ?? []);
+  const approvals = buildApprovalRows(approvalsPayload ?? {});
+  return (
+    <div className="stack">
+      {notice ? <div className="noticeBanner">{notice}</div> : null}
+      {groups.map((group) => (
+        <section className="panel" key={group.id}>
+          <SectionHeader eyebrow={t("agentsec.policy.title")} title={t(group.titleKey)} />
+          <div className="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>{t("agentsec.policy.col.name")}</th>
+                  <th>{t("agentsec.policy.col.pattern")}</th>
+                  <th>{t("agentsec.policy.col.severity")}</th>
+                  <th>{t("agentsec.policy.col.action")}</th>
+                  <th>{t("agentsec.policy.col.enabled")}</th>
+                  <th>{t("agentsec.policy.col.updatedAt")}</th>
+                  <th>{t("agentsec.policy.col.actions")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {group.rows.map((row) => (
+                  <tr key={row.policyId}>
+                    <td>
+                      <strong>{row.name}</strong>
+                      {row.note ? <small className="cellSub">{row.note}</small> : null}
+                    </td>
+                    <td><code>{row.pattern}</code></td>
+                    <td>
+                      <span className={`statusPill ${row.severity === "critical" || row.severity === "high" ? "danger" : row.severity === "medium" ? "warning" : "info"}`}>
+                        {t(`agentsec.policy.severity.${row.severity}`)}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={`statusPill ${row.action === "block" ? "danger" : row.action === "ask" ? "warning" : row.action === "allow" ? "success" : "info"}`}>
+                        {t(`agentsec.policy.action.${row.action}`)}
+                      </span>
+                    </td>
+                    <td>{row.enabled ? t("settings.yes") : t("settings.no")}</td>
+                    <td>{formatDateTime(row.updatedAt)}</td>
+                    <td>
+                      <button
+                        className="secondaryButton"
+                        onClick={() => savePolicy(row.policyId, {
+                          policy_id: row.policyId,
+                          name: row.name,
+                          kind: row.kind,
+                          pattern: row.pattern,
+                          severity: row.severity,
+                          action: row.action,
+                          enabled: !row.enabled,
+                          note: row.note,
+                        })}
+                        type="button"
+                      >
+                        {row.enabled ? t("agentsec.policy.disable") : t("agentsec.policy.enable")}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {!group.rows.length ? (
+                  <tr>
+                    <td colSpan={7}>{t("agentsec.policy.empty")}</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ))}
+
+      <section className="panel">
+        <SectionHeader eyebrow={t("agentsec.policy.title")} title={t("agentsec.policy.addPolicy")} />
+        <div className="policyForm">
+          <label>
+            <span>{t("agentsec.policy.form.kind")}</span>
+            <select
+              value={policyDraft.kind}
+              onChange={(event) => setPolicyDraft({ ...policyDraft, kind: event.target.value })}
+            >
+              {["path", "command", "network", "host", "mcp", "tool"].map((kind) => (
+                <option key={kind} value={kind}>
+                  {t(`agentsec.policy.form.kind.${kind}`)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>{t("agentsec.policy.form.name")}</span>
+            <input
+              value={policyDraft.name}
+              onChange={(event) => setPolicyDraft({ ...policyDraft, name: event.target.value })}
+              placeholder={t("agentsec.policy.form.name")}
+            />
+          </label>
+          <label>
+            <span>{t("agentsec.policy.form.pattern")}</span>
+            <input
+              value={policyDraft.pattern}
+              onChange={(event) => setPolicyDraft({ ...policyDraft, pattern: event.target.value })}
+              placeholder="~/.ssh"
+            />
+          </label>
+          <label>
+            <span>{t("agentsec.policy.form.severity")}</span>
+            <select
+              value={policyDraft.severity}
+              onChange={(event) => setPolicyDraft({ ...policyDraft, severity: event.target.value })}
+            >
+              {["critical", "high", "medium", "low", "info"].map((severity) => (
+                <option key={severity} value={severity}>
+                  {t(`agentsec.policy.severity.${severity}`)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>{t("agentsec.policy.form.action")}</span>
+            <select
+              value={policyDraft.action}
+              onChange={(event) => setPolicyDraft({ ...policyDraft, action: event.target.value })}
+            >
+              {["block", "ask", "allow", "alert", "audit"].map((action) => (
+                <option key={action} value={action}>
+                  {t(`agentsec.policy.action.${action}`)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>{t("agentsec.policy.form.note")}</span>
+            <input
+              value={policyDraft.note}
+              onChange={(event) => setPolicyDraft({ ...policyDraft, note: event.target.value })}
+            />
+          </label>
+          <button className="primaryButton" onClick={addPolicy} type="button">
+            <Shield size={15} />
+            {t("agentsec.policy.save")}
+          </button>
+        </div>
+      </section>
+
+      <section className="panel">
+        <SectionHeader eyebrow={t("agentsec.policy.approvals")} title={t("agentsec.policy.approvals.pending")} />
+        {approvals.pending.length ? (
+          <div className="runList">
+            {approvals.pending.map((row) => (
+              <article className="runRow" key={row.eventId}>
+                <div>
+                  <strong>{row.toolName}</strong>
+                  <span>
+                    {row.clock} · {row.host} · {row.sessionId}
+                    {row.ruleIds.length ? ` · ${row.ruleIds.join(",")}` : ""}
+                  </span>
+                </div>
+                <div className="rowActions">
+                  <span className={`statusPill ${row.tone}`}>
+                    {t(`agentsec.policy.severity.${row.severity}`)}
+                  </span>
+                  <button
+                    className="primaryButton"
+                    onClick={() => decideApproval(row.eventId, "approve")}
+                    type="button"
+                  >
+                    <CheckCircle2 size={15} />
+                    {t("agentsec.policy.approvals.approve")}
+                  </button>
+                  <button
+                    className="secondaryButton"
+                    onClick={() => decideApproval(row.eventId, "reject")}
+                    type="button"
+                  >
+                    <Trash2 size={15} />
+                    {t("agentsec.policy.approvals.reject")}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="panelSubtitle">{t("agentsec.policy.approvals.empty")}</p>
+        )}
+      </section>
+
+      <section className="panel">
+        <SectionHeader eyebrow={t("agentsec.policy.approvals")} title={t("agentsec.policy.approvals.history")} />
+        {approvals.history.length ? (
+          <div className="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>{t("agentsec.common.time")}</th>
+                  <th>{t("agentsec.policy.approvals")}</th>
+                  <th>{t("agentsec.policy.col.name")}</th>
+                  <th>{t("agentsec.policy.col.note")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {approvals.history.map((row) => (
+                  <tr key={row.eventId}>
+                    <td>{formatDateTime(row.ts)}</td>
+                    <td>
+                      <span className={`statusPill ${row.tone}`}>{t(row.decisionKey)}</span>
+                    </td>
+                    <td><code>{row.target}</code></td>
+                    <td>{row.note || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="panelSubtitle">{t("agentsec.common.empty")}</p>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function KpiCard({ label, value, delta, tone = "info" }) {
   return (
     <article className={`kpiCard ${tone}`}>
@@ -2033,6 +2816,10 @@ function pageTitle(page, t) {
     evals: "page.evals",
     attacks: "page.attacks",
     reports: "page.reports",
+    "agent-assets": "page.agentAssets",
+    "agent-sessions": "page.agentSessions",
+    "agent-timeline": "page.agentTimeline",
+    "agent-policy": "page.agentPolicy",
     settings: "page.settings",
   };
   return t(titleKeys[page] ?? "page.dashboard");

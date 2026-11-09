@@ -1,0 +1,25 @@
+[Unit]
+Description=agentsec behavior monitor collector (auditd -> events -> platform)
+After=network.target auditd.service
+Wants=auditd.service
+
+[Service]
+Type=simple
+# Adjust to the real bundle location; see docs/agent-security-platform-retrofit-plan.md P3.
+WorkingDirectory=/opt/agentsec
+Environment=PYTHONUNBUFFERED=1
+Environment=AGENTSEC_HOST_ROLE=dev
+Environment=AGENTSEC_HEARTBEAT_SECONDS=60
+# Upload target and optional shared key; empty URL keeps events local-only.
+Environment=AGENTSEC_UPLOAD_URL=
+Environment=AGENTSEC_UPLOAD_KEY=
+# Secrets (e.g. AGENTSEC_UPLOAD_KEY) can live here instead of this unit.
+EnvironmentFile=-/etc/agentsec/agentsec.env
+ExecStart=/opt/agentsec/venv/bin/python -m agentsec monitor daemon
+Restart=on-failure
+RestartSec=5
+# Read-only access to audit.log; /proc is world-readable.
+ReadOnlyPaths=/var/log/audit
+
+[Install]
+WantedBy=multi-user.target

@@ -45,6 +45,6 @@ For clean shutdown previews, run `bash scripts/stop-autodl-compute.sh`. Only run
 
 ## Working Rules
 
-- **No remote upload without permission**: never `git push` or publish to any remote unless the user explicitly asks in the current conversation. Stop and ask first. Local commits are fine.
+- **No commits without explicit permission**: never run `git commit` or `git push` (local or remote) unless the user explicitly says so in the current conversation. Leave changes in the working tree, tell the user they are uncommitted, and stop to ask first.
 - **No secrets in the repo**: API keys, tokens, and credentials must never be committed or pushed. Store them in environment variables or gitignored local files (e.g. `.agentsec.local.env`); verify `.gitignore` coverage before any commit. Keys must never appear in logs, reports, or uploaded events.
 - **No minimal-MVP delivery**: deliver complete, working, validated results. Do not hand off stubs, TODOs, or half-finished features as "done"; if scope must shrink, state it explicitly and confirm with the user first.

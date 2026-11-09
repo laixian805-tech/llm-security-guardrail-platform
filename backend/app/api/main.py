@@ -16,6 +16,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.agent.graph import AgentGraphRunner, GraphExecutionError, GraphNodeSpec
+from app.agent_security.api import create_agent_security_router
+from app.agent_security.store import AgentSecStore
 from app.agent.tool_agent import (
     AgentRunRequest,
     AgentRunResponse,
@@ -26,6 +28,7 @@ from app.agent.tool_agent import (
 )
 from app.config.settings import Settings
 from app.config.settings import get_settings
+from app.config.settings import resolved_agentsec_db_path
 from app.evals.adaptive_redteam import (
     AdaptiveRedTeamRequest,
     AdaptiveRedTeamResponse,
@@ -632,6 +635,16 @@ def create_app() -> FastAPI:
         version="0.1.0",
     )
     mount_static_frontend(app)
+    app.include_router(create_agent_security_router(
+        AgentSecStore(resolved_agentsec_db_path(settings)),
+        upload_key=settings.agentsec_upload_key,
+        enroll_key=settings.agentsec_enroll_key,
+        ti_mode=settings.agentsec_ti_mode,
+        ti_daily_budget=settings.agentsec_ti_daily_budget,
+        ti_hard_daily_limit=settings.agentsec_ti_hard_daily_limit,
+        ti_cache_days=settings.agentsec_ti_cache_days,
+        ti_timeout_seconds=settings.agentsec_ti_timeout_seconds,
+    ))
     rag_service = PersistentHybridRAGService(
         store_path=f"{settings.chroma_persist_directory}/rag-store.json"
     )

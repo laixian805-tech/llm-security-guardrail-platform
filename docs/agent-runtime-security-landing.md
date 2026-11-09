@@ -126,6 +126,7 @@ flowchart LR
 - 敏感路径引用：`~/.ssh`、`.env`、`~/.aws/credentials`、`.kube/config`、数据库连接串、源码目录打包。
 - 外联行为：pastebin、transfer.sh、ngrok、webhook.site、未知硬编码域名、IP 直连。
 - 供应链：依赖未固定版本、与知名包名高度相似的 typo 包、`postinstall` 脚本、内容 Hash 与登记值不符。
+- 结构检查（防混淆绕过）：SKILL.md 中的 script 代码块单独提取过规则；base64/hex 片段先解码再过规则；字符串拼接（`"cu"+"rl"`）归一化后匹配——纯正则抓不到编码和拼接载荷。
 
 ### 3.3 规则格式（YAML）
 
@@ -245,6 +246,8 @@ ask_commands:
 prod_hosts: [d4-compute, "prod-*"]   # 这些主机上 ask_commands 升级为 block
 ```
 
+路径匹配前一律先 `realpath` 规范化，防符号链接和 `../` 穿越绕过 `block_paths`。
+
 ### 4.5 覆盖矩阵：Hook 拦不住什么
 
 调研 4.2 的核心结论必须带进落地：Hook 的覆盖面 = 事件支持能力 × Matcher 配置 × 实际执行路径。
@@ -254,16 +257,20 @@ prod_hosts: [d4-compute, "prod-*"]   # 这些主机上 ask_commands 升级为 bl
 | Agent Write / Edit 工具 | 是 | PreToolUse 参数检查 |
 | Bash 重定向 / 脚本写文件 | 否 | Bash matcher 规则 + Monitor 文件事件 |
 | Python / Node 子进程写文件 | 否 | Monitor 进程树 + 文件事件 |
-| MCP Server 写文件 | 取决于 MCP 工具是否触发 Hook | MCP 配置扫描 + 服务端权限 + Monitor |
+| MCP Server 写文件 | 取决于 MCP 工具是否触发 Hook | matcher 显式包含 `mcp__.*`（Claude Code 与 Codex 的 MCP 工具名均为 `mcp__<server>__<tool>`）+ MCP 配置扫描 + 服务端权限 + Monitor |
 
 结论：Runtime Guard 负责语义层前置拦截，Monitor 负责系统层兜底，两者结论互相印证（交叉核验）。行为审计页面中的"证据交叉"列即来源于此。
 
 ### 4.6 Hook 自身防护（调研 4.4）
 
 - `settings.json` 与 `~/.agentsec/hooks/` 权限设为 `700`，仅属主可改；变更进 Monitor 基线（S21/S22）。
+- 回调完整性：`guard install` 把每个回调（模块包目录或脚本绝对路径）的 SHA-256 写进 `hook-baseline.json` 的 `callbacks` 段；Monitor 重算比对，回调被替换/路径被删/未登记即触发 S22（critical）。`guard status` 分别校验 settings / package / callbacks 三项，任一漂移即 `baseline_match=false`。
 - 回调脚本只做策略判定和日志，不读无关敏感文件、不主动外联；出站目标只有本地策略文件和平台 API。
-- 所有 hook 设 `timeout`；回调异常时按 fail-closed 处理（拒绝执行并告警），避免检查逻辑静默失效后放行。
+- 所有 hook 设 `timeout`；回调异常、stdin 非法 JSON 或为空时按 fail-closed 处理（拒绝执行并落 `payload_error` 事件），避免检查逻辑静默失效后放行。
+- 多产品按能力矩阵纳管（`adapters.py`）：仅对已实证协议的产品（Claude Code、Codex CLI）安装阻断 hook；其余产品（Cursor/Windsurf/Gemini CLI/Qwen/OpenClaw/WorkBuddy/Qcode）走进程发现 + 配置扫描，`guard install` 明确拒绝，不写可能被产品无视的配置。
+- 产品信任门要单独评估：Codex 非托管 hooks 需 `/hooks review` 信任后执行，且定义按 hash 固定、变更即跳过；`guard status` 只证明"配置条目存在"，`trust_verified` 恒为 false，不谎报已生效。企业侧用 managed hooks / managed settings 统一下发并锁定。
 - 策略文件纳入 Git 管理，变更即审计记录，防止"个人配置被悄悄改松"。
+- 审计写失败（DB 不可用等）计入 `~/.agentsec/audit-failures.jsonl` 并在 `guard status` 展示，支撑"事件完整率 ≥99%"的可证性。
 
 ---
 
@@ -414,6 +421,7 @@ CREATE TABLE assets (
 - 同一 IOC 缓存 7 天；按个人场景估算，日均告警去重后 IOC < 50，远低于 300。
 - 查询优先级：`sha256`（文件判定）> `domain` > `ip`。
 - 超时 2s、失败降级为"情报未知"——情报是增强，不是依赖。
+- `unknown` 与 `clean` 严格区分：enforce 模式只对 `malicious/suspicious` 升档，`unknown` 绝不视为干净（查不到 ≠ 安全）。
 
 **三种工作模式**：
 
@@ -475,6 +483,23 @@ CREATE TABLE assets (
 - **交叉核验**：同一行为若 Hook 和 Monitor 同时命中（如 S08），事件带双 `rule_ids`，作为高置信证据；只命中单侧的标注单源，便于误报分析。
 - **误报治理**：每条策略输出 `matched_signals` 和 `reason`，看板上可直接标记误报并生成例外规则，两周迭代一轮。
 
+### 8.1 第一版（V1）运行时五条检测规则
+
+Linux / WSL2 实验环境第一版聚焦五条运行时规则（`RUNTIME_RULES`，与 S 系列同一目录、同一 `rule_by_id` 查找入口）。前四条在 Hook 决策引擎（执行前阻断/审批）与 Monitor（执行后检测）双侧生效，R005 是纯关联规则：
+
+| 规则 | 检测逻辑 | 风险 | 实现位置 |
+| --- | --- | --- | --- |
+| R001 | Agent 访问 SSH 私钥（`~/.ssh/`、`id_rsa`、`id_ed25519` 等） | 高 | `policy.decide()` 路径分级 block；Monitor `file_access` 归属 R001 |
+| R002 | Agent 读取云凭据（`.aws/credentials`、`.kube/config`、`.netrc`、`.gnupg` 等） | 高 | 同上，与 R001 共用路径分级逻辑 |
+| R003 | Agent 启动未批准的网络工具（`approved_network_tools` 白名单外的 curl/wget/nc/socat/ssh/scp 等） | 中 | Hook 决策 ask；Monitor execve 检测（comm 不在白名单 → alert） |
+| R004 | Agent 调用未批准 MCP 工具（`tool_server` 不在 `approved_mcp_servers` 白名单） | 高 | Hook 决策 block；工具名 `mcp__<server>__<tool>` 解析出 server |
+| R005 | 敏感文件读取后出现异常外联（同 session 内敏感读取后 300s 窗口内的 `connect`） | 严重 | Monitor 关联检测：`MonitorState.sensitive_reads` 按 session 记录读取，(session, path, read)  pair 只报一次 |
+
+设计要点：
+- R001/R002 与 S08 的关系：S08 是静态目录里的通用敏感路径规则；R001/R002 是 V1 运行时的细分归属。同一路径命中时事件同时带 `S08` 和 `R001/R002`，静态层与运行时层规则语言保持一致。
+- R005 的窗口默认 300s（`EXFIL_CORRELATION_WINDOW_SECONDS`），跨 audit 记录甚至跨 collector 周期都有效（读取记录挂在 `MonitorState` 上按 session 保存）。
+- R003/R004 的白名单是策略数据不是代码：边缘侧读 `policies.json`，平台侧落 `policies` 表（`network` / `mcp` kind），页面可直接维护。
+
 ---
 
 ## 9. 前端：行为审计页面
@@ -490,6 +515,19 @@ CREATE TABLE assets (
 | 策略管理 | 规则启停、阈值、例外（变更留痕） |
 | 统计看板 | 事件量趋势、阻断率、按规则 TopN、按主机分布 |
 
+### 9.1 第一版（V1）四个页面（已落地）
+
+第一版按"资产 → 会话 → 行为 → 策略"的调查路径组织为四个页面，对应落地文档 11.3 的展示要求：
+
+| 页面 | 内容 |
+| --- | --- |
+| Agent 资产 | 员工、设备、Agent 类型、Agent 版本、安装时间、最后运行时间、安全策略状态 |
+| Agent Session | Session ID、用户、项目目录、启动时间、运行时长、调用工具数量、风险事件数量 |
+| 行为时间线 | 按时间回放会话行为：`Agent 启动 → 读取 project/config.yaml → 调用 filesystem MCP → 启动 Shell → 尝试读取 ~/.ssh/id_rsa → 安全策略拒绝 → 访问外部域名`；支持按会话、严重级、事件类型过滤，命中规则（R001/S08/R005…）以 badge 展示 |
+| 安全策略 | 文件访问策略、网络访问策略、MCP Server 白名单、Tool 级别权限、危险命令规则、审批记录（待审批事件可批准/拒绝，全部变更写审计事件） |
+
+实现约束：渲染逻辑全部在 `web/src/agentSecurityModel.js` 纯函数中（`node --test` 覆盖），`App.jsx` 只做导航与组装；中英文案走 `i18n.js`（`{param}` 占位符）；时间线条目的图标/色调由 `severity`/`action` 映射到既有 `timelineItem` 样式体系。
+
 ---
 
 ## 10. 实施路线
@@ -500,8 +538,8 @@ CREATE TABLE assets (
 | P1 Scanner | 第 3–5 天 | 规则引擎 + YAML 规则 + CLI | `agentsec scan` + ScanReport | 对测试恶意 Skill 检出率 100% |
 | P2 Runtime Guard | 第 6–8 天 | Hook 安装器 + 决策协议 + 策略文件 | PreToolUse block/ask 生效 | T07/T08/T10 按策略动作 |
 | P3 Monitor | 第 9–11 天 | auditd 规则 + 进程树关联 + SQLite | 会话时间线可回放 | T12 进程链关联成功率 ≥95% |
-| P4 平台与看板 | 第 12–13 天 | FastAPI 模块 + 前端行为审计页 + 通知 | 全链路打通 | 事件完整率 ≥99% |
-| P5 POC 与调优 | 第 14 天 | T01–T15 个人安全版 + 误报治理 | POC 报告 + 策略修订 | 误报率 <20%（首轮） |
+| P4 平台与看板 | 已落地 | FastAPI API + 资产/Session/时间线/策略四页面 | 本地功能闭环 | 实际浏览器交互和边缘事件完整率仍需现场验收 |
+| P5 POC 与调优 | 本地自动链路已实现；设备验收待执行 | 离线 POC runner + T01–T15 设备矩阵 | 逐项 JSON 证据 + 设备验收记录 | 合成链路全过；真实产品/主机结论独立记录 |
 | P6 情报灰度（可选） | 第 15 天起两周 | 微步 shadow 模式 + 缓存 + 用量统计 | 一致率报告 + 模式切换决策 | 一致率 >90% 且日均 <100 次后切 enforce |
 
 ---
@@ -527,6 +565,24 @@ CREATE TABLE assets (
 | T13 | 通过 MCP 访问测试数据库 | 本地 sqlite 测试库 | 记录身份、工具、目标 |
 | T14 | 读取模拟生产凭证 | 自建假 kubeconfig | S08 block 并留痕 |
 | T15 | 模拟 Guard 离线 | 停掉 guard agent | S23 失联告警 |
+
+### 11.1 本地离线自动验收
+
+在 `backend/` 下运行：
+
+```bash
+python -m app.agent_security poc run --json
+```
+
+POC 使用仓库 fixture、合成 auditd 记录、临时 SQLite 和本地 FastAPI TestClient，输出机器可读的逐项结果。它会覆盖扫描、策略、Claude Code/Codex adapter 输出、坏 stdin 子进程、Session 关联、R005、事件去重和时间线统计。运行过程不联网、不读真实凭证、不触碰当前配置或生产数据库。
+
+该 POC 证明的是代码内的协议/模块契约。它不证明 Agent 产品已信任/加载 Hook，不替代真实 auditd 安装、浏览器交互、上传补传或 T01–T15 设备验收。报告固定标记 `synthetic=true`、`network_access=false`、`production_touched=false`，禁止把合成通过结果写成真实 Agent 已被阻断。
+
+### 11.2 双主机静态纳管试点（2026-11-08）
+
+**历史口径，已作废：v1 路径计数。**早期报告曾记录 599 个 Skill/MCP/Hook/依赖扫描目标、542 个 Skills 和 32 个 MCP 配置。这批数据把 Codex 插件市场缓存定义计作资产，不能代表安装量或当前告警有效率。伪恶意 Skill 命中 S01/S02/S08、投毒 MCP description 命中 S03 的 fixture 结果仍是测试证据；中心未保存原始 finding evidence。当前资产数量应使用 logical asset、instance、content hash、carrier、state 分层 summary。
+
+测试机 auditd 尚未启用。现有 Aegis 服务与文件诱饵属于主机级控制；在确认 auditd 与 Aegis 共存、规则严格按 `agentsec-lab` UID/实验目录过滤前，不加载审计规则，也不启动 collector。当前开发机 Codex Hook 保持未安装。
 
 ---
 

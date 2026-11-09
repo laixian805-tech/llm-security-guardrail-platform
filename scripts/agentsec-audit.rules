@@ -1,0 +1,31 @@
+# agentsec auditd rules -- D2 Linux dev machine only (landing doc 5.3)
+# Load:  bash scripts/agentsec-audit-install.sh   (requires root)
+# Unload: bash scripts/agentsec-audit-uninstall.sh
+#
+# Volume tradeoff (documented, not hidden):
+#   - credential dirs use -p rwa: low volume, high signal (S08).
+#   - /home and /root use -p rwa as well because Agent reads of project
+#     .env / secrets files are the primary detection target. If audit.log
+#     grows too fast on a busy machine, drop these two lines to "-p wa"
+#     (writes/attribute-changes only) or remove them and rely on the hook
+#     guard's Read/Write/Edit checks instead.
+#   - connect watches are commented out by default: enable them only when
+#     network egress from Agent sessions needs OS-level correlation.
+
+# --- credential and sensitive paths: read/write/attribute-change ---
+-w /root/.ssh/ -p rwa -k agentsec_cred
+-w /root/.aws/ -p rwa -k agentsec_cred
+-w /root/.kube/ -p rwa -k agentsec_cred
+-w /root/.gnupg/ -p rwa -k agentsec_cred
+-w /root/.config/ -p rwa -k agentsec_cred
+-w /etc/shadow -p rwa -k agentsec_cred
+-w /home/ -p rwa -k agentsec_fs
+-w /root/ -p rwa -k agentsec_fs
+
+# --- full execve on both architectures (process-tree correlation, S24/S28) ---
+-a always,exit -F arch=b64 -S execve -F key=agentsec_exec
+-a always,exit -F arch=b32 -S execve -F key=agentsec_exec
+
+# --- outbound connects (optional, high volume) ---
+# -a always,exit -F arch=b64 -S connect -F key=agentsec_net
+# -a always,exit -F arch=b32 -S connect -F key=agentsec_net
