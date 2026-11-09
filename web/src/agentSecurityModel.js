@@ -171,6 +171,22 @@ export function buildAgentAssetRows({ assets = [], sessions = [], scans = [] } =
   });
 }
 
+const ACTIVE_ASSET_STATES = new Set(["installed", "enabled", "active"]);
+
+export function filterAgentAssetRows(rows = [], scope = "active") {
+  if (scope === "all") {
+    return rows;
+  }
+  return rows.filter((row) => ACTIVE_ASSET_STATES.has(row.state));
+}
+
+export function countAgentAssetsByScope(rows = []) {
+  return {
+    active: rows.filter((row) => ACTIVE_ASSET_STATES.has(row.state)).length,
+    inventory: rows.filter((row) => !ACTIVE_ASSET_STATES.has(row.state)).length,
+  };
+}
+
 export function buildSessionRows(sessions = []) {
   return sessions.map((session) => ({
     sessionId: session.session_id,
@@ -190,6 +206,24 @@ export function buildSessionRows(sessions = []) {
     status: session.ended_at ? "ended" : "running",
     tone: session.ended_at ? "info" : "success",
   }));
+}
+
+function guardrailLayerLabel(event) {
+  const layers = Array.isArray(event.evidence?.layers) ? event.evidence.layers : [];
+  const stages = layers.map((layer) => layer?.stage).filter(Boolean);
+  return stages.length ? stages.join("+") : "-";
+}
+
+function worstBehavioralAsr(evidence) {
+  const runs = Array.isArray(evidence?.runs) ? evidence.runs : [];
+  const values = runs
+    .map((run) => Number(run?.metrics?.behavioral_asr ?? 0))
+    .filter((value) => Number.isFinite(value));
+  return values.length ? Math.max(...values) : 0;
+}
+
+function formatPercentValue(value) {
+  return `${Math.round(Number(value) * 100)}%`;
 }
 
 function mapEvent(event, index) {
@@ -232,9 +266,18 @@ function mapEvent(event, index) {
     labelKey = "agentsec.timeline.scanFinding";
   } else if (kind === "heartbeat") {
     labelKey = "agentsec.timeline.heartbeat";
+  } else if (kind === "guardrail_decision") {
+    labelKey = "agentsec.timeline.guardrailDecision";
+    params.rule = (Array.isArray(event.rule_ids) && event.rule_ids[0]) || "-";
+    params.layer = guardrailLayerLabel(event);
+  } else if (kind === "eval_run") {
+    labelKey = "agentsec.timeline.evalRun";
+    params.model = event.evidence?.model || "-";
+    params.asr = formatPercentValue(worstBehavioralAsr(event.evidence));
   }
   return {
     id: `${event.ts}-${index}`,
+    sessionId: event.session_id || "",
     ts: event.ts,
     clock: formatClock(event.ts),
     kind,
@@ -394,6 +437,7 @@ export function buildApprovalRows({ pending = [], history = [] } = {}) {
 
 export function summarizeAgentSecurity({ stats = null, sessions = [] } = {}) {
   const byAction = stats?.by_action ?? {};
+  const bySource = stats?.by_source ?? {};
   return {
     eventsTotal: Number(stats?.events_total ?? 0),
     sessions: Number(stats?.sessions ?? sessions.length ?? 0),
@@ -401,6 +445,10 @@ export function summarizeAgentSecurity({ stats = null, sessions = [] } = {}) {
     riskEvents: sessions.reduce((sum, session) => sum + Number(session.risk_events ?? 0), 0),
     blocked: Number(byAction.block ?? 0),
     asked: Number(byAction.ask ?? 0),
+    guardrailEvents: Number(bySource.guardrail ?? 0),
+    evalEvents: Number(bySource.eval ?? 0),
+    runtimeEvents: Number(bySource.hook ?? 0) + Number(bySource.monitor ?? 0)
+      + Number(bySource.scanner ?? 0) + Number(bySource.platform ?? 0),
     pendingApprovals: Number(stats?.pending_approvals ?? 0),
     assets: Number(stats?.assets ?? 0),
     rulesTotal: Number(stats?.rules_total ?? 0),
