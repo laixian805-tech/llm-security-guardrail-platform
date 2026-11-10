@@ -1,9 +1,12 @@
 const byId = (id) => document.getElementById(id);
-const state = { engines: [], providers: [], scans: [], selectedScan: null };
+const state = { engines: [], providers: [], scans: [], selectedScan: null, user: null };
+const roleLabels = { admin: "管理员", operator: "操作员", viewer: "只读" };
 const severityLabels = {
   critical: "严重", high: "高", medium: "中", low: "低", info: "信息", unknown: "未评级",
 };
 const statusLabels = { completed: "已完成", imported: "已导入", failed: "失败" };
+
+class UnauthenticatedError extends Error {}
 
 function showNotice(message, kind = "") {
   const notice = byId("notice");
@@ -12,8 +15,33 @@ function showNotice(message, kind = "") {
   notice.hidden = !message;
 }
 
+function showAuthGate(message = "") {
+  byId("authGate").hidden = false;
+  byId("sessionChip").hidden = true;
+  const error = byId("loginError");
+  error.textContent = message;
+  error.hidden = !message;
+  byId("loginPassword").value = "";
+  byId("loginUser").focus();
+}
+
+function hideAuthGate() {
+  byId("authGate").hidden = true;
+  byId("loginError").hidden = true;
+  const chip = byId("sessionChip");
+  chip.hidden = !state.user;
+  if (state.user) {
+    byId("sessionUser").textContent = `${state.user.username} · ${roleLabels[state.user.role] || state.user.role}`;
+  }
+}
+
 async function request(path, options) {
   const response = await fetch(path, options);
+  if (response.status === 401) {
+    // 会话缺失或已失效：转到登录页，不把 401 当普通错误弹提示。
+    showAuthGate("会话已失效，请重新登录。");
+    throw new UnauthenticatedError("未认证");
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error || `请求失败（${response.status}）`);
   return payload;
@@ -203,6 +231,7 @@ async function refresh() {
     renderEngines();
     await renderScans();
   } catch (error) {
+    if (error instanceof UnauthenticatedError) return;  // 已跳登录页
     showNotice(error.message, "error");
   }
 }
@@ -215,6 +244,7 @@ async function loadFindings(scanId) {
     byId("findingCount").textContent = `当前扫描共 ${detail.findings.length} 条`;
     location.hash = "findings";
   } catch (error) {
+    if (error instanceof UnauthenticatedError) return;  // 已跳登录页
     showNotice(error.message, "error");
   }
 }
@@ -264,4 +294,58 @@ byId("importForm").addEventListener("submit", async (event) => {
   }
 });
 
-refresh();
+byId("loginForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = byId("loginButton");
+  button.disabled = true;
+  byId("loginError").hidden = true;
+  try {
+    const session = await request("/api/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: byId("loginUser").value.trim(),
+        password: byId("loginPassword").value,
+      }),
+    });
+    state.user = { username: session.username, role: session.role };
+    hideAuthGate();
+    showNotice(`已登录：${session.username}`, "success");
+    await refresh();
+  } catch (error) {
+    if (error instanceof UnauthenticatedError) return;
+    byId("loginError").textContent = error.message;
+    byId("loginError").hidden = false;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+byId("logoutButton").addEventListener("click", async () => {
+  try {
+    await request("/api/session", { method: "DELETE" });
+  } catch (error) {
+    if (!(error instanceof UnauthenticatedError)) {
+      showNotice(error.message, "error");
+      return;
+    }
+  }
+  state.user = null;
+  state.scans = [];
+  showAuthGate("已退出登录。");
+});
+
+async function boot() {
+  try {
+    // /api/session 同时充当"会话是否还有效"的探针。
+    const session = await request("/api/session");
+    state.user = { username: session.username, role: session.role };
+    hideAuthGate();
+    await refresh();
+  } catch (error) {
+    if (error instanceof UnauthenticatedError) showAuthGate();
+    else showNotice(error.message, "error");
+  }
+}
+
+boot();

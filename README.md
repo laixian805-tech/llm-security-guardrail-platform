@@ -9,6 +9,7 @@ ASGP 是独立的 Agent 安全治理平台，目标是把多产品 Agent 接入�
 - 已接入 SkillSpector、Snyk Agent Scan、Cisco MCP Scanner，以及 A.I.G 的独立扫描 CLI。
 - 接受 SARIF 2.1.0 和扫描器 JSON 报告，并保留引擎、规则、证据位置和风险分。
 - 使用 SQLite 保存扫描记录；扫描目标限制在 `workspace/`。
+- 控制面已要求登录鉴权、角色权限、请求审计和数据保留，详见下方「控制台认证」。
 - 页面、API、扫描适配器和结果存储是 ASGP 自己的控制面骨架。
 
 Execution/Intent/Event 采集、进程/文件/网络关联、策略拦截、准入事务和 Incident 闭环属于目标架构，尚未实现。整体分层见 [ARCHITECTURE.md](ARCHITECTURE.md)，数据结构见 [DATA_MODEL.md](DATA_MODEL.md)，接口见 [API_CONTRACT.md](API_CONTRACT.md)，实施次序见 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)。A.I.G 主平台是否纳入 ASGP 的评审见 [docs/aig-platform-review.zh-CN.md](docs/aig-platform-review.zh-CN.md)。
@@ -45,6 +46,19 @@ FUSION_BIND=0.0.0.0 PORT=8000 ./scripts/run-local.sh
 - Codex profile 的模型必须用 `STEPFUN_CODEX_MODEL` / `XUNFEI_CODEX_MODEL` 显式指定：Codex 顶层的 `model` 属于当前 `model_provider`，换一家供应商未必存在，拿它探测只会得到假的 404。
 - 通过 Responses profile 不代表 Chat Completions profile 可用——两者 endpoint、协议和工具 schema 都不同，必须分别探测。
 
+## 控制台认证
+
+所有 `/api/*` 端点都要求控制台会话，未认证返回 401，权限不足返回 403；只有 `POST /api/session`（登录）和静态页面是公开的。不存在的 `/api` 路由同样要求认证，避免未认证请求用来探测端点是否存在。
+
+- 首次启动时建立管理员账号。口令优先取 `FUSION_ADMIN_PASSWORD`，否则生成一次性随机口令并只打印一次——不使用任何默认口令。
+- 口令用 PBKDF2-HMAC-SHA256（24 万次迭代）加盐哈希，会话令牌只存 SHA-256；明文都只在创建的那一刻返回。
+- 浏览器通过 `HttpOnly; SameSite=Strict` Cookie 携带会话，API 调用可用 `Authorization: Bearer`。
+- 角色三档：`viewer` 只读，`operator` 可扫描/探测/导入，`admin` 额外管理用户、设备和保留策略并读取审计。停用账号会同时吊销其已发出的会话。
+- 设备身份是另一套凭证：设备令牌只证明一台端点有资格上报，不代表控制台用户权限，审计用 `actor_kind` 保持这个区分。
+- 每次请求写审计，只记 request ID、动作、结果和脱敏摘要，不记口令、令牌或密钥。
+
+保留策略默认：扫描记录 90 天、原始报告 30 天、审计事件 365 天。清理时先解除 run 与 Finding 的链接，再把 originating run 已过期但仍在别处被引用的 Finding 置空，最后才删 run——Finding 按指纹去重、可被多次 run 复用，直接级联删除会牵连仍在保留期内的其它 run。
+
 ## 引擎边界
 
 - SkillSpector 运行静态扫描并关闭 LLM 分析；OSV 查询可能访问网络。
@@ -57,6 +71,6 @@ FUSION_BIND=0.0.0.0 PORT=8000 ./scripts/run-local.sh
 
 ## 安全与许可
 
-当前实例绑定 `0.0.0.0:8000`，尚未实现登录鉴权。此配置仅用于本轮查看原型；不要在 `workspace/` 放入敏感数据。正式公网部署前必须增加身份认证、权限管理和运行时隔离。
+当前实例默认绑定 `127.0.0.1:8000`，控制台已要求登录鉴权、角色权限、请求审计和数据保留。改为 `FUSION_BIND=0.0.0.0` 暴露到网络前，还需补足审计保留的设备注册流程、HTTPS 终止和反向代理侧的速率限制；详见 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) 的 P0 验收项。不要在 `workspace/` 放入敏感数据。
 
 上游来源与许可见 [UPSTREAMS.md](UPSTREAMS.md) 和 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。若发行包直接包含 A.I.G 源码，须保留其 `LICENSE`、`NOTICE` 并满足署名要求。

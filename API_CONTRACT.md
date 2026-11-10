@@ -163,8 +163,32 @@
 - 控制台用户使用管理员认证与 RBAC；Provider Secret 仅由服务端 Secret 环境/Secret Store 读取。
 - Data Plane 使用逐设备身份（mTLS 或可吊销设备令牌），服务端覆盖客户端提交的 host 身份字段。
 - 设备令牌只在首次 enrollment 返回；服务端存摘要，可吊销和轮换。
-- 当前原型仍无登录认证；在实现控制台认证、设备认证和审计前，不作为正式公网服务。
+
+原型已实现控制台用户认证、RBAC、请求审计和数据保留（见 7.1）；设备上报端点尚未开放，设备身份目前只能由管理员在控制台登记。
 
 ## 7. 当前原型端点
 
 当前原型使用未版本化端点：`GET /api/health`、`GET /api/engines`、`GET /api/providers`、`GET /api/summary`、`GET /api/scans`、`GET /api/scans/{id}`、`POST /api/scans`、`POST /api/scans/import`。它只有扫描和报告归一化功能，尚未实现上面的 Asset、Runtime Event、Attribution、Policy、Admission 和 Incident API。
+
+### 7.1 认证与授权
+
+除 `POST /api/session` 和静态页面外，所有 `/api/*` 都要求控制台会话。未认证返回 401 并带 `WWW-Authenticate`，权限不足返回 403。未识别的 `/api` 路由同样要求认证，避免被用来探测端点是否存在。
+
+| 方法 | 路径 | 需要的权限 | 说明 |
+| --- | --- | --- | --- |
+| `POST` | `/api/session` | 公开 | 登录，返回令牌并设置 `HttpOnly` Cookie |
+| `DELETE` | `/api/session` | `read` | 登出并吊销当前会话 |
+| `GET` | `/api/session` | `read` | 当前会话信息；前端用它判断会话是否仍有效 |
+| `GET` | `/api/users` | `manage_users` | 用户列表，不含口令哈希 |
+| `POST` | `/api/users` | `manage_users` | 创建用户，口令至少 12 位 |
+| `PATCH` | `/api/users/{id}` | `manage_users` | 改角色或停用；不能操作自己的账号 |
+| `POST` | `/api/users/{id}/password` | `manage_users` | 修改口令 |
+| `GET` | `/api/devices` | `manage_users` | 设备列表 |
+| `POST` | `/api/devices` | `manage_users` | 登记设备，明文令牌只返回一次 |
+| `PATCH` | `/api/devices/{id}` | `manage_users` | 停用或吊销设备 |
+| `GET` | `/api/audit` | `read_audit` | 审计事件，支持 `limit`、`actor_kind`、`action`、`since` |
+| `GET` | `/api/retention` | `read` | 保留规则 |
+| `POST` | `/api/retention` | `manage_retention` | 设置保留天数与开关 |
+| `POST` | `/api/retention/prune` | `manage_retention` | 立即执行一次清理 |
+
+角色权限：`viewer` 只有 `read`；`operator` 增加 `scan`、`probe`、`import_report`；`admin` 再增加 `manage_users`、`manage_retention`、`read_audit`。设备令牌不属于这三档，它只证明上报资格。

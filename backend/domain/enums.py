@@ -108,3 +108,51 @@ class AttributionMethod(StrEnum):
     HOOK_ID = "hook_id"
     PROCESS_TREE = "process_tree"
     TEMPORAL_FEATURE = "temporal_feature"
+
+
+class ConsoleRole(StrEnum):
+    """控制台用户角色。设备身份不走这套权限，见 DeviceStatus。"""
+
+    ADMIN = "admin"
+    OPERATOR = "operator"
+    VIEWER = "viewer"
+
+
+class Permission(StrEnum):
+    READ = "read"
+    SCAN = "scan"
+    PROBE = "probe"
+    IMPORT_REPORT = "import_report"
+    MANAGE_USERS = "manage_users"
+    MANAGE_RETENTION = "manage_retention"
+    READ_AUDIT = "read_audit"
+
+
+class ActorKind(StrEnum):
+    """谁发起了这次动作。
+
+    console_user 与 device 必须分开：设备令牌只代表一台端点的上报身份，
+    不等于控制台用户的权限。
+    """
+
+    CONSOLE_USER = "console_user"
+    DEVICE = "device"
+    ANONYMOUS = "anonymous"
+
+
+class AuditOutcome(StrEnum):
+    SUCCESS = "success"
+    DENIED = "denied"
+    ERROR = "error"
+
+
+class DeviceStatus(StrEnum):
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+    REVOKED = "revoked"
+
+
+class RetentionKind(StrEnum):
+    DETECTOR_RUNS = "detector_runs"
+    RAW_REPORTS = "raw_reports"
+    AUDIT_EVENTS = "audit_events"

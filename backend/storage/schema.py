@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 DDL = """
 CREATE TABLE IF NOT EXISTS detector_runs (
@@ -51,7 +51,10 @@ CREATE TABLE IF NOT EXISTS raw_reports (
 
 CREATE TABLE IF NOT EXISTS findings (
     finding_id TEXT PRIMARY KEY,
-    detector_run_id TEXT NOT NULL REFERENCES detector_runs(detector_run_id) ON DELETE CASCADE,
+    -- 首次观察到该 Finding 的 run。Finding 按指纹去重、可被后续 run 复用，
+    -- 所以这个引用不能级联删除：originating run 过期时只置空，不牵连仍在
+    -- 保留期内的其它 run。无 originating run 时记 NULL。
+    detector_run_id TEXT REFERENCES detector_runs(detector_run_id),
     asset_id TEXT,
     instance_id TEXT,
     execution_id TEXT,
@@ -99,6 +102,57 @@ CREATE TABLE IF NOT EXISTS provider_probes (
     capabilities TEXT NOT NULL DEFAULT '[]',
     probed_at TEXT NOT NULL,
     UNIQUE (provider_id, profile_kind)
+);
+
+-- 控制台用户与设备身份分开存放：设备令牌只代表端点上报资格，不带控制台权限。
+CREATE TABLE IF NOT EXISTS console_users (
+    user_id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    salt TEXT NOT NULL,
+    role TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    disabled_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS console_sessions (
+    session_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES console_users(user_id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS console_sessions_user ON console_sessions(user_id);
+
+CREATE TABLE IF NOT EXISTS device_identities (
+    device_id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    credential_hash TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL,
+    enrolled_at TEXT NOT NULL,
+    last_seen_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS audit_events (
+    audit_id TEXT PRIMARY KEY,
+    occurred_at TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    actor_kind TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    resource TEXT NOT NULL DEFAULT '',
+    outcome TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS audit_events_time ON audit_events(occurred_at);
+CREATE INDEX IF NOT EXISTS audit_events_actor ON audit_events(actor_kind, actor_id);
+
+CREATE TABLE IF NOT EXISTS retention_rules (
+    data_kind TEXT PRIMARY KEY,
+    retention_days INTEGER NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL
 );
 """
 
@@ -183,11 +237,49 @@ def _migrate_v1(conn: sqlite3.Connection) -> None:
     )
 
 
+def _rebuild_findings_without_cascade(conn: sqlite3.Connection) -> None:
+    """去掉 findings.detector_run_id 的 ON DELETE CASCADE。
+
+    Finding 按指纹去重、可被多次 run 复用，originating run 过期级联删除它
+    会牵连仍在保留期内的其它 run。重建时保留全部 finding_id，链接表不动。
+    """
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        conn.execute(
+            "CREATE TABLE findings_rebuild ("
+            " finding_id TEXT PRIMARY KEY,"
+            " detector_run_id TEXT REFERENCES detector_runs(detector_run_id),"
+            " asset_id TEXT, instance_id TEXT, execution_id TEXT,"
+            " detector_id TEXT NOT NULL, detector_version TEXT NOT NULL,"
+            " rule_id TEXT NOT NULL, upstream_rule_id TEXT, severity TEXT NOT NULL,"
+            " confidence TEXT NOT NULL, title TEXT NOT NULL, message TEXT NOT NULL DEFAULT '',"
+            " fingerprint TEXT NOT NULL, status TEXT NOT NULL, upstream_risk_score REAL,"
+            " evidence_refs TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL,"
+            " updated_at TEXT NOT NULL, UNIQUE (detector_id, fingerprint))"
+        )
+        conn.execute(
+            "INSERT INTO findings_rebuild (finding_id, detector_run_id, asset_id, instance_id,"
+            " execution_id, detector_id, detector_version, rule_id, upstream_rule_id, severity,"
+            " confidence, title, message, fingerprint, status, upstream_risk_score,"
+            " evidence_refs, created_at, updated_at)"
+            " SELECT finding_id, detector_run_id, asset_id, instance_id, execution_id,"
+            " detector_id, detector_version, rule_id, upstream_rule_id, severity, confidence,"
+            " title, message, fingerprint, status, upstream_risk_score, evidence_refs,"
+            " created_at, updated_at FROM findings"
+        )
+        conn.execute("DROP TABLE findings")
+        conn.execute("ALTER TABLE findings_rebuild RENAME TO findings")
+        conn.executescript(INDEX_DDL)
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON")
+
+
 def migrate(conn: sqlite3.Connection) -> None:
     """建表并按需迁移；重复执行安全。"""
     tables = table_names(conn)
     has_v1 = "scans" in tables and "findings" in tables
     has_v2 = "detector_runs" in tables
+    has_v4 = "console_users" in tables
 
     if has_v1 and not has_v2:
         # 旧 findings 与新 findings 同名，必须先让位，否则 CREATE IF NOT EXISTS
@@ -199,6 +291,10 @@ def migrate(conn: sqlite3.Connection) -> None:
 
     if has_v1 and not has_v2:
         _migrate_v1(conn)
+
+    if has_v2 and not has_v4:
+        # v2/v3 的 findings 带级联删除，保留策略会误删仍在用的 Finding。
+        _rebuild_findings_without_cascade(conn)
 
     conn.executescript(INDEX_DDL)
     conn.execute(

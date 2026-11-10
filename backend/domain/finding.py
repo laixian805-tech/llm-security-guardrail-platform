@@ -18,7 +18,9 @@ from domain.evidence import EvidenceRef
 
 class Finding(StrictModel):
     finding_id: str = Field(min_length=1)
-    detector_run_id: str = Field(min_length=1)
+    # 首次观察到该 Finding 的 run；可能已被保留策略清理，此时为 None。
+    # 一次 run 观察到哪些 Finding 看 detector_run_findings，不依赖这个字段。
+    detector_run_id: str | None = None
     # 无法关联逻辑资产或实例时留空，不用目标路径猜测填充。
     asset_id: str | None = None
     instance_id: str | None = None
