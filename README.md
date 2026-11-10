@@ -36,6 +36,15 @@ FUSION_BIND=0.0.0.0 PORT=8000 ./scripts/run-local.sh
 - Codex 当前 provider profile 使用 Responses；A.I.G 扫描 CLI 使用 Chat Completions。平台为两种协议保留独立配置，不能把 Responses 地址直接交给 Chat Completions 客户端。
 - 密钥只从本机 `.env`、Codex provider 配置头或进程环境读取，不保存到 SQLite、日志或命令行参数。Snyk 另需 `SNYK_TOKEN`。
 
+### Provider Probe
+
+`POST /api/providers/{id}/probe` 分别探测该供应商的两条传输 profile（Codex 的 Responses、扫描器的 Chat Completions），返回状态、延迟、协议、HTTP 状态、端点回显的模型和被接受的结构化/工具调用能力，不回传密钥。端点不可达、超时、凭据被拒、协议形状不符、模型不符、能力被拒都记为失败并落库。
+
+- Probe 失败的 provider 不进入默认路由，主用和候选一样；候选还要求已经通过 Probe 才能被选中。
+- 拒绝路由时不静默回落到主用，否则配置错误会被藏起来。
+- Codex profile 的模型必须用 `STEPFUN_CODEX_MODEL` / `XUNFEI_CODEX_MODEL` 显式指定：Codex 顶层的 `model` 属于当前 `model_provider`，换一家供应商未必存在，拿它探测只会得到假的 404。
+- 通过 Responses profile 不代表 Chat Completions profile 可用——两者 endpoint、协议和工具 schema 都不同，必须分别探测。
+
 ## 引擎边界
 
 - SkillSpector 运行静态扫描并关闭 LLM 分析；OSV 查询可能访问网络。

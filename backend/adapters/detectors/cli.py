@@ -10,6 +10,7 @@ import hashlib
 import json
 import tempfile
 from pathlib import Path
+from typing import Callable
 
 from adapters.detectors.base import (
     DetectorAdapter,
@@ -32,10 +33,13 @@ class CliDetectorAdapter(DetectorAdapter):
     """以子进程方式运行的检测器。"""
 
     def __init__(self, *, data_root: Path, timeout_seconds: int = 300,
-                 max_output_bytes: int = 8 * 1024 * 1024) -> None:
+                 max_output_bytes: int = 8 * 1024 * 1024,
+                 probe_status: Callable[[str, str], str] | None = None) -> None:
         self._data_root = data_root
         self._timeout_seconds = timeout_seconds
         self._max_output_bytes = max_output_bytes
+        # 需要 LLM 的扫描器用它查 Provider Probe 状态；candidate 未通过 Probe 不路由。
+        self._probe_status = probe_status
 
     @property
     @abstractmethod

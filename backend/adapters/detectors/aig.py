@@ -29,7 +29,7 @@ class AigScannerAdapter(CliDetectorAdapter):
         # 延迟导入避免控制面在无模型配置时无法加载适配器目录。
         from model_providers import scanner_provider_environment
 
-        return scanner_provider_environment()
+        return scanner_provider_environment(probe_status=self._probe_status)
 
     def gate_reason(self) -> str:
         try:

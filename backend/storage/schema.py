@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 DDL = """
 CREATE TABLE IF NOT EXISTS detector_runs (
@@ -82,6 +82,23 @@ CREATE TABLE IF NOT EXISTS detector_run_findings (
 CREATE TABLE IF NOT EXISTS schema_meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS provider_probes (
+    probe_id TEXT PRIMARY KEY,
+    provider_id TEXT NOT NULL,
+    profile_kind TEXT NOT NULL,
+    wire_api TEXT NOT NULL,
+    base_url TEXT NOT NULL,
+    model TEXT NOT NULL,
+    status TEXT NOT NULL,
+    latency_ms INTEGER,
+    http_status INTEGER,
+    error_kind TEXT,
+    error TEXT,
+    capabilities TEXT NOT NULL DEFAULT '[]',
+    probed_at TEXT NOT NULL,
+    UNIQUE (provider_id, profile_kind)
 );
 """
 

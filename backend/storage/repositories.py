@@ -202,6 +202,53 @@ class DetectorRunRepository:
             )
 
 
+class ProviderProbeRepository:
+    """Provider Probe 结果。按 (provider_id, profile_kind) 只留最新一条。
+
+    落库是为了让"Probe 未通过的 candidate 不进入默认路由"在进程重启后
+    依然成立；只存状态和延迟，不存密钥。
+    """
+
+    def __init__(self, storage: Storage) -> None:
+        self._storage = storage
+
+    def record(self, *, provider_id: str, profile_kind: str, wire_api: str, base_url: str,
+               model: str, status: str, latency_ms: int | None, http_status: int | None,
+               error_kind: str | None, error: str | None,
+               capabilities: list[str]) -> str:
+        probe_id = f"probe_{uuid.uuid4().hex[:16]}"
+        with self._storage._lock, self._storage.connection() as conn:
+            conn.execute(
+                "INSERT INTO provider_probes (probe_id, provider_id, profile_kind, wire_api,"
+                " base_url, model, status, latency_ms, http_status, error_kind, error,"
+                " capabilities, probed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                " ON CONFLICT(provider_id, profile_kind) DO UPDATE SET"
+                " probe_id = excluded.probe_id, wire_api = excluded.wire_api,"
+                " base_url = excluded.base_url, model = excluded.model,"
+                " status = excluded.status, latency_ms = excluded.latency_ms,"
+                " http_status = excluded.http_status, error_kind = excluded.error_kind,"
+                " error = excluded.error, capabilities = excluded.capabilities,"
+                " probed_at = excluded.probed_at",
+                (probe_id, provider_id, profile_kind, wire_api, base_url, model, status,
+                 latency_ms, http_status, error_kind, error,
+                 json.dumps(capabilities, ensure_ascii=False), now_iso()),
+            )
+        return probe_id
+
+    def latest(self, provider_id: str, profile_kind: str) -> dict[str, Any] | None:
+        with self._storage.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM provider_probes WHERE provider_id = ? AND profile_kind = ?",
+                (provider_id, profile_kind),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def latest_all(self) -> list[dict[str, Any]]:
+        with self._storage.connection() as conn:
+            rows = conn.execute("SELECT * FROM provider_probes").fetchall()
+        return [dict(row) for row in rows]
+
+
 def finding_from_row(row: dict[str, Any]) -> Finding:
     return Finding(
         finding_id=row["finding_id"],

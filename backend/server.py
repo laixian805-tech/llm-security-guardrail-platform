@@ -19,7 +19,8 @@ from urllib.parse import parse_qs, urlparse
 
 from adapters.detectors import DetectorError
 from detectors.registry import DetectorCatalog
-from model_providers import provider_catalog
+from model_providers import PROFILE_KINDS, provider_catalog
+from services.provider_probe import ProviderProbeService
 from services.scan_service import ScanService
 from storage.repositories import Storage, now_iso
 
@@ -31,6 +32,8 @@ DB_PATH = Path(os.environ.get("FUSION_DB_PATH", str(DATA_ROOT / "fusion.db")))
 BIND_HOST = os.environ.get("FUSION_BIND", "127.0.0.1")
 MAX_BODY_BYTES = 8 * 1024 * 1024
 SCAN_TIMEOUT_SECONDS = int(os.environ.get("FUSION_SCAN_TIMEOUT", "300"))
+PROBE_TIMEOUT_SECONDS = float(os.environ.get("FUSION_PROBE_TIMEOUT", "20"))
+KNOWN_PROVIDERS = {"stepfun", "xunfei"}
 
 # 运行状态 → 旧端点状态词，保持页面标签可读。
 LEGACY_STATUS = {
@@ -42,7 +45,12 @@ LEGACY_STATUS = {
 }
 
 storage = Storage(DB_PATH)
-catalog = DetectorCatalog(data_root=DATA_ROOT, timeout_seconds=SCAN_TIMEOUT_SECONDS)
+probe_service = ProviderProbeService(storage=storage, timeout_seconds=PROBE_TIMEOUT_SECONDS)
+catalog = DetectorCatalog(
+    data_root=DATA_ROOT,
+    timeout_seconds=SCAN_TIMEOUT_SECONDS,
+    probe_status=probe_service.status_for,
+)
 scan_service = ScanService(storage=storage, catalog=catalog)
 
 
@@ -165,7 +173,7 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/api/engines":
             self._send(200, {"engines": _engine_rows()})
         elif parsed.path == "/api/providers":
-            self._send(200, provider_catalog())
+            self._send(200, provider_catalog(probe_service.probe_status_map()))
         elif parsed.path == "/api/summary":
             self._send(200, scan_service.runs.summary())
         elif parsed.path == "/api/scans":
@@ -198,6 +206,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         try:
+            if _is_probe_path(self.path):
+                provider_id = _probe_provider_id(self.path)
+                if provider_id not in KNOWN_PROVIDERS:
+                    self._send(404, {"error": "找不到该供应商。"})
+                    return
+                # 两条 profile 分别 Probe：通过 Codex 的 Responses 不代表
+                # 扫描器的 Chat Completions 可用，反之亦然。
+                results = [
+                    probe_service.probe(provider_id=provider_id, profile_kind=kind)
+                    for kind in PROFILE_KINDS
+                ]
+                self._send(200, {"provider_id": provider_id, "results": results})
+                return
+
             body = self._body()
             if self.path == "/api/scans":
                 target = _safe_target(body.get("target"))
@@ -242,6 +264,18 @@ class Handler(BaseHTTPRequestHandler):
 
 def _now() -> str:
     return now_iso()
+
+
+PROBE_PREFIX = "/api/providers/"
+PROBE_SUFFIX = "/probe"
+
+
+def _is_probe_path(path: str) -> bool:
+    return path.startswith(PROBE_PREFIX) and path.endswith(PROBE_SUFFIX)
+
+
+def _probe_provider_id(path: str) -> str:
+    return path[len(PROBE_PREFIX):-len(PROBE_SUFFIX)]
 
 
 def main() -> None:

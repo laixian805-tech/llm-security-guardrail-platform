@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 from adapters.detectors import (
     AigMcpScanAdapter,
@@ -29,10 +30,12 @@ class DetectorCatalog:
     """按需构造适配器实例；未注册的 detector_id 一律拒绝。"""
 
     def __init__(self, *, data_root: Path, timeout_seconds: int = 300,
-                 max_output_bytes: int = 8 * 1024 * 1024) -> None:
+                 max_output_bytes: int = 8 * 1024 * 1024,
+                 probe_status: Callable[[str, str], str] | None = None) -> None:
         self._data_root = data_root
         self._timeout_seconds = timeout_seconds
         self._max_output_bytes = max_output_bytes
+        self._probe_status = probe_status
         self._cache: dict[str, DetectorAdapter] = {}
 
     def ids(self) -> list[str]:
@@ -48,6 +51,7 @@ class DetectorCatalog:
                 data_root=self._data_root,
                 timeout_seconds=self._timeout_seconds,
                 max_output_bytes=self._max_output_bytes,
+                probe_status=self._probe_status,
             )
             self._cache[detector_id] = cached
         return cached
