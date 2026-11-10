@@ -2,9 +2,11 @@ __pycache__/
 *.py[cod]
 data/*.db*
 data/tmp/
+data/engine-home/
 .venv/
 .venvs/
 logs/
+workspace/
 .env
 .env.*
 !.env.example
