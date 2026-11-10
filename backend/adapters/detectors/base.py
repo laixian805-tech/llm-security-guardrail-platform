@@ -46,7 +46,11 @@ class RawOutput:
 
 @dataclass(frozen=True)
 class NormalizedFinding:
-    """归一化后的发现项，尚未持久化。"""
+    """归一化后的发现项，尚未持久化。
+
+    detector_id / detector_version 由服务层按适配器描述补齐；适配器的
+    normalize() 只负责把上游输出映射成标准字段。
+    """
 
     rule_id: str
     title: str
@@ -58,6 +62,8 @@ class NormalizedFinding:
     evidence_refs: tuple[EvidenceRef, ...] = ()
     fingerprint: str = ""
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    detector_id: str = ""
+    detector_version: str = ""
 
 
 @dataclass(frozen=True)
