@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>ASGP · Agent Security Governance Platform</title>
+    <link rel="stylesheet" href="/web/styles.css" />
+  </head>
+  <body>
+    <div class="appShell">
+      <aside class="sidebar">
+        <div class="brand"><span class="brandMark">AS</span><span>ASGP<br /><b>安全治理平台</b></span></div>
+        <div class="workspaceLabel">工作区</div>
+        <nav aria-label="主导航">
+          <a class="navItem active" href="#overview">概览</a>
+          <a class="navItem" href="#scan">新建扫描</a>
+          <a class="navItem" href="#findings">发现项</a>
+          <a class="navItem" href="#engines">扫描引擎</a>
+        </nav>
+        <div class="sidebarFoot"><span class="localDot"></span> 扫描服务 · 端口 8000</div>
+      </aside>
+
+      <main class="mainContent">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">智能体安全工作台</p>
+            <h1>扫描任务</h1>
+          </div>
+          <button id="refreshButton" class="iconButton" type="button" title="刷新数据" aria-label="刷新数据">↻</button>
+        </header>
+
+        <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+        <section id="overview" class="metrics" aria-label="扫描概览">
+          <div class="metric"><span>扫描次数</span><strong id="metricScans">—</strong><small>本地扫描记录</small></div>
+          <div class="metric"><span>发现项</span><strong id="metricFindings">—</strong><small>已归一化的引擎结果</small></div>
+          <div class="metric"><span>高优先级</span><strong id="metricHigh">—</strong><small>严重与高危等级</small></div>
+          <div class="metric"><span>最近扫描</span><strong id="metricLatest">—</strong><small>UTC 时间</small></div>
+        </section>
+
+        <section id="providers" class="panel providerPanel">
+          <div class="sectionHeading"><div><p class="eyebrow">模型服务</p><h2>供应商配置</h2></div><span id="providerSelection" class="subtleText"></span></div>
+          <div class="tableWrap">
+            <table>
+              <thead><tr><th>供应商</th><th>角色</th><th>Codex 接口</th><th>扫描器接口</th><th>模型</th><th>配置状态</th></tr></thead>
+              <tbody id="providerRows"></tbody>
+            </table>
+          </div>
+          <p class="fieldHint providerHint">仅展示接口与密钥是否已配置，不读取或显示密钥值。模型调用密钥由进程环境变量提供。</p>
+        </section>
+
+        <section class="workGrid">
+          <section id="scan" class="panel scanPanel">
+            <div class="sectionHeading"><div><p class="eyebrow">运行</p><h2>开始扫描</h2></div></div>
+            <form id="scanForm">
+              <label for="scanEngine">扫描引擎</label>
+              <select id="scanEngine" name="engine" required></select>
+              <p id="engineBoundary" class="fieldHint">选择已安装的扫描引擎；下方会显示来源和执行边界。</p>
+              <label for="scanTarget">目标路径</label>
+              <div class="inputWithPrefix"><span>workspace/</span><input id="scanTarget" name="target" placeholder="skills/my-skill" required /></div>
+              <p class="fieldHint">目标必须位于项目的 <code>workspace/</code> 目录内。</p>
+              <button id="scanButton" class="primaryButton" type="submit">开始扫描</button>
+            </form>
+          </section>
+
+          <section class="panel importPanel">
+            <div class="sectionHeading"><div><p class="eyebrow">导入</p><h2>导入扫描报告</h2></div></div>
+            <form id="importForm">
+              <label for="reportEngine">引擎名称</label>
+              <input id="reportEngine" name="engine" placeholder="skillspector" required />
+              <label for="reportTarget">目标标识</label>
+              <input id="reportTarget" name="target" placeholder="skills/my-skill" />
+              <label for="reportFile">SARIF 或 JSON 报告</label>
+              <input id="reportFile" type="file" accept=".sarif,.json,application/json" required />
+              <button class="secondaryButton" type="submit">导入报告</button>
+            </form>
+            <p class="fieldHint">导入只保存归一化发现项和引擎来源，不会执行目标内容。</p>
+          </section>
+        </section>
+
+        <section id="engines" class="panel enginePanel">
+          <div class="sectionHeading"><div><p class="eyebrow">集成</p><h2>扫描引擎</h2></div><span id="engineCount" class="subtleText"></span></div>
+          <div class="tableWrap">
+            <table>
+              <thead><tr><th>引擎</th><th>用途</th><th>执行边界</th><th>状态</th></tr></thead>
+              <tbody id="engineRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="findings" class="panel findingsPanel">
+          <div class="sectionHeading"><div><p class="eyebrow">复核</p><h2>近期扫描</h2></div><span id="scanCount" class="subtleText"></span></div>
+          <div class="tableWrap">
+            <table>
+              <thead><tr><th>引擎</th><th>目标</th><th>状态</th><th>发现项</th><th>完成时间</th></tr></thead>
+              <tbody id="scanRows"></tbody>
+            </table>
+          </div>
+          <div class="sectionHeading findingHeading"><div><p class="eyebrow">统一结果</p><h2>发现项</h2></div><span id="findingCount" class="subtleText"></span></div>
+          <div class="tableWrap">
+            <table>
+              <thead><tr><th>严重级别</th><th>风险分</th><th>引擎</th><th>规则</th><th>发现内容</th><th>位置</th></tr></thead>
+              <tbody id="findingRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <footer><span>ASGP · Agent Security Governance Platform</span><span>Based on Tencent Zhuque Lab AI-Infra-Guard · <a href="https://github.com/Tencent/AI-Infra-Guard" target="_blank" rel="noreferrer">上游项目</a></span></footer>
+      </main>
+    </div>
+    <script src="/web/app.js" defer></script>
+  </body>
+</html>
