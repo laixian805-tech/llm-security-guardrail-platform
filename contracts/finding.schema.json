@@ -96,9 +96,16 @@
       "type": "string"
     },
     "detector_run_id": {
-      "minLength": 1,
-      "title": "Detector Run Id",
-      "type": "string"
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Detector Run Id"
     },
     "detector_version": {
       "minLength": 1,
@@ -201,7 +208,6 @@
   },
   "required": [
     "finding_id",
-    "detector_run_id",
     "detector_id",
     "detector_version",
     "rule_id",
