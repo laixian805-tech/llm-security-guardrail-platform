@@ -53,7 +53,7 @@ FUSION_BIND=0.0.0.0 PORT=8000 ./scripts/run-local.sh
 - 首次启动时建立管理员账号。口令优先取 `FUSION_ADMIN_PASSWORD`，否则生成一次性随机口令并只打印一次——不使用任何默认口令。
 - 口令用 PBKDF2-HMAC-SHA256（24 万次迭代）加盐哈希，会话令牌只存 SHA-256；明文都只在创建的那一刻返回。
 - 浏览器通过 `HttpOnly; SameSite=Strict` Cookie 携带会话，API 调用可用 `Authorization: Bearer`。
-- 角色三档：`viewer` 只读，`operator` 可扫描/探测/导入，`admin` 额外管理用户、设备和保留策略并读取审计。停用账号会同时吊销其已发出的会话。
+- 角色三档：`viewer` 只读，`operator` 可扫描/探测/导入并复核原始报告，`admin` 额外管理用户、设备和保留策略并读取审计。停用账号会同时吊销其已发出的会话。
 - 设备身份是另一套凭证：设备令牌只证明一台端点有资格上报，不代表控制台用户权限，审计用 `actor_kind` 保持这个区分。
 - 每次请求写审计，只记 request ID、动作、结果和脱敏摘要，不记口令、令牌或密钥。
 

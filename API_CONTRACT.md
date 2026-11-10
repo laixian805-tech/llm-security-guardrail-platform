@@ -187,8 +187,9 @@
 | `POST` | `/api/devices` | `manage_users` | 登记设备，明文令牌只返回一次 |
 | `PATCH` | `/api/devices/{id}` | `manage_users` | 停用或吊销设备 |
 | `GET` | `/api/audit` | `read_audit` | 审计事件，支持 `limit`、`actor_kind`、`action`、`since` |
+| `GET` | `/api/scans/{id}/raw-report` | `read_raw_report` | 原始报告正文、哈希与字节数；列表和详情接口都不回传 |
 | `GET` | `/api/retention` | `read` | 保留规则 |
 | `POST` | `/api/retention` | `manage_retention` | 设置保留天数与开关 |
 | `POST` | `/api/retention/prune` | `manage_retention` | 立即执行一次清理 |
 
-角色权限：`viewer` 只有 `read`；`operator` 增加 `scan`、`probe`、`import_report`；`admin` 再增加 `manage_users`、`manage_retention`、`read_audit`。设备令牌不属于这三档，它只证明上报资格。
+角色权限：`viewer` 只有 `read`；`operator` 增加 `scan`、`probe`、`import_report` 和 `read_raw_report`；`admin` 再增加 `manage_users`、`manage_retention`、`read_audit`。设备令牌不属于这三档，它只证明上报资格。原始报告含扫描器整段输出、可能带目标源码片段，因此单独设 `read_raw_report`，列表和详情接口都不回传正文。

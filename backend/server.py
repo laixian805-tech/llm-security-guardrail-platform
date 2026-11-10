@@ -93,6 +93,8 @@ def _required_permission(method: str, path: str) -> Permission | None:
     if path == "/api/scans" or path.startswith("/api/scans/"):
         if method == "POST" and path == "/api/scans/import":
             return Permission.IMPORT_REPORT
+        if method == "GET" and path.endswith("/raw-report"):
+            return Permission.READ_RAW_REPORT
         return Permission.SCAN if method == "POST" else Permission.READ
     if path in ("/api/engines", "/api/summary", "/api/providers"):
         return Permission.READ
@@ -363,6 +365,26 @@ class Handler(BaseHTTPRequestHandler):
             limit = min(max(int((query.get("limit") or [50])[0]), 1), 200)
             rows = scan_service.runs.list(limit=limit)
             self._send(200, {"scans": [_legacy_run(row) for row in rows]})
+        elif path.startswith("/api/scans/") and path.endswith("/raw-report"):
+            run_id = urllib.parse.unquote(path[len("/api/scans/"):-len("/raw-report")])
+            raw = scan_service.runs.raw_report_for_run(run_id)
+            if not raw:
+                self._send(404, {"error": "找不到该扫描的原始报告。"})
+                return
+            # content 落库时是 JSON 字符串，能解析就还原成对象，否则原样回传。
+            try:
+                content = json.loads(raw["content"])
+            except (ValueError, TypeError):
+                content = raw["content"]
+            self._send(200, {
+                "detector_run_id": run_id,
+                "uri": raw["uri"],
+                "media_type": raw["media_type"],
+                "sha256": raw["sha256"],
+                "byte_length": raw["byte_length"],
+                "created_at": raw["created_at"],
+                "content": content,
+            })
         elif path.startswith("/api/scans/"):
             run_id = urllib.parse.unquote(path.rsplit("/", 1)[-1])
             row = scan_service.runs.get(run_id)

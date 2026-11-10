@@ -126,6 +126,8 @@ class Permission(StrEnum):
     MANAGE_USERS = "manage_users"
     MANAGE_RETENTION = "manage_retention"
     READ_AUDIT = "read_audit"
+    # 原始报告含扫描器整段输出，可能带目标源码片段，不给只读角色。
+    READ_RAW_REPORT = "read_raw_report"
 
 
 class ActorKind(StrEnum):

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import threading
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -173,6 +174,51 @@ def test_operator_cannot_manage_users_or_retention(api, admin_token):
         ("POST", "/api/retention/prune", None),
     ]:
         assert call(api.base, method, path, token=token, body=body).status_code == 403
+
+
+def test_raw_report_needs_its_own_permission(api, admin_token):
+    """原始报告含扫描器整段输出，list API 不给，单独端点按权限给。"""
+    actor = api.module.auth_service.authenticate(admin_token)[0]
+    viewer_id = api.module.auth_service.create_user(
+        actor=actor, username="viewer", password=VIEWER_PASSWORD,
+        role=ConsoleRole.VIEWER)
+    operator_id = api.module.auth_service.create_user(
+        actor=actor, username="operator", password=OPERATOR_PASSWORD,
+        role=ConsoleRole.OPERATOR)
+    run_id = api.module.scan_service.import_report(
+        detector_id="imported-report", target_ref="sample.py",
+        report={"findings": [{"rule_id": "R1", "message": "leaky snippet",
+                              "level": "error", "locations": []}]},
+        idempotency_key="raw-run",
+    )["detector_run_id"]
+
+    # 列表和详情接口都不回传原始报告正文。
+    listing = call(api.base, "GET", "/api/scans", token=admin_token).json()["scans"]
+    assert "leaky snippet" not in json.dumps(listing, ensure_ascii=False)
+    detail = call(api.base, "GET", f"/api/scans/{run_id}", token=admin_token).json()
+    assert "content" not in detail
+
+    # 未认证一律 401。
+    assert call(api.base, "GET", f"/api/scans/{run_id}/raw-report").status_code == 401
+
+    # 只读角色看不到原始报告，operator 可以。
+    viewer_token = login(api.base, "viewer", VIEWER_PASSWORD)
+    denied = call(api.base, "GET", f"/api/scans/{run_id}/raw-report", token=viewer_token)
+    assert denied.status_code == 403
+    assert "read_raw_report" in denied.json()["error"]
+
+    operator_token = login(api.base, "operator", OPERATOR_PASSWORD)
+    allowed = call(api.base, "GET", f"/api/scans/{run_id}/raw-report", token=operator_token)
+    assert allowed.status_code == 200
+    body = allowed.json()
+    assert body["detector_run_id"] == run_id
+    assert body["byte_length"] > 0
+    assert body["sha256"]
+    assert "leaky snippet" in json.dumps(body["content"], ensure_ascii=False)
+
+    # 不存在的 run 返回 404，不是 500。
+    assert call(api.base, "GET", "/api/scans/run_nope/raw-report",
+                token=admin_token).status_code == 404
 
 
 def test_admin_can_read_audit(api, admin_token):

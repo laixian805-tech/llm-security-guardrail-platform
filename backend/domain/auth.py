@@ -29,10 +29,12 @@ ROLE_PERMISSIONS: dict[ConsoleRole, frozenset[Permission]] = {
     ConsoleRole.VIEWER: frozenset({Permission.READ}),
     ConsoleRole.OPERATOR: frozenset({
         Permission.READ, Permission.SCAN, Permission.PROBE, Permission.IMPORT_REPORT,
+        Permission.READ_RAW_REPORT,
     }),
     ConsoleRole.ADMIN: frozenset({
         Permission.READ, Permission.SCAN, Permission.PROBE, Permission.IMPORT_REPORT,
         Permission.MANAGE_USERS, Permission.MANAGE_RETENTION, Permission.READ_AUDIT,
+        Permission.READ_RAW_REPORT,
     }),
 }
 
