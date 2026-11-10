@@ -1,0 +1,101 @@
+{
+  "$defs": {
+    "ActivationState": {
+      "enum": [
+        "unknown",
+        "disabled",
+        "enabled"
+      ],
+      "title": "ActivationState",
+      "type": "string"
+    },
+    "InstallationState": {
+      "enum": [
+        "unknown",
+        "absent",
+        "installed",
+        "broken"
+      ],
+      "title": "InstallationState",
+      "type": "string"
+    },
+    "RuntimeState": {
+      "enum": [
+        "unknown",
+        "idle",
+        "running",
+        "stopped"
+      ],
+      "title": "RuntimeState",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "一个主机/产品/作用域中的具体安装或缓存副本。\n\n安装、启用、运行三种状态相互独立，不能相互推导。",
+  "properties": {
+    "activation_state": {
+      "$ref": "#/$defs/ActivationState",
+      "default": "unknown"
+    },
+    "asset_id": {
+      "minLength": 1,
+      "title": "Asset Id",
+      "type": "string"
+    },
+    "first_seen_at": {
+      "format": "date-time",
+      "title": "First Seen At",
+      "type": "string"
+    },
+    "host_id": {
+      "minLength": 1,
+      "title": "Host Id",
+      "type": "string"
+    },
+    "install_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Install Path"
+    },
+    "installation_state": {
+      "$ref": "#/$defs/InstallationState",
+      "default": "unknown"
+    },
+    "instance_id": {
+      "minLength": 1,
+      "title": "Instance Id",
+      "type": "string"
+    },
+    "last_seen_at": {
+      "format": "date-time",
+      "title": "Last Seen At",
+      "type": "string"
+    },
+    "product_scope": {
+      "minLength": 1,
+      "title": "Product Scope",
+      "type": "string"
+    },
+    "runtime_state": {
+      "$ref": "#/$defs/RuntimeState",
+      "default": "unknown"
+    }
+  },
+  "required": [
+    "instance_id",
+    "asset_id",
+    "host_id",
+    "product_scope",
+    "first_seen_at",
+    "last_seen_at"
+  ],
+  "title": "AssetInstance",
+  "type": "object"
+}

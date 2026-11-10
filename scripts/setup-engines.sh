@@ -7,6 +7,19 @@ AIG_SOURCE_ROOT="${FUSION_AIG_SOURCE_ROOT:-/root/opensrc/AI-Infra-Guard}"
 PYTHON="${FUSION_PYTHON:-python3}"
 FORCE_AIG_SOURCE="${FUSION_FORCE_AIG_SOURCE:-0}"
 
+setup_control_plane() {
+  local venv="$ROOT/.venvs/control-plane"
+  if [[ -x "$venv/bin/python" ]] && "$venv/bin/python" -c "import fastapi, pydantic, sqlalchemy" 2>/dev/null; then
+    printf '已就绪 %-14s %s\n' "control-plane" "$venv/bin/python"
+    return 0
+  fi
+  "$PYTHON" -m venv "$venv"
+  "$venv/bin/python" -m pip install --disable-pip-version-check -r "$ROOT/requirements-control-plane.txt"
+  printf '已安装 %-14s 依赖 %s\n' "control-plane" "requirements-control-plane.txt"
+}
+
+setup_control_plane
+
 install_engine() {
   local name="$1"
   local source="$2"

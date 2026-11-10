@@ -1,0 +1,245 @@
+{
+  "$defs": {
+    "DetectorMode": {
+      "enum": [
+        "static",
+        "dynamic"
+      ],
+      "title": "DetectorMode",
+      "type": "string"
+    },
+    "RawReportRef": {
+      "additionalProperties": false,
+      "description": "原始报告的存储引用；内容不在契约内联。",
+      "properties": {
+        "byte_length": {
+          "minimum": 0,
+          "title": "Byte Length",
+          "type": "integer"
+        },
+        "media_type": {
+          "minLength": 1,
+          "title": "Media Type",
+          "type": "string"
+        },
+        "raw_report_id": {
+          "minLength": 1,
+          "title": "Raw Report Id",
+          "type": "string"
+        },
+        "sha256": {
+          "minLength": 1,
+          "title": "Sha256",
+          "type": "string"
+        },
+        "uri": {
+          "minLength": 1,
+          "title": "Uri",
+          "type": "string"
+        }
+      },
+      "required": [
+        "raw_report_id",
+        "uri",
+        "media_type",
+        "sha256",
+        "byte_length"
+      ],
+      "title": "RawReportRef",
+      "type": "object"
+    },
+    "RunStatus": {
+      "description": "检测器运行状态。\n\nSUCCEEDED 且 finding_count 为 0 才表示 clean；TIMED_OUT、\nFAILED、OUTPUT_LIMIT_EXCEEDED 都不得呈现为无发现项。",
+      "enum": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "timed_out",
+        "output_limit_exceeded",
+        "cancelled"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    },
+    "WireApi": {
+      "enum": [
+        "responses",
+        "chat_completions"
+      ],
+      "title": "WireApi",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "asset_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Asset Id"
+    },
+    "detector_id": {
+      "minLength": 1,
+      "title": "Detector Id",
+      "type": "string"
+    },
+    "detector_run_id": {
+      "minLength": 1,
+      "title": "Detector Run Id",
+      "type": "string"
+    },
+    "detector_version": {
+      "minLength": 1,
+      "title": "Detector Version",
+      "type": "string"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error"
+    },
+    "finding_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Finding Count",
+      "type": "integer"
+    },
+    "finished_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Finished At"
+    },
+    "instance_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Instance Id"
+    },
+    "latency_ms": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Latency Ms"
+    },
+    "mode": {
+      "$ref": "#/$defs/DetectorMode"
+    },
+    "model_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Id"
+    },
+    "normalizer_version": {
+      "minLength": 1,
+      "title": "Normalizer Version",
+      "type": "string"
+    },
+    "provider_profile_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Provider Profile Id"
+    },
+    "raw_report": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RawReportRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "started_at": {
+      "format": "date-time",
+      "title": "Started At",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/RunStatus"
+    },
+    "target_ref": {
+      "minLength": 1,
+      "title": "Target Ref",
+      "type": "string"
+    },
+    "timeout_seconds": {
+      "exclusiveMinimum": 0,
+      "title": "Timeout Seconds",
+      "type": "integer"
+    },
+    "wire_api": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WireApi"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "detector_run_id",
+    "detector_id",
+    "detector_version",
+    "target_ref",
+    "mode",
+    "status",
+    "started_at",
+    "timeout_seconds",
+    "normalizer_version"
+  ],
+  "title": "DetectorRun",
+  "type": "object"
+}

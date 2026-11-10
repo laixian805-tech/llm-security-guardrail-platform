@@ -1,0 +1,130 @@
+{
+  "$defs": {
+    "ProbeStatus": {
+      "enum": [
+        "unknown",
+        "passed",
+        "failed"
+      ],
+      "title": "ProbeStatus",
+      "type": "string"
+    },
+    "ProviderRole": {
+      "enum": [
+        "primary",
+        "candidate"
+      ],
+      "title": "ProviderRole",
+      "type": "string"
+    },
+    "WireApi": {
+      "enum": [
+        "responses",
+        "chat_completions"
+      ],
+      "title": "WireApi",
+      "type": "string"
+    },
+    "WireProfile": {
+      "additionalProperties": false,
+      "description": "一条具体的传输配置。",
+      "properties": {
+        "base_url": {
+          "default": "",
+          "title": "Base Url",
+          "type": "string"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "configured": {
+          "default": false,
+          "title": "Configured",
+          "type": "boolean"
+        },
+        "model": {
+          "default": "",
+          "title": "Model",
+          "type": "string"
+        },
+        "secret_configured": {
+          "default": false,
+          "title": "Secret Configured",
+          "type": "boolean"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "wire_api": {
+          "$ref": "#/$defs/WireApi"
+        }
+      },
+      "required": [
+        "wire_api",
+        "source"
+      ],
+      "title": "WireProfile",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "codex_profile": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WireProfile"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "name": {
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "probe_status": {
+      "$ref": "#/$defs/ProbeStatus",
+      "default": "unknown"
+    },
+    "provider_id": {
+      "minLength": 1,
+      "title": "Provider Id",
+      "type": "string"
+    },
+    "role": {
+      "$ref": "#/$defs/ProviderRole"
+    },
+    "scanner_profile": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WireProfile"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "selected": {
+      "default": false,
+      "title": "Selected",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "provider_id",
+    "name",
+    "role"
+  ],
+  "title": "ModelProviderProfile",
+  "type": "object"
+}

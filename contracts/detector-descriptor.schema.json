@@ -1,0 +1,79 @@
+{
+  "$defs": {
+    "DetectorMode": {
+      "enum": [
+        "static",
+        "dynamic"
+      ],
+      "title": "DetectorMode",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "检测器的静态能力声明，由 Adapter 提供。",
+  "properties": {
+    "boundary": {
+      "default": "",
+      "title": "Boundary",
+      "type": "string"
+    },
+    "capabilities": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "detector_id": {
+      "minLength": 1,
+      "title": "Detector Id",
+      "type": "string"
+    },
+    "input_types": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Input Types",
+      "type": "array"
+    },
+    "license_id": {
+      "minLength": 1,
+      "title": "License Id",
+      "type": "string"
+    },
+    "llm_required": {
+      "default": false,
+      "title": "Llm Required",
+      "type": "boolean"
+    },
+    "mode": {
+      "$ref": "#/$defs/DetectorMode"
+    },
+    "network_required": {
+      "default": false,
+      "title": "Network Required",
+      "type": "boolean"
+    },
+    "upstream_source": {
+      "minLength": 1,
+      "title": "Upstream Source",
+      "type": "string"
+    },
+    "version": {
+      "minLength": 1,
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "detector_id",
+    "version",
+    "upstream_source",
+    "license_id",
+    "input_types",
+    "mode"
+  ],
+  "title": "DetectorDescriptor",
+  "type": "object"
+}

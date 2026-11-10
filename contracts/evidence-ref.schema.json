@@ -1,0 +1,33 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "minLength": 1,
+      "title": "Kind",
+      "type": "string"
+    },
+    "label": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Label"
+    },
+    "uri": {
+      "minLength": 1,
+      "title": "Uri",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "uri"
+  ],
+  "title": "EvidenceRef",
+  "type": "object"
+}
