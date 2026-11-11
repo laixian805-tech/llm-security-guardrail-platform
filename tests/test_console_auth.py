@@ -17,7 +17,8 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from domain import ActorKind, AuditEvent, AuditOutcome, ConsoleRole, DeviceStatus, RetentionKind
+from adapters.detectors import RawOutput
+from domain import ActorKind, AuditEvent, AuditOutcome, ConsoleRole, DeviceStatus, RetentionKind, RunStatus
 from services.auth_service import AuthError, AuthService
 from storage.repositories import RetentionRepository, Storage
 
@@ -219,6 +220,47 @@ def test_raw_report_needs_its_own_permission(api, admin_token):
     # 不存在的 run 返回 404，不是 500。
     assert call(api.base, "GET", "/api/scans/run_nope/raw-report",
                 token=admin_token).status_code == 404
+
+
+def test_timed_out_run_is_never_presented_as_clean(api, admin_token):
+    """超时的扫描在 API 上必须是 failed，不能变成 completed / clean。
+
+    领域模型的 is_clean、存储的 record_failure 和 LEGACY_STATUS 映射各自都对，
+    但都没有测试把它们串到 HTTP 边界上。改映射的人不会碰到那三层，所以这里
+    直接打接口：列表和详情都不许把超时显示成无发现项。
+    """
+    runs = api.module.scan_service.runs
+    timed_out = runs.create_run(detector_id="skillspector", detector_version="2.12.0",
+                                target_ref="sample.py", mode="static", timeout_seconds=1)
+    runs.record_failure(run_id=timed_out, status=RunStatus.TIMED_OUT, error="超时")
+
+    # 对照组：真的跑成功且没有发现项，那才是 clean。
+    clean = runs.create_run(detector_id="skillspector", detector_version="2.12.0",
+                            target_ref="sample.py", mode="static", timeout_seconds=60)
+    runs.record_success(run_id=clean,
+                        raw=RawOutput(report={"findings": []}, media_type="application/json",
+                                      sha256="a" * 64, byte_length=16),
+                        findings=[])
+
+    listing = {row["scan_id"]: row for row in
+               call(api.base, "GET", "/api/scans", token=admin_token).json()["scans"]}
+
+    assert listing[timed_out]["status"] == "failed"
+    assert listing[timed_out]["finding_count"] == 0
+    assert listing[timed_out]["error"]
+    # clean 对照组必须仍是 completed，否则这条测试区分不出"映射写死"和"映射正确"。
+    assert listing[clean]["status"] == "completed"
+
+    detail = call(api.base, "GET", f"/api/scans/{timed_out}",
+                  token=admin_token).json()["scan"]
+    assert detail["status"] == "failed"
+    assert detail["finding_count"] == 0
+    assert detail["error"]
+
+    # 超时的 run 不允许挂任何 Finding——挂上了就等于把失败报成了有结论。
+    findings = call(api.base, "GET", f"/api/scans/{timed_out}",
+                    token=admin_token).json()["findings"]
+    assert findings == []
 
 
 def test_admin_can_read_audit(api, admin_token):
