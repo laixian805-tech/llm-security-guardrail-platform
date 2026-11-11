@@ -1,0 +1,100 @@
+{
+  "type": "p1_acceptance_recheck",
+  "performed_at": "2026-11-11T12:49:17.871497+00:00",
+  "code_commit": "118cc97fd0945c69bf219177c4ab10c843fb77e1",
+  "verdict": "partial_pass_not_full_acceptance",
+  "criteria": {
+    "A1": "partial: Codex 0.166.0 native Hook confirmation unsupported; deny fallback is not approval",
+    "A2": "passed within recorded test scope",
+    "A3": "passed within recorded test scope",
+    "A4": "passed within recorded test scope"
+  },
+  "tests": {
+    "command": "./scripts/test.sh -q -rs",
+    "passed": 263,
+    "skipped": 0,
+    "seconds": 66.09
+  },
+  "fixture_e2e": {
+    "passed": true,
+    "products": [
+      "codex",
+      "claude-code"
+    ],
+    "executions": 2,
+    "intents": 2,
+    "checks": [
+      "actual endpoint CLI",
+      "authenticated HTTP",
+      "stable timeline",
+      "idempotent replay",
+      "revoked token dead queue"
+    ]
+  },
+  "live_runs": [
+    {
+      "product": "codex",
+      "version": "0.166.0",
+      "returncode": 0,
+      "seconds": 15.9,
+      "session_id": "01a1caa5-12f1-7fc0-9b07-ac7ddb1131da",
+      "outcome": "completed",
+      "intent_count": 1,
+      "product_result": "observed"
+    },
+    {
+      "product": "claude-code",
+      "version": "2.1.152",
+      "returncode": 0,
+      "seconds": 5.4,
+      "session_id": "d84be900-2073-43ee-bb6a-3ef233f81a39",
+      "outcome": "completed",
+      "intent_count": 1,
+      "product_result": "observed"
+    }
+  ],
+  "browser": {
+    "both_products_timeline_passed": true,
+    "page_errors": 0,
+    "mobile_horizontal_overflow": false
+  },
+  "known_credentials_scan": {
+    "passed": true,
+    "checked_tables": {
+      "executions": 20,
+      "intents": 20,
+      "runtime_events": 0,
+      "audit_events": 100
+    },
+    "limitation": "checks local known credential values; not a proof for all arbitrary secrets"
+  },
+  "remote": {
+    "host": "116.62.28.177",
+    "user": "agentsec-lab",
+    "reporter_active": true,
+    "configuration_mode": "0600",
+    "binary_fingerprints_match": {
+      "codex": true,
+      "claude-code": true
+    },
+    "deployed_endpoint_matches_repository": true,
+    "files_checked": 8,
+    "queue": {
+      "sent": 69
+    },
+    "mode": "observe"
+  },
+  "prior_evidence_reused": [
+    "native allow/deny/ask live outcomes",
+    "real tunnel interruption and recovery",
+    "exact uninstall restore",
+    "StepFun per-profile probes"
+  ],
+  "scope_exclusions": [
+    "native Codex confirmation remains missing",
+    "mid-session product upgrade full degradation path not covered",
+    "long-running pressure and hard disk quotas not covered",
+    "P0 remaining acceptance",
+    "P2/P3"
+  ]
+}
