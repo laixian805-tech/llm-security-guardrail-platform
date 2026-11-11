@@ -1,0 +1,113 @@
+{
+  "$defs": {
+    "ExecutionOutcome": {
+      "description": "一次执行的结果状态。\n\nRUNNING 表示会话未收尾；UNKNOWN 表示从未观测到收尾事件（端点离线\n等情况），不得当作 completed。",
+      "enum": [
+        "unknown",
+        "running",
+        "completed",
+        "aborted",
+        "failed"
+      ],
+      "title": "ExecutionOutcome",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "一次 Agent 任务/会话的执行边界。",
+  "properties": {
+    "asset_instance_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Asset Instance Id"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "device_id": {
+      "minLength": 1,
+      "title": "Device Id",
+      "type": "string"
+    },
+    "ended_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ended At"
+    },
+    "execution_id": {
+      "minLength": 1,
+      "title": "Execution Id",
+      "type": "string"
+    },
+    "host_id": {
+      "minLength": 1,
+      "title": "Host Id",
+      "type": "string"
+    },
+    "intent_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Intent Count",
+      "type": "integer"
+    },
+    "outcome": {
+      "$ref": "#/$defs/ExecutionOutcome",
+      "default": "running"
+    },
+    "product": {
+      "minLength": 1,
+      "title": "Product",
+      "type": "string"
+    },
+    "product_version": {
+      "minLength": 1,
+      "title": "Product Version",
+      "type": "string"
+    },
+    "session_id": {
+      "minLength": 1,
+      "title": "Session Id",
+      "type": "string"
+    },
+    "started_at": {
+      "format": "date-time",
+      "title": "Started At",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "execution_id",
+    "host_id",
+    "device_id",
+    "product",
+    "product_version",
+    "session_id",
+    "started_at",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "Execution",
+  "type": "object"
+}

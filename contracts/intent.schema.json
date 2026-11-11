@@ -1,0 +1,158 @@
+{
+  "$defs": {
+    "HookEventType": {
+      "description": "产品 Hook 事件类型。\n\nSYNTHETIC 是端点自己合成的事件（如关联、补录），不是产品真实抛出\n的执行前观测，因此不算执行前事件。",
+      "enum": [
+        "session_start",
+        "pre_tool_use",
+        "post_tool_use",
+        "session_end",
+        "synthetic"
+      ],
+      "title": "HookEventType",
+      "type": "string"
+    },
+    "IntentDecision": {
+      "description": "Intent 上观测到的决策。\n\nNOT_APPLICABLE 表示该事件没有决策语义（observe 模式或非执行前事件），\n与\"决策为放行\"是两回事。",
+      "enum": [
+        "not_applicable",
+        "allow",
+        "ask",
+        "deny"
+      ],
+      "title": "IntentDecision",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "一次观测到的工具调用。\n\nhook_event_type 记录创建这条 Intent 的事件；同一 tool_call_id 的后续\n事件（如 PostToolUse）只补结果，不改写事件类型与决策，避免\"执行后\n观测\"覆盖\"执行前决策\"的记录。",
+  "properties": {
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "decision": {
+      "$ref": "#/$defs/IntentDecision",
+      "default": "not_applicable"
+    },
+    "decision_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Decision Reason"
+    },
+    "ended_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ended At"
+    },
+    "execution_id": {
+      "minLength": 1,
+      "title": "Execution Id",
+      "type": "string"
+    },
+    "hook_event_type": {
+      "$ref": "#/$defs/HookEventType"
+    },
+    "intent_id": {
+      "minLength": 1,
+      "title": "Intent Id",
+      "type": "string"
+    },
+    "occurred_at": {
+      "format": "date-time",
+      "title": "Occurred At",
+      "type": "string"
+    },
+    "params_sha256": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Params Sha256"
+    },
+    "params_summary": {
+      "default": "",
+      "maxLength": 8192,
+      "title": "Params Summary",
+      "type": "string"
+    },
+    "parent_intent_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Intent Id"
+    },
+    "product_result": {
+      "anyOf": [
+        {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Product Result"
+    },
+    "redaction_applied": {
+      "default": false,
+      "title": "Redaction Applied",
+      "type": "boolean"
+    },
+    "tool_call_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Tool Call Id"
+    },
+    "tool_name": {
+      "minLength": 1,
+      "title": "Tool Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "intent_id",
+    "execution_id",
+    "tool_name",
+    "hook_event_type",
+    "occurred_at",
+    "created_at"
+  ],
+  "title": "Intent",
+  "type": "object"
+}

@@ -19,18 +19,24 @@ from domain.detector import (
     RawReportRef,
 )
 from domain.enums import (
+    PRE_EXECUTION_HOOK_EVENTS,
     ActivationState,
     ActorKind,
     AuditOutcome,
     AssetType,
     AttributionMethod,
+    CapabilityVerification,
     Confidence,
     ConsoleRole,
     DetectorMode,
     DeviceStatus,
+    ExecutionOutcome,
     FindingStatus,
     HookCapability,
+    HookEventType,
+    HookTransport,
     InstallationState,
+    IntentDecision,
     Permission,
     ProbeStatus,
     ProviderRole,
@@ -41,11 +47,16 @@ from domain.enums import (
     WireApi,
 )
 from domain.evidence import EvidenceRef
+from domain.execution import Execution, Intent
 from domain.finding import Finding
+from domain.product import AgentProductDescriptor, HookEventCapability
 from domain.provider import ModelProviderProfile, WireProfile
+from domain.runtime_event import ProcessInfo, ResourceInfo, RuntimeEvent
 
 __all__ = [
+    "PRE_EXECUTION_HOOK_EVENTS",
     "ActivationState",
+    "AgentProductDescriptor",
     "Asset",
     "AssetInstance",
     "AssetRelease",
@@ -54,6 +65,7 @@ __all__ = [
     "AuditOutcome",
     "AssetType",
     "AttributionMethod",
+    "CapabilityVerification",
     "Confidence",
     "ConsoleRole",
     "ConsoleSession",
@@ -64,17 +76,27 @@ __all__ = [
     "DeviceIdentity",
     "DeviceStatus",
     "EvidenceRef",
+    "Execution",
+    "ExecutionOutcome",
     "Finding",
     "FindingStatus",
     "HookCapability",
+    "HookEventCapability",
+    "HookEventType",
+    "HookTransport",
     "InstallationState",
+    "Intent",
+    "IntentDecision",
     "ModelProviderProfile",
     "Permission",
     "ProbeStatus",
+    "ProcessInfo",
     "ProviderRole",
+    "ResourceInfo",
     "RetentionKind",
     "RetentionRule",
     "RawReportRef",
+    "RuntimeEvent",
     "RuntimeState",
     "RunStatus",
     "Severity",

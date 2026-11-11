@@ -1,0 +1,180 @@
+{
+  "$defs": {
+    "CapabilityVerification": {
+      "description": "能力条目的证据等级。\n\nVERIFIED 必须带 verified_against 与 evidence_ref——没有证据的\"支持\"\n就是宣称已拦截。UNVERIFIED 只允许 observe 且不得声明决策通道：协议\n没实测就声称能阻断，拦不住时没有任何告警。",
+      "enum": [
+        "verified",
+        "unverified"
+      ],
+      "title": "CapabilityVerification",
+      "type": "string"
+    },
+    "HookCapability": {
+      "enum": [
+        "observe",
+        "confirm",
+        "deny"
+      ],
+      "title": "HookCapability",
+      "type": "string"
+    },
+    "HookEventCapability": {
+      "additionalProperties": false,
+      "description": "单个 hook 事件类型的能力条目。",
+      "properties": {
+        "capabilities": {
+          "items": {
+            "$ref": "#/$defs/HookCapability"
+          },
+          "minItems": 1,
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "decision_protocol": {
+          "default": "none",
+          "title": "Decision Protocol",
+          "type": "string"
+        },
+        "evidence_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Ref"
+        },
+        "hook_event_type": {
+          "$ref": "#/$defs/HookEventType"
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        },
+        "pre_execution": {
+          "title": "Pre Execution",
+          "type": "boolean"
+        },
+        "verification": {
+          "$ref": "#/$defs/CapabilityVerification",
+          "default": "unverified"
+        },
+        "verified_against": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified Against"
+        }
+      },
+      "required": [
+        "hook_event_type",
+        "pre_execution",
+        "capabilities"
+      ],
+      "title": "HookEventCapability",
+      "type": "object"
+    },
+    "HookEventType": {
+      "description": "产品 Hook 事件类型。\n\nSYNTHETIC 是端点自己合成的事件（如关联、补录），不是产品真实抛出\n的执行前观测，因此不算执行前事件。",
+      "enum": [
+        "session_start",
+        "pre_tool_use",
+        "post_tool_use",
+        "session_end",
+        "synthetic"
+      ],
+      "title": "HookEventType",
+      "type": "string"
+    },
+    "HookTransport": {
+      "description": "产品 Hook 的输入输出如何送达。\n\nSTDIN_JSON：产品把事件 JSON 写进 hook 进程 stdin，决策经 stdout 返回。\nUNKNOWN：未实测，不知道是否存在 hook 机制以及其形态。",
+      "enum": [
+        "stdin_json",
+        "unknown"
+      ],
+      "title": "HookTransport",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "产品 Hook 的静态能力声明，由适配器提供。",
+  "properties": {
+    "adapter_version": {
+      "minLength": 1,
+      "title": "Adapter Version",
+      "type": "string"
+    },
+    "boundary": {
+      "default": "",
+      "title": "Boundary",
+      "type": "string"
+    },
+    "collector_id": {
+      "minLength": 1,
+      "title": "Collector Id",
+      "type": "string"
+    },
+    "events": {
+      "items": {
+        "$ref": "#/$defs/HookEventCapability"
+      },
+      "title": "Events",
+      "type": "array"
+    },
+    "hook_transport": {
+      "$ref": "#/$defs/HookTransport",
+      "default": "unknown"
+    },
+    "ingest_supported": {
+      "default": true,
+      "title": "Ingest Supported",
+      "type": "boolean"
+    },
+    "product_id": {
+      "minLength": 1,
+      "title": "Product Id",
+      "type": "string"
+    },
+    "product_version": {
+      "minLength": 1,
+      "title": "Product Version",
+      "type": "string"
+    },
+    "unsupported_fields": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Unsupported Fields",
+      "type": "array"
+    },
+    "unsupported_reason": {
+      "default": "",
+      "title": "Unsupported Reason",
+      "type": "string"
+    },
+    "vendor": {
+      "minLength": 1,
+      "title": "Vendor",
+      "type": "string"
+    }
+  },
+  "required": [
+    "product_id",
+    "product_version",
+    "adapter_version",
+    "vendor",
+    "collector_id"
+  ],
+  "title": "AgentProductDescriptor",
+  "type": "object"
+}

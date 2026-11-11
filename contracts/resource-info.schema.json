@@ -1,0 +1,46 @@
+{
+  "additionalProperties": false,
+  "description": "事件涉及的资源定位。三类资源互斥出现，用不到的留空。",
+  "properties": {
+    "host": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Host"
+    },
+    "path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Path"
+    },
+    "port": {
+      "anyOf": [
+        {
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Port"
+    }
+  },
+  "title": "ResourceInfo",
+  "type": "object"
+}

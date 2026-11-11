@@ -1,0 +1,46 @@
+{
+  "additionalProperties": false,
+  "description": "事件相关的进程信息。采集不到时字段留空，不用猜测值填充。",
+  "properties": {
+    "executable": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Executable"
+    },
+    "pid": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pid"
+    },
+    "ppid": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ppid"
+    }
+  },
+  "title": "ProcessInfo",
+  "type": "object"
+}

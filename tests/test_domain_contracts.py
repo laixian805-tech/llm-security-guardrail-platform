@@ -20,12 +20,20 @@ from domain import (
     DetectorDescriptor,
     DetectorMode,
     DetectorRun,
+    Execution,
+    ExecutionOutcome,
     Finding,
+    HookEventType,
     InstallationState,
+    Intent,
+    IntentDecision,
     ModelProviderProfile,
     ProbeStatus,
     ProviderRole,
+    ProcessInfo,
+    ResourceInfo,
     RunStatus,
+    RuntimeEvent,
     Severity,
     WireApi,
     WireProfile,
@@ -276,3 +284,153 @@ class TestDetectorDescriptor:
         )
         assert descriptor.llm_required is True
         assert descriptor.boundary != ""
+
+
+def make_execution(**overrides):
+    payload = dict(
+        execution_id="exec_1",
+        host_id="host_1",
+        device_id="dev_1",
+        product="claude-code",
+        product_version="2.0.0",
+        session_id="sess_1",
+        started_at=NOW,
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    payload.update(overrides)
+    return Execution(**payload)
+
+
+def make_intent(**overrides):
+    payload = dict(
+        intent_id="intent_1",
+        execution_id="exec_1",
+        tool_name="Bash",
+        hook_event_type=HookEventType.PRE_TOOL_USE,
+        occurred_at=NOW,
+        created_at=NOW,
+    )
+    payload.update(overrides)
+    return Intent(**payload)
+
+
+class TestExecution:
+    def test_running_has_no_ended_at(self):
+        with pytest.raises(ValidationError):
+            make_execution(outcome=ExecutionOutcome.RUNNING, ended_at=NOW)
+
+    def test_terminal_requires_ended_at(self):
+        with pytest.raises(ValidationError):
+            make_execution(outcome=ExecutionOutcome.COMPLETED)
+
+    def test_ended_at_cannot_precede_started_at(self):
+        from datetime import timedelta
+
+        with pytest.raises(ValidationError):
+            make_execution(
+                outcome=ExecutionOutcome.COMPLETED,
+                ended_at=NOW - timedelta(seconds=1),
+            )
+
+    def test_unknown_outcome_is_not_terminal(self):
+        execution = make_execution(outcome=ExecutionOutcome.UNKNOWN)
+        assert execution.is_terminal is False
+
+    def test_execution_is_not_a_process(self):
+        # 同一会话的多次工具调用共享一个 Execution；边界字段是会话而非进程。
+        execution = make_execution()
+        assert execution.session_id == "sess_1"
+        assert not hasattr(execution, "pid")
+
+
+class TestIntent:
+    def test_pre_execution_event_carries_decision(self):
+        intent = make_intent(decision=IntentDecision.DENY, decision_reason="策略禁止")
+        assert intent.decision is IntentDecision.DENY
+
+    def test_post_execution_event_cannot_carry_decision(self):
+        # observe 模式下的观测事件一旦带决策语义，报告会把"看到了"呈现成"拦住了"。
+        with pytest.raises(ValidationError):
+            make_intent(
+                hook_event_type=HookEventType.POST_TOOL_USE,
+                decision=IntentDecision.DENY,
+                decision_reason="策略禁止",
+            )
+
+    def test_session_events_cannot_carry_decision(self):
+        for event in (HookEventType.SESSION_START, HookEventType.SESSION_END,
+                      HookEventType.SYNTHETIC):
+            with pytest.raises(ValidationError):
+                make_intent(hook_event_type=event, decision=IntentDecision.ALLOW)
+
+    def test_decision_reason_requires_decision(self):
+        with pytest.raises(ValidationError):
+            make_intent(decision=IntentDecision.NOT_APPLICABLE, decision_reason="没有决策")
+
+    def test_params_sha256_must_be_hex_digest(self):
+        with pytest.raises(ValidationError):
+            make_intent(params_sha256="xyz")
+        with pytest.raises(ValidationError):
+            make_intent(params_sha256="A" * 64)
+        intent = make_intent(params_sha256="a" * 64)
+        assert intent.params_sha256 == "a" * 64
+
+    def test_tool_input_never_enters_contract(self):
+        fields = set(Intent.model_fields)
+        for forbidden in ("tool_input", "prompt", "transcript_path", "environment",
+                          "env", "command_line"):
+            assert forbidden not in fields
+
+    def test_params_summary_is_bounded(self):
+        # 端侧脱敏后仍是任意结构，超出上限即拒绝而不是静默截断：
+        # 截断会让摘要与 params_sha256 对不上。
+        with pytest.raises(ValidationError):
+            make_intent(params_summary="x" * 8193)
+        assert len(make_intent(params_summary="x" * 8192).params_summary) == 8192
+
+
+class TestRuntimeEvent:
+    def test_observation_can_lack_execution_attribution(self):
+        event = RuntimeEvent(
+            event_id="evt_1",
+            host_id="host_1",
+            collector_id="linux-audit-v1",
+            device_id="dev_1",
+            event_type="process_exec",
+            occurred_at=NOW,
+            received_at=NOW,
+        )
+        assert event.execution_id is None
+        assert event.intent_ref is None
+
+    def test_intent_ref_is_a_hint_not_a_reference(self):
+        # intent_ref 只是采集器提示，不是外键；权威关联是 P2 的 EventAttribution。
+        event = RuntimeEvent(
+            event_id="evt_1",
+            host_id="host_1",
+            collector_id="linux-audit-v1",
+            device_id="dev_1",
+            intent_ref="toolu_01ABC",
+            event_type="file_access",
+            occurred_at=NOW,
+            received_at=NOW,
+            process=ProcessInfo(pid=1, ppid=0, executable="/bin/sh"),
+            resource=ResourceInfo(path="/etc/passwd"),
+        )
+        assert event.intent_ref == "toolu_01ABC"
+
+    def test_contract_never_carries_prompt_or_command_line(self):
+        fields = set(RuntimeEvent.model_fields) | set(ProcessInfo.model_fields) \
+            | set(ResourceInfo.model_fields)
+        for forbidden in ("prompt", "tool_input", "command_line", "argv", "environ",
+                          "secret", "authorization", "api_key"):
+            assert forbidden not in fields
+        # 进程可执行文件路径是允许的定位信息，命令行不是。
+        assert "executable" in ProcessInfo.model_fields
+
+    def test_resource_port_is_validated(self):
+        with pytest.raises(ValidationError):
+            ResourceInfo(port=70000)
+        with pytest.raises(ValidationError):
+            ProcessInfo(pid=-1)

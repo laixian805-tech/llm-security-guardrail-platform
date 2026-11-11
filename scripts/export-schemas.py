@@ -15,25 +15,42 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from domain import (  # noqa: E402
+    AgentProductDescriptor,
     Asset,
     AssetInstance,
     AssetRelease,
     DetectorDescriptor,
     DetectorRun,
     EvidenceRef,
+    Execution,
     Finding,
+    HookEventCapability,
+    Intent,
     ModelProviderProfile,
+    ProcessInfo,
+    ResourceInfo,
+    RuntimeEvent,
 )
+from domain.timeline import TimelineEntry, TimelineResponse
 
 SCHEMAS = {
+    "timeline-entry": TimelineEntry,
+    "timeline-response": TimelineResponse,
+    "agent-product-descriptor": AgentProductDescriptor,
     "asset": Asset,
     "asset-instance": AssetInstance,
     "asset-release": AssetRelease,
     "detector-descriptor": DetectorDescriptor,
     "detector-run": DetectorRun,
     "evidence-ref": EvidenceRef,
+    "execution": Execution,
     "finding": Finding,
+    "hook-event-capability": HookEventCapability,
+    "intent": Intent,
     "model-provider-profile": ModelProviderProfile,
+    "process-info": ProcessInfo,
+    "resource-info": ResourceInfo,
+    "runtime-event": RuntimeEvent,
 }
 
 

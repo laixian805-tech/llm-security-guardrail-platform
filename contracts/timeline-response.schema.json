@@ -1,0 +1,116 @@
+{
+  "$defs": {
+    "TimelineEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": true,
+          "title": "Data",
+          "type": "object"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "intent",
+            "runtime_event"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "occurred_at",
+        "data"
+      ],
+      "title": "TimelineEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "attribution_note": {
+      "default": "intent_ref 是采集器提示，尚无 P2 因果归因结论。",
+      "title": "Attribution Note",
+      "type": "string"
+    },
+    "attribution_supported": {
+      "const": false,
+      "default": false,
+      "title": "Attribution Supported",
+      "type": "boolean"
+    },
+    "capability_verification": {
+      "title": "Capability Verification",
+      "type": "string"
+    },
+    "entries": {
+      "items": {
+        "$ref": "#/$defs/TimelineEntry"
+      },
+      "title": "Entries",
+      "type": "array"
+    },
+    "execution_id": {
+      "title": "Execution Id",
+      "type": "string"
+    },
+    "host_id": {
+      "title": "Host Id",
+      "type": "string"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Cursor"
+    },
+    "product": {
+      "title": "Product",
+      "type": "string"
+    },
+    "product_version": {
+      "title": "Product Version",
+      "type": "string"
+    },
+    "sections_pending": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Sections Pending",
+      "type": "array"
+    },
+    "sections_supported": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Sections Supported",
+      "type": "array"
+    }
+  },
+  "required": [
+    "execution_id",
+    "product",
+    "product_version",
+    "host_id",
+    "capability_verification",
+    "entries"
+  ],
+  "title": "TimelineResponse",
+  "type": "object"
+}

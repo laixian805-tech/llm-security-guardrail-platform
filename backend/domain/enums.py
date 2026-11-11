@@ -104,6 +104,75 @@ class HookCapability(StrEnum):
     DENY = "deny"
 
 
+class HookTransport(StrEnum):
+    """产品 Hook 的输入输出如何送达。
+
+    STDIN_JSON：产品把事件 JSON 写进 hook 进程 stdin，决策经 stdout 返回。
+    UNKNOWN：未实测，不知道是否存在 hook 机制以及其形态。
+    """
+
+    STDIN_JSON = "stdin_json"
+    UNKNOWN = "unknown"
+
+
+class CapabilityVerification(StrEnum):
+    """能力条目的证据等级。
+
+    VERIFIED 必须带 verified_against 与 evidence_ref——没有证据的"支持"
+    就是宣称已拦截。UNVERIFIED 只允许 observe 且不得声明决策通道：协议
+    没实测就声称能阻断，拦不住时没有任何告警。
+    """
+
+    VERIFIED = "verified"
+    UNVERIFIED = "unverified"
+
+
+class HookEventType(StrEnum):
+    """产品 Hook 事件类型。
+
+    SYNTHETIC 是端点自己合成的事件（如关联、补录），不是产品真实抛出
+    的执行前观测，因此不算执行前事件。
+    """
+
+    SESSION_START = "session_start"
+    PRE_TOOL_USE = "pre_tool_use"
+    POST_TOOL_USE = "post_tool_use"
+    SESSION_END = "session_end"
+    SYNTHETIC = "synthetic"
+
+
+# 只有 PreToolUse 是真的位于工具执行之前；SessionStart/End、PostToolUse
+# 和合成事件都不得携带阻断或询问决策。
+PRE_EXECUTION_HOOK_EVENTS = frozenset({HookEventType.PRE_TOOL_USE})
+
+
+class IntentDecision(StrEnum):
+    """Intent 上观测到的决策。
+
+    NOT_APPLICABLE 表示该事件没有决策语义（observe 模式或非执行前事件），
+    与"决策为放行"是两回事。
+    """
+
+    NOT_APPLICABLE = "not_applicable"
+    ALLOW = "allow"
+    ASK = "ask"
+    DENY = "deny"
+
+
+class ExecutionOutcome(StrEnum):
+    """一次执行的结果状态。
+
+    RUNNING 表示会话未收尾；UNKNOWN 表示从未观测到收尾事件（端点离线
+    等情况），不得当作 completed。
+    """
+
+    UNKNOWN = "unknown"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    ABORTED = "aborted"
+    FAILED = "failed"
+
+
 class AttributionMethod(StrEnum):
     HOOK_ID = "hook_id"
     PROCESS_TREE = "process_tree"
@@ -158,3 +227,5 @@ class RetentionKind(StrEnum):
     DETECTOR_RUNS = "detector_runs"
     RAW_REPORTS = "raw_reports"
     AUDIT_EVENTS = "audit_events"
+    EXECUTIONS = "executions"
+    RUNTIME_EVENTS = "runtime_events"
