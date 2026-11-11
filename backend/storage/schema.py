@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 DDL = """
 CREATE TABLE IF NOT EXISTS detector_runs (
@@ -125,13 +125,87 @@ CREATE TABLE IF NOT EXISTS console_sessions (
 );
 CREATE INDEX IF NOT EXISTS console_sessions_user ON console_sessions(user_id);
 
+-- host_id 是服务端覆盖客户端 host 身份的权威来源（P1）：摄入时请求体里
+-- 的 host_id 被忽略，一律以设备行的绑定值为准。credential_rotated_at
+-- 记录令牌轮换时间；轮换是硬切换，旧令牌立即失效。
 CREATE TABLE IF NOT EXISTS device_identities (
     device_id TEXT PRIMARY KEY,
     label TEXT NOT NULL,
     credential_hash TEXT NOT NULL UNIQUE,
     status TEXT NOT NULL,
     enrolled_at TEXT NOT NULL,
-    last_seen_at TEXT
+    last_seen_at TEXT,
+    host_id TEXT,
+    credential_rotated_at TEXT
+);
+
+-- 一次 Agent 任务/会话的执行边界。UNIQUE(host_id, product, session_id)
+-- 保证同一会话只有一条 Execution：端点重装或重放都不会分裂出第二条。
+CREATE TABLE IF NOT EXISTS executions (
+    execution_id TEXT PRIMARY KEY,
+    host_id TEXT NOT NULL,
+    device_id TEXT NOT NULL REFERENCES device_identities(device_id),
+    product TEXT NOT NULL,
+    product_version TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    -- P1 无资产注册表：只存端点上报的引用，不做存在性校验。
+    asset_instance_id TEXT,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    outcome TEXT NOT NULL,
+    intent_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (host_id, product, session_id)
+);
+
+-- 观测到的工具调用。同一 (execution_id, tool_call_id) 只保留一条：
+-- PreToolUse 创建并可能带决策，PostToolUse 只补结果。tool_call_id 为
+-- NULL 时唯一约束不触发（SQLite 语义），产品不提供调用 ID 时每次观测
+-- 各自成条，按 intent_id 幂等。
+CREATE TABLE IF NOT EXISTS intents (
+    intent_id TEXT PRIMARY KEY,
+    execution_id TEXT NOT NULL REFERENCES executions(execution_id) ON DELETE CASCADE,
+    parent_intent_id TEXT REFERENCES intents(intent_id),
+    tool_call_id TEXT,
+    tool_name TEXT NOT NULL,
+    hook_event_type TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    decision_reason TEXT,
+    -- 端侧脱敏后的参数摘要；tool_input 原文、prompt 正文不进库。
+    params_summary TEXT NOT NULL DEFAULT '',
+    params_sha256 TEXT,
+    redaction_applied INTEGER NOT NULL DEFAULT 0,
+    occurred_at TEXT NOT NULL,
+    ended_at TEXT,
+    product_result TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (execution_id, tool_call_id)
+);
+
+-- 采集器观测到的运行时事件。intent_ref 只是采集器提示，不是外键：权威
+-- 关联是 P2 的 EventAttribution。复合主键落实服务端幂等规则。
+CREATE TABLE IF NOT EXISTS runtime_events (
+    event_id TEXT NOT NULL,
+    host_id TEXT NOT NULL,
+    collector_id TEXT NOT NULL,
+    device_id TEXT NOT NULL REFERENCES device_identities(device_id),
+    execution_id TEXT REFERENCES executions(execution_id) ON DELETE CASCADE,
+    intent_ref TEXT,
+    event_type TEXT NOT NULL,
+    occurred_at TEXT NOT NULL,
+    received_at TEXT NOT NULL,
+    pid INTEGER,
+    ppid INTEGER,
+    executable TEXT,
+    resource_host TEXT,
+    resource_port INTEGER,
+    resource_path TEXT,
+    action TEXT,
+    result TEXT,
+    sequence INTEGER,
+    evidence_refs TEXT NOT NULL DEFAULT '[]',
+    PRIMARY KEY (host_id, collector_id, event_id)
 );
 
 CREATE TABLE IF NOT EXISTS audit_events (
@@ -163,6 +237,13 @@ CREATE INDEX IF NOT EXISTS raw_reports_run ON raw_reports(detector_run_id);
 CREATE INDEX IF NOT EXISTS findings_run ON findings(detector_run_id);
 CREATE INDEX IF NOT EXISTS findings_severity ON findings(severity);
 CREATE INDEX IF NOT EXISTS findings_status ON findings(status);
+CREATE INDEX IF NOT EXISTS executions_host_time ON executions(host_id, started_at);
+CREATE INDEX IF NOT EXISTS executions_session ON executions(session_id);
+CREATE INDEX IF NOT EXISTS intents_execution_time ON intents(execution_id, occurred_at);
+CREATE INDEX IF NOT EXISTS intents_tool_call ON intents(tool_call_id);
+CREATE INDEX IF NOT EXISTS runtime_events_time ON runtime_events(host_id, occurred_at);
+CREATE INDEX IF NOT EXISTS runtime_events_execution ON runtime_events(execution_id, occurred_at);
+CREATE INDEX IF NOT EXISTS runtime_events_intent ON runtime_events(intent_ref);
 """
 
 
@@ -274,12 +355,28 @@ def _rebuild_findings_without_cascade(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA foreign_keys=ON")
 
 
+def _migrate_v5(conn: sqlite3.Connection) -> None:
+    """v4 → v5：补设备的主机绑定与令牌轮换列。
+
+    服务端要以设备注册记录覆盖客户端提交的 host 身份（API_CONTRACT §6），
+    设备行必须先有权威 host_id。SQLite 的 ALTER TABLE ADD COLUMN 不可重复
+    执行，先查 PRAGMA table_info 决定是否加列，保证 migrate() 幂等。
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(device_identities)")}
+    if "host_id" not in columns:
+        conn.execute("ALTER TABLE device_identities ADD COLUMN host_id TEXT")
+    if "credential_rotated_at" not in columns:
+        conn.execute("ALTER TABLE device_identities ADD COLUMN credential_rotated_at TEXT")
+
+
 def migrate(conn: sqlite3.Connection) -> None:
     """建表并按需迁移；重复执行安全。"""
     tables = table_names(conn)
     has_v1 = "scans" in tables and "findings" in tables
     has_v2 = "detector_runs" in tables
     has_v4 = "console_users" in tables
+    # 必须在 executescript(DDL) 之前取：新库执行后 executions 必然存在。
+    has_v5 = "executions" in tables
 
     if has_v1 and not has_v2:
         # 旧 findings 与新 findings 同名，必须先让位，否则 CREATE IF NOT EXISTS
@@ -295,6 +392,9 @@ def migrate(conn: sqlite3.Connection) -> None:
     if has_v2 and not has_v4:
         # v2/v3 的 findings 带级联删除，保留策略会误删仍在用的 Finding。
         _rebuild_findings_without_cascade(conn)
+
+    if has_v4 and not has_v5:
+        _migrate_v5(conn)
 
     conn.executescript(INDEX_DDL)
     conn.execute(

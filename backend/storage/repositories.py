@@ -536,15 +536,18 @@ DEFAULT_RETENTION_DAYS: dict[RetentionKind, int] = {
     RetentionKind.DETECTOR_RUNS: 90,
     RetentionKind.RAW_REPORTS: 30,
     RetentionKind.AUDIT_EVENTS: 365,
+    RetentionKind.EXECUTIONS: 90,
+    RetentionKind.RUNTIME_EVENTS: 30,
 }
 
 
 class RetentionRepository:
-    """扫描数据保留策略与清理。
+    """扫描与运行数据的保留策略与清理。
 
     删除顺序要紧：先解除 run 与 Finding 的链接，再把 originating run 已过期
     但仍在别处被引用的 Finding 置空，最后才删 run。直接删 run 会让 Finding
-    被级联删掉，牵连仍在保留期内的其它 run。
+    被级联删掉，牵连仍在保留期内的其它 run。Execution 相反：过期即整条消失，
+    子观测没有独立保留价值。
     """
 
     def __init__(self, storage: Storage) -> None:
@@ -633,6 +636,35 @@ class RetentionRepository:
                     )
                     counts[RetentionKind.AUDIT_EVENTS.value] = cursor.rowcount
 
+                # Execution 过期时其 Intent/RuntimeEvent 一并消失：子观测脱离
+                # 执行边界后无法解读。无归因的 RuntimeEvent（execution_id 为空）
+                # 没有可依附的边界，由 RUNTIME_EVENTS 规则按 received_at 兜底。
+                execution_rule = rules.get(RetentionKind.EXECUTIONS.value)
+                if execution_rule and execution_rule["enabled"]:
+                    cutoff = (now - timedelta(days=execution_rule["retention_days"])).isoformat()
+                    conn.execute(
+                        "DELETE FROM runtime_events WHERE execution_id IN"
+                        " (SELECT execution_id FROM executions WHERE started_at < ?)",
+                        (cutoff,),
+                    )
+                    conn.execute(
+                        "DELETE FROM intents WHERE execution_id IN"
+                        " (SELECT execution_id FROM executions WHERE started_at < ?)",
+                        (cutoff,),
+                    )
+                    cursor = conn.execute(
+                        "DELETE FROM executions WHERE started_at < ?", (cutoff,)
+                    )
+                    counts[RetentionKind.EXECUTIONS.value] = cursor.rowcount
+
+                event_rule = rules.get(RetentionKind.RUNTIME_EVENTS.value)
+                if event_rule and event_rule["enabled"]:
+                    cutoff = (now - timedelta(days=event_rule["retention_days"])).isoformat()
+                    cursor = conn.execute(
+                        "DELETE FROM runtime_events WHERE received_at < ?", (cutoff,)
+                    )
+                    counts[RetentionKind.RUNTIME_EVENTS.value] = cursor.rowcount
+
                 conn.execute("COMMIT")
             except Exception:
                 conn.execute("ROLLBACK")
@@ -678,10 +710,33 @@ class DeviceIdentityRepository:
     def list(self) -> list[dict[str, Any]]:
         with self._storage.connection() as conn:
             rows = conn.execute(
-                "SELECT device_id, label, status, enrolled_at, last_seen_at"
+                "SELECT device_id, label, status, enrolled_at, last_seen_at, host_id, credential_rotated_at"
                 " FROM device_identities ORDER BY enrolled_at"
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def get(self, device_id: str) -> dict[str, Any] | None:
+        return next((row for row in self.list() if row["device_id"] == device_id), None)
+
+    def set_host(self, *, device_id: str, host_id: str) -> None:
+        with self._storage._lock, self._storage.connection() as conn:
+            row = conn.execute("SELECT host_id FROM device_identities WHERE device_id=?", (device_id,)).fetchone()
+            if row is None:
+                raise ValueError("unknown_device")
+            if row["host_id"] and row["host_id"] != host_id:
+                raise ValueError("host_binding_immutable: enroll a new device")
+            conn.execute("UPDATE device_identities SET host_id=? WHERE device_id=?", (host_id, device_id))
+
+    def rotate_credential(self, *, device_id: str) -> str:
+        token = secrets.token_urlsafe(32)
+        with self._storage._lock, self._storage.connection() as conn:
+            cursor = conn.execute(
+                "UPDATE device_identities SET credential_hash=?, credential_rotated_at=? WHERE device_id=?",
+                (hash_token(token), now_iso(), device_id),
+            )
+            if not cursor.rowcount:
+                raise ValueError("unknown_device")
+        return token
 
     def set_status(self, *, device_id: str, status: DeviceStatus) -> None:
         with self._storage._lock, self._storage.connection() as conn:

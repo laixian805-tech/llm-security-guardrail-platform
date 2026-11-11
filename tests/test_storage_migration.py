@@ -201,3 +201,71 @@ class TestFindingDeduplication:
         assert summary["findings"] == 2
         assert summary["high_or_critical"] == 2
         assert summary["latest_scan"]
+
+
+V4_DDL = """
+CREATE TABLE console_users (
+    user_id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL,
+    salt TEXT NOT NULL, role TEXT NOT NULL, created_at TEXT NOT NULL, disabled_at TEXT);
+CREATE TABLE console_sessions (
+    session_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES console_users(user_id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+    revoked_at TEXT);
+-- v4 的设备表没有 host_id 与 credential_rotated_at。
+CREATE TABLE device_identities (
+    device_id TEXT PRIMARY KEY, label TEXT NOT NULL, credential_hash TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL, enrolled_at TEXT NOT NULL, last_seen_at TEXT);
+CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+"""
+
+
+def make_v4_db(path: Path) -> None:
+    conn = sqlite3.connect(path)
+    conn.executescript(V4_DDL)
+    conn.execute(
+        "INSERT INTO device_identities VALUES (?,?,?,?,?,?)",
+        ("dev_1", "工作站", "hash_1", "active", "2026-11-01T00:00:00+00:00", None),
+    )
+    conn.execute("INSERT INTO schema_meta VALUES ('schema_version', '4')")
+    conn.commit()
+    conn.close()
+
+
+class TestV5Migration:
+    def test_v4_db_gains_execution_tables_and_device_columns(self, tmp_path):
+        db = tmp_path / "v4.db"
+        make_v4_db(db)
+        Storage(db)
+
+        conn = sqlite3.connect(db)
+        conn.row_factory = sqlite3.Row
+        names = table_names(conn)
+        assert {"executions", "intents", "runtime_events"} <= names
+
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(device_identities)")}
+        assert "host_id" in columns and "credential_rotated_at" in columns
+
+        # 存量设备的 host 绑定为 NULL：服务端不得替管理员猜一个主机身份。
+        device = conn.execute("SELECT * FROM device_identities WHERE device_id='dev_1'").fetchone()
+        assert device["host_id"] is None
+        assert device["credential_rotated_at"] is None
+        assert device["label"] == "工作站", "迁移不得改写存量数据"
+
+        assert conn.execute(
+            "SELECT value FROM schema_meta WHERE key='schema_version'"
+        ).fetchone()[0] == "5"
+        conn.close()
+
+    def test_v5_migration_is_idempotent(self, tmp_path):
+        # SQLite 的 ADD COLUMN 不可重复执行，migrate() 必须能连跑。
+        db = tmp_path / "v4.db"
+        make_v4_db(db)
+        Storage(db)
+        conn = sqlite3.connect(db)
+        migrate(conn)
+        migrate(conn)
+        host_columns = [row[1] for row in conn.execute("PRAGMA table_info(device_identities)")
+                        if row[1] == "host_id"]
+        assert host_columns == ["host_id"]
+        conn.close()
