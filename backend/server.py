@@ -40,6 +40,10 @@ from services.scan_service import ScanService
 from services.ingestion_service import IngestionService, IngestError
 from services.timeline_service import TimelineService
 from api.v1 import is_device_route, route as route_v1
+from api.governance import route as route_governance
+from services.governance_service import GovernanceService
+from services.approval_service import ApprovalService
+from services.attribution_service import AttributionService
 from pydantic import ValidationError
 from storage.repositories import Storage, now_iso
 
@@ -77,6 +81,9 @@ scan_service = ScanService(storage=storage, catalog=catalog)
 product_catalog = ProductCatalog()
 ingestion_service = IngestionService(storage)
 timeline_service = TimelineService(storage)
+governance_service = GovernanceService(storage)
+approval_service = ApprovalService(storage)
+attribution_service = AttributionService(storage)
 
 # 保留策略默认值先落库，否则第一次清理时读不到规则。
 from storage.repositories import RetentionRepository  # noqa: E402
@@ -110,6 +117,11 @@ def _required_permission(method: str, path: str) -> Permission | None:
     # 控制台读的产品能力矩阵。
     if path == "/api/v1/products":
         return Permission.READ
+    if path.startswith(('/api/v1/approvals','/api/v1/risk-assessments','/api/v1/policies/',
+                        '/api/v1/policy-decisions','/api/v1/admissions','/api/v1/incidents')):
+        return Permission.READ if method == 'GET' else Permission.GOVERN
+    if path.endswith('/correlate'):
+        return Permission.GOVERN
     if path == "/api/users" or path.startswith("/api/users/"):
         return Permission.MANAGE_USERS
     if path == "/api/devices" or path.startswith("/api/devices/"):
@@ -296,7 +308,15 @@ class Handler(BaseHTTPRequestHandler):
                 actor_id = user.username
                 auth_service.require(user, permission)
 
-            if route_v1(self, method, parsed, ingestion_service, timeline_service):
+            if path.startswith('/api/v1/executions/') and path.endswith('/correlate') and method == 'POST':
+                execution_id = path.split('/')[4]
+                self._send(200, attribution_service.correlate(execution_id))
+            elif path.startswith('/api/v1/executions/') and path.endswith('/attributions') and method == 'GET':
+                execution_id = path.split('/')[4]
+                self._send(200, {'attributions': attribution_service.list(execution_id)})
+            elif route_governance(self, method, parsed, governance_service, approval_service):
+                pass
+            elif route_v1(self, method, parsed, ingestion_service, timeline_service):
                 pass
             elif method == "GET":
                 self._route_get(parsed)

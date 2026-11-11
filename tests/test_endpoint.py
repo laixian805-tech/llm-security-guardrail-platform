@@ -96,3 +96,24 @@ def test_codex_ask_is_denied_and_binary_change_downgrades_observation(tmp_path):
     box=Outbox(cfg['state_dir'])
     rows=[json.loads(r[0]) for r in box.db.execute("select payload from outbox where endpoint='/api/v1/executions'")]
     assert any(row['product_version']=='unverified-changed' for row in rows)
+
+
+def test_capacity_reclaims_only_acknowledged_records_and_counts_duplicates(tmp_path):
+    box=Outbox(tmp_path/'capacity',max_records=2)
+    box.enqueue_many([('old','/api',{}),('pending','/api',{})])
+    # Exact replay requires no additional slot.
+    box.enqueue_many([('pending','/api',{})])
+    with box.db:box.db.execute("UPDATE outbox SET state='sent' WHERE record_id='old'")
+    box.enqueue_many([('new','/api',{})])
+    assert {r[0] for r in box.db.execute('SELECT record_id FROM outbox')}=={'pending','new'}
+    with pytest.raises(RuntimeError):box.enqueue_many([('overflow','/api',{})])
+    assert {r[0] for r in box.db.execute('SELECT record_id FROM outbox')}=={'pending','new'}
+
+
+def test_capacity_does_not_evict_records_in_same_replay_batch(tmp_path):
+    box=Outbox(tmp_path/'capacity',max_records=2)
+    box.enqueue_many([('sent','/api',{}),('pending','/api',{})])
+    with box.db:box.db.execute("UPDATE outbox SET state='sent' WHERE record_id='sent'")
+    with pytest.raises(RuntimeError,match='capacity'):
+        box.enqueue_many([('sent','/api',{}),('new','/api',{})])
+    assert box.db.execute('SELECT count(*) FROM outbox').fetchone()[0]==2

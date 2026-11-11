@@ -58,8 +58,10 @@ def descriptor(product, version, vendor):
         vendor=vendor, hook_transport=HookTransport.STDIN_JSON,
         collector_id=product+"-hook-v1", events=verified_events(product,version),
         unsupported_fields=list(CLAUDE_CODE_LOCAL_ONLY_FIELDS), ingest_supported=True,
-        boundary=("测试机实测观测和阻断；本版本不支持 Hook confirm，需确认的操作按拒绝处理。"
-            if product == "codex" else "测试机实测观测、阻断和确认；其他版本不继承验证等级。"),
+        mediated_approval_supported=True,
+        mediated_approval_protocol="asgp_call_digest_approval_then_allow_deny",
+        boundary=("原生 Hook ask 不支持；已验证 ASGP 控制面调用审批，批准后 allow，拒绝/超时 deny。"
+            if product == "codex" else "已验证原生确认及 ASGP 控制面调用审批；其他版本不继承验证等级。"),
     )
 
 

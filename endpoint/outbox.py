@@ -27,8 +27,8 @@ class Outbox:
 
     def enqueue_many(self, records, session=None):
         with self.db:
-            if self.db.execute("SELECT count(*) FROM outbox").fetchone()[0] + len(records) > self.maximum:
-                raise RuntimeError('outbox_capacity_exceeded')
+            self.db.execute('BEGIN IMMEDIATE')
+            self.reserve(records)
             if self.path.stat().st_size > 32*1024*1024:
                 raise RuntimeError('outbox_disk_capacity_exceeded')
             if session:
@@ -38,6 +38,23 @@ class Outbox:
                 self.db.execute('''INSERT OR IGNORE INTO outbox
                     (record_id,endpoint,payload,created_at,updated_at) VALUES (?,?,?,?,?)''',
                     (record_id, endpoint, json.dumps(payload, ensure_ascii=False), now, now))
+
+    def reserve(self, records):
+        """容量优先保留未送达记录，已确认送达的数据可提前回收。"""
+        identifiers={row[0] for row in records}
+        needed=sum(not self.db.execute('SELECT 1 FROM outbox WHERE record_id=?',(rid,)).fetchone() for rid in identifiers)
+        count=self.db.execute('SELECT count(*) FROM outbox').fetchone()[0]
+        excess=max(0,count+needed-self.maximum)
+        if excess:
+            # Do not evict an acknowledged record that is part of this same
+            # replay batch, otherwise it would need a slot after all.
+            for row in self.db.execute("SELECT seq,record_id FROM outbox WHERE state='sent' ORDER BY seq").fetchall():
+                if row['record_id'] in identifiers:continue
+                self.db.execute('DELETE FROM outbox WHERE seq=?',(row['seq'],))
+                excess-=1
+                if excess==0:break
+        if self.db.execute('SELECT count(*) FROM outbox').fetchone()[0]+needed>self.maximum:
+            raise RuntimeError('outbox_capacity_exceeded')
 
     def session_start(self, execution_id):
         row = self.db.execute('SELECT started_at FROM sessions WHERE execution_id=?', (execution_id,)).fetchone()

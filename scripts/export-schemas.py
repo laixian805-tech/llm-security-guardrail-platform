@@ -32,8 +32,18 @@ from domain import (  # noqa: E402
     RuntimeEvent,
 )
 from domain.timeline import TimelineEntry, TimelineResponse
+from domain.attribution import EventAttribution
+from domain.approval import ApprovalRequest
+from domain.governance import Admission,Incident,IncidentEvidence,PolicyDecision,RiskAssessment
 
 SCHEMAS = {
+    "event-attribution": EventAttribution,
+    "approval-request": ApprovalRequest,
+    "admission": Admission,
+    "incident": Incident,
+    "incident-evidence": IncidentEvidence,
+    "policy-decision": PolicyDecision,
+    "risk-assessment": RiskAssessment,
     "timeline-entry": TimelineEntry,
     "timeline-response": TimelineResponse,
     "agent-product-descriptor": AgentProductDescriptor,

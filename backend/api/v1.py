@@ -7,6 +7,10 @@ EXECUTION = re.compile(r"^/api/v1/executions/([^/]+)/(intents|timeline)$")
 
 
 def is_device_route(method, path):
+    if path == '/api/v1/approval-requests' and method == 'POST':
+        return True
+    if path.startswith('/api/v1/approval-requests/') and method == 'GET':
+        return True
     match = EXECUTION.fullmatch(path)
     return method == "POST" and (path in ("/api/v1/executions", "/api/v1/runtime-events:batch")
         or bool(match and match[2] == "intents"))
@@ -15,6 +19,13 @@ def is_device_route(method, path):
 def route(handler, method, parsed, ingestion, timeline):
     path = parsed.path
     match = EXECUTION.fullmatch(path)
+    if path == '/api/v1/runtime-events' and method == 'GET':
+        query=parse_qs(parsed.query)
+        host=(query.get('host_id') or [None])[0]
+        if not host:
+            raise IngestError('host_id_required')
+        handler._send(200, {'events': ingestion.events.list_for_host(host,limit=200)})
+        return True
     if method == "POST" and is_device_route(method, path):
         body = handler._body()
         device_id = handler._device.device_id

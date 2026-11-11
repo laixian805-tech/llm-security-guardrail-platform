@@ -1,0 +1,114 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "approval_id": {
+      "minLength": 1,
+      "title": "Approval Id",
+      "type": "string"
+    },
+    "device_id": {
+      "minLength": 1,
+      "title": "Device Id",
+      "type": "string"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "host_id": {
+      "minLength": 1,
+      "title": "Host Id",
+      "type": "string"
+    },
+    "params_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Params Sha256",
+      "type": "string"
+    },
+    "product": {
+      "enum": [
+        "codex",
+        "claude-code"
+      ],
+      "title": "Product",
+      "type": "string"
+    },
+    "product_version": {
+      "minLength": 1,
+      "title": "Product Version",
+      "type": "string"
+    },
+    "requested_at": {
+      "format": "date-time",
+      "title": "Requested At",
+      "type": "string"
+    },
+    "resolved_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resolved At"
+    },
+    "resolved_by": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resolved By"
+    },
+    "session_id": {
+      "minLength": 1,
+      "title": "Session Id",
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "pending",
+        "approved",
+        "denied",
+        "expired"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "tool_call_id": {
+      "minLength": 1,
+      "title": "Tool Call Id",
+      "type": "string"
+    },
+    "tool_name": {
+      "minLength": 1,
+      "title": "Tool Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "approval_id",
+    "device_id",
+    "host_id",
+    "product",
+    "product_version",
+    "session_id",
+    "tool_call_id",
+    "tool_name",
+    "params_sha256",
+    "state",
+    "requested_at",
+    "expires_at"
+  ],
+  "title": "ApprovalRequest",
+  "type": "object"
+}

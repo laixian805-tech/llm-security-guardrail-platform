@@ -1,0 +1,101 @@
+{
+  "$defs": {
+    "IncidentStatus": {
+      "enum": [
+        "open",
+        "investigating",
+        "confirmed",
+        "false_positive",
+        "mitigating",
+        "verifying",
+        "closed",
+        "reopened"
+      ],
+      "title": "IncidentStatus",
+      "type": "string"
+    },
+    "Severity": {
+      "enum": [
+        "unknown",
+        "info",
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "title": "Severity",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "closed_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Closed At"
+    },
+    "incident_id": {
+      "minLength": 1,
+      "title": "Incident Id",
+      "type": "string"
+    },
+    "opened_at": {
+      "format": "date-time",
+      "title": "Opened At",
+      "type": "string"
+    },
+    "owner": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Owner"
+    },
+    "severity": {
+      "$ref": "#/$defs/Severity",
+      "default": "unknown"
+    },
+    "status": {
+      "$ref": "#/$defs/IncidentStatus",
+      "default": "open"
+    },
+    "summary": {
+      "default": "",
+      "maxLength": 4096,
+      "title": "Summary",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 300,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "incident_id",
+    "title",
+    "opened_at",
+    "updated_at"
+  ],
+  "title": "Incident",
+  "type": "object"
+}

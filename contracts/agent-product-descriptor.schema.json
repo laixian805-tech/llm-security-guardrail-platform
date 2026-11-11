@@ -140,6 +140,16 @@
       "title": "Ingest Supported",
       "type": "boolean"
     },
+    "mediated_approval_protocol": {
+      "default": "none",
+      "title": "Mediated Approval Protocol",
+      "type": "string"
+    },
+    "mediated_approval_supported": {
+      "default": false,
+      "title": "Mediated Approval Supported",
+      "type": "boolean"
+    },
     "product_id": {
       "minLength": 1,
       "title": "Product Id",

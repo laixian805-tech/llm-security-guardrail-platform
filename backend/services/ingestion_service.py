@@ -140,6 +140,7 @@ class IngestionService:
                 "collector_id": body.get("collector_id", item.get("collector_id")), "received_at": now_iso()})
             if data.occurred_at.tzinfo is None:
                 raise IngestError("timezone_required")
+            data.occurred_at=data.occurred_at.astimezone(timezone.utc)
             if data.execution_id:
                 self.owns(data.execution_id, device_id)
             events.append(data)

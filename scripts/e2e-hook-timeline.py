@@ -55,7 +55,7 @@ def main():
                 assert len(rows)==2 and all(row['intent_count']==1 for row in rows)
                 for row in rows:
                     timeline=request('/api/v1/executions/'+row['execution_id']+'/timeline',token=session['token'])
-                    assert len(timeline['entries'])==1 and timeline['attribution_supported'] is False
+                    assert len(timeline['entries'])==1 and timeline['attribution_supported'] is True
                     assert timeline['entries'][0]['data']['params_summary'].find('values_omitted')>=0
                 box=Outbox(config['state_dir'])
                 with box.db:box.db.execute("UPDATE outbox SET state='inflight',next_attempt=0")

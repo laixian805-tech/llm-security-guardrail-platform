@@ -179,6 +179,35 @@ class AttributionMethod(StrEnum):
     TEMPORAL_FEATURE = "temporal_feature"
 
 
+class PolicyAction(StrEnum):
+    ALLOW = "allow"
+    AUDIT = "audit"
+    CONFIRM = "confirm"
+    BLOCK = "block"
+
+
+class AdmissionState(StrEnum):
+    CHECK = "check"
+    APPROVED = "approved"
+    STAGED = "staged"
+    COMMITTED = "committed"
+    VERIFIED = "verified"
+    RECONCILED = "reconciled"
+    ROLLED_BACK = "rolled_back"
+    FAILED = "failed"
+
+
+class IncidentStatus(StrEnum):
+    OPEN = "open"
+    INVESTIGATING = "investigating"
+    CONFIRMED = "confirmed"
+    FALSE_POSITIVE = "false_positive"
+    MITIGATING = "mitigating"
+    VERIFYING = "verifying"
+    CLOSED = "closed"
+    REOPENED = "reopened"
+
+
 class ConsoleRole(StrEnum):
     """控制台用户角色。设备身份不走这套权限，见 DeviceStatus。"""
 
@@ -197,6 +226,7 @@ class Permission(StrEnum):
     READ_AUDIT = "read_audit"
     # 原始报告含扫描器整段输出，可能带目标源码片段，不给只读角色。
     READ_RAW_REPORT = "read_raw_report"
+    GOVERN = "govern"
 
 
 class ActorKind(StrEnum):

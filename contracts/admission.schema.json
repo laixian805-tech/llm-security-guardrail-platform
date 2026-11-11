@@ -1,0 +1,101 @@
+{
+  "$defs": {
+    "AdmissionState": {
+      "enum": [
+        "check",
+        "approved",
+        "staged",
+        "committed",
+        "verified",
+        "reconciled",
+        "rolled_back",
+        "failed"
+      ],
+      "title": "AdmissionState",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "admission_id": {
+      "minLength": 1,
+      "title": "Admission Id",
+      "type": "string"
+    },
+    "approved_by": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Approved By"
+    },
+    "asset_instance_id": {
+      "minLength": 1,
+      "title": "Asset Instance Id",
+      "type": "string"
+    },
+    "content_hash": {
+      "minLength": 1,
+      "title": "Content Hash",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "failure_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Failure Reason"
+    },
+    "observed_content_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Observed Content Hash"
+    },
+    "state": {
+      "$ref": "#/$defs/AdmissionState",
+      "default": "check"
+    },
+    "transaction_id": {
+      "minLength": 1,
+      "title": "Transaction Id",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "admission_id",
+    "asset_instance_id",
+    "content_hash",
+    "transaction_id",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "Admission",
+  "type": "object"
+}

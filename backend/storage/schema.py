@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 DDL = """
 CREATE TABLE IF NOT EXISTS detector_runs (
@@ -208,6 +208,104 @@ CREATE TABLE IF NOT EXISTS runtime_events (
     PRIMARY KEY (host_id, collector_id, event_id)
 );
 
+CREATE TABLE IF NOT EXISTS event_attributions (
+    attribution_id TEXT PRIMARY KEY,
+    intent_id TEXT NOT NULL REFERENCES intents(intent_id) ON DELETE CASCADE,
+    event_id TEXT NOT NULL,
+    host_id TEXT NOT NULL,
+    collector_id TEXT NOT NULL,
+    method TEXT NOT NULL,
+    confidence TEXT NOT NULL,
+    score REAL NOT NULL,
+    selected INTEGER NOT NULL DEFAULT 0,
+    evidence_refs TEXT NOT NULL DEFAULT '[]',
+    rule_version TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (intent_id, host_id, collector_id, event_id, method),
+    FOREIGN KEY (host_id,collector_id,event_id) REFERENCES runtime_events(host_id,collector_id,event_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS risk_assessments (
+    assessment_id TEXT PRIMARY KEY,
+    asset_id TEXT,
+    execution_id TEXT,
+    intrinsic_risk REAL NOT NULL,
+    runtime_risk REAL NOT NULL,
+    exposure_risk REAL NOT NULL,
+    confidence TEXT NOT NULL,
+    reasons TEXT NOT NULL DEFAULT '[]',
+    evidence_refs TEXT NOT NULL DEFAULT '[]',
+    rule_version TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS policy_decisions (
+    decision_id TEXT PRIMARY KEY,
+    action TEXT NOT NULL,
+    policy_version TEXT NOT NULL,
+    subject_kind TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    evidence_refs TEXT NOT NULL DEFAULT '[]',
+    enforcement_expected INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    expires_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS admissions (
+    admission_id TEXT PRIMARY KEY,
+    asset_instance_id TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    state TEXT NOT NULL,
+    approved_by TEXT,
+    observed_content_hash TEXT,
+    failure_reason TEXT,
+    transaction_id TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS incidents (
+    incident_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    owner TEXT,
+    opened_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    closed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS incident_evidence (
+    incident_id TEXT NOT NULL REFERENCES incidents(incident_id) ON DELETE CASCADE,
+    evidence_kind TEXT NOT NULL,
+    evidence_id TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    added_at TEXT NOT NULL,
+    PRIMARY KEY (incident_id, evidence_kind, evidence_id)
+);
+
+CREATE TABLE IF NOT EXISTS governance_transitions (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL,
+    from_state TEXT NOT NULL, to_state TEXT NOT NULL,
+    actor_id TEXT NOT NULL, action TEXT NOT NULL, occurred_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS approval_requests (
+    approval_id TEXT PRIMARY KEY,
+    device_id TEXT NOT NULL REFERENCES device_identities(device_id),
+    host_id TEXT NOT NULL,
+    product TEXT NOT NULL, product_version TEXT NOT NULL,
+    session_id TEXT NOT NULL, tool_call_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL, params_sha256 TEXT NOT NULL,
+    state TEXT NOT NULL, requested_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+    resolved_at TEXT, resolved_by TEXT,
+    UNIQUE (device_id,product,session_id,tool_call_id,params_sha256)
+);
+
 CREATE TABLE IF NOT EXISTS audit_events (
     audit_id TEXT PRIMARY KEY,
     occurred_at TEXT NOT NULL,
@@ -244,6 +342,12 @@ CREATE INDEX IF NOT EXISTS intents_tool_call ON intents(tool_call_id);
 CREATE INDEX IF NOT EXISTS runtime_events_time ON runtime_events(host_id, occurred_at);
 CREATE INDEX IF NOT EXISTS runtime_events_execution ON runtime_events(execution_id, occurred_at);
 CREATE INDEX IF NOT EXISTS runtime_events_intent ON runtime_events(intent_ref);
+CREATE INDEX IF NOT EXISTS attributions_event ON event_attributions(host_id, collector_id, event_id);
+CREATE INDEX IF NOT EXISTS attributions_intent ON event_attributions(intent_id);
+CREATE INDEX IF NOT EXISTS risk_assessments_subject ON risk_assessments(asset_id, execution_id);
+CREATE INDEX IF NOT EXISTS policy_decisions_subject ON policy_decisions(subject_kind, subject_id, created_at);
+CREATE INDEX IF NOT EXISTS admissions_asset ON admissions(asset_instance_id, updated_at);
+CREATE INDEX IF NOT EXISTS incidents_status ON incidents(status, updated_at);
 """
 
 
@@ -369,6 +473,32 @@ def _migrate_v5(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE device_identities ADD COLUMN credential_rotated_at TEXT")
 
 
+def _ensure_attribution_foreign_keys(conn: sqlite3.Connection) -> None:
+    """升级早期 v6 试运行表，让保留策略删除源证据时同时删除归因边。"""
+    if conn.execute('PRAGMA foreign_key_list(event_attributions)').fetchall():
+        return
+    conn.commit()
+    try:
+        conn.executescript('''BEGIN;
+            CREATE TABLE event_attributions_rebuild (
+              attribution_id TEXT PRIMARY KEY,
+              intent_id TEXT NOT NULL REFERENCES intents(intent_id) ON DELETE CASCADE,
+              event_id TEXT NOT NULL, host_id TEXT NOT NULL, collector_id TEXT NOT NULL,
+              method TEXT NOT NULL, confidence TEXT NOT NULL, score REAL NOT NULL,
+              selected INTEGER NOT NULL DEFAULT 0, evidence_refs TEXT NOT NULL DEFAULT '[]',
+              rule_version TEXT NOT NULL, created_at TEXT NOT NULL,
+              UNIQUE(intent_id,host_id,collector_id,event_id,method),
+              FOREIGN KEY(host_id,collector_id,event_id)
+                REFERENCES runtime_events(host_id,collector_id,event_id) ON DELETE CASCADE);
+            INSERT INTO event_attributions_rebuild SELECT * FROM event_attributions;
+            DROP TABLE event_attributions;
+            ALTER TABLE event_attributions_rebuild RENAME TO event_attributions;
+            COMMIT;''')
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def migrate(conn: sqlite3.Connection) -> None:
     """建表并按需迁移；重复执行安全。"""
     tables = table_names(conn)
@@ -396,6 +526,7 @@ def migrate(conn: sqlite3.Connection) -> None:
     if has_v4 and not has_v5:
         _migrate_v5(conn)
 
+    _ensure_attribution_foreign_keys(conn)
     conn.executescript(INDEX_DDL)
     conn.execute(
         "INSERT INTO schema_meta (key, value) VALUES ('schema_version', ?)"

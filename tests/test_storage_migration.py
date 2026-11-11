@@ -254,7 +254,7 @@ class TestV5Migration:
 
         assert conn.execute(
             "SELECT value FROM schema_meta WHERE key='schema_version'"
-        ).fetchone()[0] == "5"
+        ).fetchone()[0] == "6"
         conn.close()
 
     def test_v5_migration_is_idempotent(self, tmp_path):

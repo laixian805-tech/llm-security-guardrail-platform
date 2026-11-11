@@ -1,5 +1,135 @@
 {
   "$defs": {
+    "AttributionMethod": {
+      "enum": [
+        "hook_id",
+        "process_tree",
+        "temporal_feature"
+      ],
+      "title": "AttributionMethod",
+      "type": "string"
+    },
+    "Confidence": {
+      "enum": [
+        "unknown",
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "Confidence",
+      "type": "string"
+    },
+    "EventAttribution": {
+      "additionalProperties": false,
+      "properties": {
+        "attribution_id": {
+          "minLength": 1,
+          "title": "Attribution Id",
+          "type": "string"
+        },
+        "collector_id": {
+          "minLength": 1,
+          "title": "Collector Id",
+          "type": "string"
+        },
+        "confidence": {
+          "$ref": "#/$defs/Confidence"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "event_id": {
+          "minLength": 1,
+          "title": "Event Id",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "host_id": {
+          "minLength": 1,
+          "title": "Host Id",
+          "type": "string"
+        },
+        "intent_id": {
+          "minLength": 1,
+          "title": "Intent Id",
+          "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/AttributionMethod"
+        },
+        "rule_version": {
+          "minLength": 1,
+          "title": "Rule Version",
+          "type": "string"
+        },
+        "score": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Score",
+          "type": "number"
+        },
+        "selected": {
+          "default": false,
+          "title": "Selected",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "attribution_id",
+        "intent_id",
+        "event_id",
+        "host_id",
+        "collector_id",
+        "method",
+        "confidence",
+        "score",
+        "rule_version",
+        "created_at"
+      ],
+      "title": "EventAttribution",
+      "type": "object"
+    },
+    "EvidenceRef": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "uri": {
+          "minLength": 1,
+          "title": "Uri",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "uri"
+      ],
+      "title": "EvidenceRef",
+      "type": "object"
+    },
     "TimelineEntry": {
       "additionalProperties": false,
       "properties": {
@@ -39,15 +169,22 @@
   "additionalProperties": false,
   "properties": {
     "attribution_note": {
-      "default": "intent_ref 是采集器提示，尚无 P2 因果归因结论。",
+      "default": "归因边是可冲突的证据候选，selected 不等于已证明因果；未归因事件仍保留在主机视图。",
       "title": "Attribution Note",
       "type": "string"
     },
     "attribution_supported": {
-      "const": false,
-      "default": false,
+      "const": true,
+      "default": true,
       "title": "Attribution Supported",
       "type": "boolean"
+    },
+    "attributions": {
+      "items": {
+        "$ref": "#/$defs/EventAttribution"
+      },
+      "title": "Attributions",
+      "type": "array"
     },
     "capability_verification": {
       "title": "Capability Verification",

@@ -85,6 +85,8 @@ class AgentProductDescriptor(StrictModel):
     unsupported_reason: str = ""
     # 运行边界说明，直接展示给用户。
     boundary: str = ""
+    mediated_approval_supported: bool = False
+    mediated_approval_protocol: str = "none"
 
     @model_validator(mode="after")
     def _check_ingest(self) -> AgentProductDescriptor:

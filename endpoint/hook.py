@@ -46,7 +46,10 @@ def capture(config, product, payload, *, now=None):
             raw = json.dumps(event['params'], ensure_ascii=False)
             decision = 'deny' if any(s in raw for s in config.get('deny_patterns', [])) else 'allow'
             if decision == 'allow' and any(s in raw for s in config.get('ask_patterns', [])):
-                if product == 'codex':
+                if config.get('approval_mode') == 'control_plane':
+                    from endpoint.approval import request_approval
+                    decision, reason = request_approval(config, product, version, event)
+                elif product == 'codex':
                     decision = 'deny'
                     reason = 'ASGP confirmation unsupported for Codex 0.166.0; denied'
                 else:
@@ -62,6 +65,28 @@ def capture(config, product, payload, *, now=None):
                 'occurred_at': stamp, 'ended_at': stamp if event['event'] == 'PostToolUse' else None,
                 'product_result': 'observed' if event['event'] == 'PostToolUse' else None}
             records.append((intent_id+':'+event['event'], '/api/v1/executions/'+execution_id+'/intents', intent))
+            if config.get('runtime_anchors') and event['event']=='PreToolUse':
+                pid=os.getppid()
+                product_pid=None
+                for _ in range(8):
+                    try:
+                        status=Path('/proc')/str(pid)/'status'
+                        fields=dict(line.split(':',1) for line in status.read_text().splitlines() if ':' in line)
+                        name=fields.get('Name','').strip()
+                        parent=int(fields['PPid'])
+                        if name in {'codex','claude','claude.exe'}:
+                            product_pid=(pid,parent,name);break
+                        if parent<=1:break
+                        pid=parent
+                    except (OSError,KeyError,ValueError):break
+                if product_pid:
+                    anchor={'event_id':'anchor_'+stable(execution_id,call),'execution_id':execution_id,
+                        'intent_ref':intent_id,'event_type':'hook_anchor','occurred_at':stamp,
+                        'process':{'pid':product_pid[0],'ppid':product_pid[1],'executable':product_pid[2]},
+                        'action':'tool_context','result':'observed',
+                        'evidence_refs':[{'kind':'hook_call','uri':intent_id}]}
+                    records.append((anchor['event_id'],'/api/v1/runtime-events:batch',
+                        {'collector_id':product+'-hook-v1','events':[anchor]}))
         if event['event'] == 'SessionEnd':
             execution = dict(execution, ended_at=stamp, outcome='completed')
             records.append((execution_id+':end', '/api/v1/executions', execution))

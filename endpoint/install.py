@@ -58,6 +58,8 @@ def install(home, root, config_path, products, *, print_only=False):
     manifest_path=state/'installation.json'
     manifest=json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
     plans=[]
+    configuration=json.loads(Path(config_path).read_text()) if Path(config_path).exists() else {}
+    approval_enabled=configuration.get('approval_mode')=='control_plane'
     for product in products:
         path=home/('.codex/config.toml' if product=='codex' else '.claude/settings.json')
         command=hook_command(root,config_path,product)
@@ -70,13 +72,15 @@ def install(home, root, config_path, products, *, print_only=False):
             if BEGIN.encode() in original:raise RuntimeError('orphaned_asgp_configuration')
             extra='\n'+BEGIN+'\n'
             for event in EVENTS:
-                extra+='[[hooks.'+event+']]\n[[hooks.'+event+'.hooks]]\ntype = "command"\ncommand = '+json.dumps(command)+'\ntimeout = 3\n'
+                timeout=25 if approval_enabled and event=='PreToolUse' else 3
+                extra+='[[hooks.'+event+']]\n[[hooks.'+event+'.hooks]]\ntype = "command"\ncommand = '+json.dumps(command)+'\ntimeout = '+str(timeout)+'\n'
             installed=original+extra.encode()
         else:
             data=json.loads(original or b'{}')
             hooks=data.setdefault('hooks',{})
             for event in EVENTS:
-                hooks.setdefault(event,[]).append({'hooks':[{'type':'command','command':command,'timeout':3}]})
+                timeout=25 if approval_enabled and event=='PreToolUse' else 3
+                hooks.setdefault(event,[]).append({'hooks':[{'type':'command','command':command,'timeout':timeout}]})
             installed=(json.dumps(data,indent=2,ensure_ascii=False)+'\n').encode()
         plans.append((product,'install'))
         if print_only:continue

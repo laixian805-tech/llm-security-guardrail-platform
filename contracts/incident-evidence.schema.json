@@ -1,0 +1,39 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "added_at": {
+      "format": "date-time",
+      "title": "Added At",
+      "type": "string"
+    },
+    "evidence_id": {
+      "minLength": 1,
+      "title": "Evidence Id",
+      "type": "string"
+    },
+    "evidence_kind": {
+      "minLength": 1,
+      "title": "Evidence Kind",
+      "type": "string"
+    },
+    "incident_id": {
+      "minLength": 1,
+      "title": "Incident Id",
+      "type": "string"
+    },
+    "note": {
+      "default": "",
+      "maxLength": 1024,
+      "title": "Note",
+      "type": "string"
+    }
+  },
+  "required": [
+    "incident_id",
+    "evidence_kind",
+    "evidence_id",
+    "added_at"
+  ],
+  "title": "IncidentEvidence",
+  "type": "object"
+}

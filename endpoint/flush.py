@@ -20,6 +20,7 @@ def flush(config):
         with outbox.db:
             outbox.db.execute("UPDATE outbox SET state='pending' WHERE state='inflight'")
             outbox.db.execute("DELETE FROM outbox WHERE state='sent' AND updated_at<?", (time.time()-7*86400,))
+        outbox.db.execute('PRAGMA wal_checkpoint(PASSIVE)')
         stats = {'sent':0, 'dead':0, 'pending':0}
         while True:
             row = outbox.db.execute("SELECT * FROM outbox WHERE state='pending' ORDER BY seq LIMIT 1").fetchone()

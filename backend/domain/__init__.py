@@ -25,6 +25,7 @@ from domain.enums import (
     AuditOutcome,
     AssetType,
     AttributionMethod,
+    AdmissionState,
     CapabilityVerification,
     Confidence,
     ConsoleRole,
@@ -37,6 +38,8 @@ from domain.enums import (
     HookTransport,
     InstallationState,
     IntentDecision,
+    IncidentStatus,
+    PolicyAction,
     Permission,
     ProbeStatus,
     ProviderRole,
@@ -52,6 +55,8 @@ from domain.finding import Finding
 from domain.product import AgentProductDescriptor, HookEventCapability
 from domain.provider import ModelProviderProfile, WireProfile
 from domain.runtime_event import ProcessInfo, ResourceInfo, RuntimeEvent
+from domain.attribution import EventAttribution
+from domain.governance import Admission, Incident, IncidentEvidence, PolicyDecision, RiskAssessment
 
 __all__ = [
     "PRE_EXECUTION_HOOK_EVENTS",
@@ -97,6 +102,12 @@ __all__ = [
     "RetentionRule",
     "RawReportRef",
     "RuntimeEvent",
+    "EventAttribution",
+    "Admission",
+    "Incident",
+    "IncidentEvidence",
+    "PolicyDecision",
+    "RiskAssessment",
     "RuntimeState",
     "RunStatus",
     "Severity",
