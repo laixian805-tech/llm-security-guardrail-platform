@@ -127,3 +127,9 @@ Intent 与 RuntimeEvent 之间的证据关联记录：`attribution_id`、`intent
 - asset_instance_id 只保存引用，目前无资产注册表校验；parent_intent_id 暂不支持摄入。
 - RuntimeEvent.intent_ref 只作采集器提示，不是 EventAttribution；Hook 接入不等于已实现 OS 运行时采集。
 - 产品能力仅对实测版本成立：Claude 2.1.152 observe/confirm/deny，Codex 0.166.0 observe/deny（ask 被产品忽略，禁止声明 confirm）。
+
+## P2/P3 第一片（schema v6）
+
+新增 EventAttribution、RiskAssessment、PolicyDecision、Admission、Incident/IncidentEvidence、ApprovalRequest 和治理流转历史。候选归因不修改 RuntimeEvent 的原始 execution_id；没有证据时保持未归因，冲突不能强选。风险三个维度独立，策略决定与实际执行分开。
+
+ApprovalRequest 绑定 device/product/version/session/tool_call_id 和参数哈希，状态 pending → approved/denied/expired，不允许最终决定逆转。它是 ASGP 审批，不修改产品原生能力定义。Admission 当前只有检查与批准，安装器未接通前不允许 stage/commit/verify 声明。Incident 的真实风险关闭必须附有匹配检测器/目标、工单开启后的 clean DetectorRun，客户端 retest_passed 布尔值不能代替证据。

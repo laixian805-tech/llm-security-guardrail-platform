@@ -135,3 +135,7 @@ footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8p
 .runtimeEntries p { color: #a9c3b8; margin-bottom: 0; }
 #runtime select { width: 100%; max-width: 100%; }
 #runtimeProducts { overflow-wrap: anywhere; }
+.runtimeItem { padding: 12px; margin-top: 10px; border: 1px solid var(--border); border-radius: 6px; overflow-wrap: anywhere; }
+.runtimeItem code { display: block; font-size: 11px; }
+.runtimeItem button { margin-right: 12px; }
+#governanceItems, #attributionCandidates { overflow-wrap: anywhere; }

@@ -1,0 +1,73 @@
+{
+  "test_operator": "automated authenticated console test client",
+  "native_codex_ask": "unsupported",
+  "approval_transport": "ASGP control plane; product allow/deny on resolution",
+  "results": [
+    {
+      "product": "codex",
+      "test_choice": "approved",
+      "returncode": 0,
+      "proof_exists": true,
+      "proof_matches": true,
+      "seconds": 14.67,
+      "approval_id": "approval_21f684b25722492086aa9ebe94762ae9",
+      "proof_absent_while_pending": true,
+      "passed": true
+    },
+    {
+      "product": "codex",
+      "test_choice": "denied",
+      "returncode": 0,
+      "proof_exists": false,
+      "proof_matches": false,
+      "seconds": 15.27,
+      "approval_id": "approval_3fa2803f87fc4dab8b0015fd3bc87bac",
+      "proof_absent_while_pending": true,
+      "passed": true
+    },
+    {
+      "product": "codex",
+      "test_choice": "timeout",
+      "returncode": 0,
+      "proof_exists": false,
+      "proof_matches": false,
+      "seconds": 24.36,
+      "approval_id": "approval_92a8e5f404a24e0fa964730a175eb679",
+      "proof_absent_while_pending": true,
+      "passed": true
+    },
+    {
+      "product": "claude-code",
+      "test_choice": "approved",
+      "returncode": 0,
+      "proof_exists": true,
+      "proof_matches": true,
+      "seconds": 7.47,
+      "approval_id": "approval_f828c02f41234dc99a5fb6808177621c",
+      "proof_absent_while_pending": true,
+      "passed": true
+    },
+    {
+      "product": "claude-code",
+      "test_choice": "denied",
+      "returncode": 0,
+      "proof_exists": false,
+      "proof_matches": false,
+      "seconds": 7.79,
+      "approval_id": "approval_af7105748d33418d8b57abb45405d062",
+      "proof_absent_while_pending": true,
+      "passed": true
+    },
+    {
+      "product": "claude-code",
+      "test_choice": "timeout",
+      "returncode": 0,
+      "proof_exists": false,
+      "proof_matches": false,
+      "seconds": 16.34,
+      "approval_id": "approval_c9ffb50bcd014cee81a99b9d0a97d7cb",
+      "proof_absent_while_pending": true,
+      "passed": true
+    }
+  ]
+}

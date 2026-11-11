@@ -1,0 +1,19 @@
+{
+  "dataset": "labeled-small-v1",
+  "event_count": 5,
+  "expected_associated": 4,
+  "expected_unattributed": 1,
+  "true_positive": 4,
+  "false_positive": 0,
+  "false_negative": 0,
+  "precision": 1.0,
+  "recall": 1.0,
+  "summary": {
+    "execution_id": "exec",
+    "candidate_count": 4,
+    "selected_count": 4,
+    "unattributed_count": 1,
+    "rule_version": "attribution-v2"
+  },
+  "limitation": "Synthetic small trace, not production accuracy; live Audit coverage is evaluated separately."
+}

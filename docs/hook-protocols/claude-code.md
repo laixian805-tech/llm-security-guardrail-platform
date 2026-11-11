@@ -31,3 +31,7 @@
 非执行前事件一律 observe；本实现不用 exit 2。`Intent.decision` 只记发出的决策，不能单独作为实际阻断证明。
 
 安装与回滚见 [接入 runbook](../runbooks/p1-hook-onboarding.md)，具体证据见 [实测报告](../acceptance/2026-11-11-p1.md)。
+
+## ASGP 平台审批（后续首片）
+
+除原生 ask 外，明确启用 approval_mode=control_plane 时可使用同 Codex 的绑定调用审批。测试机已验证批准前无 proof、批准后创建、拒绝/超时不创建；普通 observe 不访问审批服务。此通道和原生 ask 的证据分别保存，详见本轮 P2/P3 开始实施报告。

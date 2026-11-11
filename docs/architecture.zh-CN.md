@@ -1,3 +1,5 @@
+> 本轮更新：ASGP 调用审批、测试 UID Linux Audit、候选归因、风险/策略和 Incident 首片已实现，schema v6。主机事件可读，执行时间线可包含候选边；下文旧 P1 状态中“尚未实现”需以 [本轮记录](acceptance/2026-11-11-p23-start.md) 为准。真实安装事务、完整治理仍待交付。
+
 # 当前 ASGP 实现架构
 
 2026-11-11 更新；目标设计见根目录 ARCHITECTURE.md，实测证据见 [P1 报告](acceptance/2026-11-11-p1.md)。

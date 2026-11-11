@@ -1,0 +1,36 @@
+{
+  "date": "2026-11-11T13:59:19.816179+00:00",
+  "baseline_commit": "118cc97fd0945c69bf219177c4ab10c843fb77e1",
+  "tests": {
+    "passed": 287,
+    "skipped": 0,
+    "seconds": 71.9
+  },
+  "fixture_e2e": "passed",
+  "labeled_trace_command": ".venvs/control-plane/bin/python scripts/evaluate-runtime-trace.py",
+  "endpoint_source_sha256_matches_repository": true,
+  "endpoint_files": 10,
+  "runtime_deployment": {
+    "queue": {
+      "sent": 3709
+    },
+    "outbox_bytes": 2945024,
+    "wal_bytes": 0,
+    "mode": "observe",
+    "approval_mode": "control_plane"
+  },
+  "collector": {
+    "MemoryCurrent": "8785920",
+    "CPUQuotaPerSecUSec": "100ms",
+    "MemoryMax": "100663296",
+    "User": "agentsec-lab",
+    "SupplementaryGroups": "adm",
+    "ActiveState": "active"
+  },
+  "kernel_audit_lost": 0,
+  "status": {
+    "P1": "ASGP mediated confirmation fixed; native Codex ask remains unsupported",
+    "P2": "first slice implemented and probed; full acceptance pending",
+    "P3": "first slice implemented; installer/full lifecycle pending"
+  }
+}

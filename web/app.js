@@ -231,6 +231,7 @@ async function refresh() {
     renderEngines();
     await renderScans();
     await refreshRuntime();
+    await refreshApprovals();
   } catch (error) {
     if (error instanceof UnauthenticatedError) return;  // 已跳登录页
     showNotice(error.message, "error");
@@ -362,7 +363,7 @@ async function refreshRuntime() {
   for (const product of catalog.products) {
     const line = document.createElement('p');
     const verified = product.events.length > 0 && product.events.every((event) => event.verification === 'verified');
-    line.textContent = `${product.product_id} ${product.product_version} · ${verified ? '事件观测已验证' : '事件观测未验证'} · ${product.boundary}`;
+    line.textContent = `${product.product_id} ${product.product_version} · ${verified ? '事件观测已验证' : '事件观测未验证'} · ${product.mediated_approval_supported ? 'ASGP 调用审批可用' : 'ASGP 调用审批未验证'} · ${product.boundary}`;
     products.append(line);
   }
   const select = byId('runtimeExecution');
@@ -394,10 +395,10 @@ async function showRuntimeTimeline(append) {
     const detail = document.createElement('p');
     detail.textContent = entry.kind === 'intent'
       ? `调用 ${entry.data.tool_call_id || '未提供调用 ID'} · 决策记录 ${entry.data.decision} · 结果 ${entry.data.product_result || '尚未观测'} · 参数值已省略`
-      : `${entry.data.action || ''} ${entry.data.result || ''}`;
+      : `${entry.data.action || ''} ${entry.data.result || ''} · 归因候选 ${(entry.data.attributions || []).length}`;
     item.append(title, detail); list.append(item);
   }
-  byId('runtimeBoundary').textContent = `本次执行版本的观测验证：${response.capability_verification === 'verified' ? '已验证' : '未验证'}。尚未提供行为归因、关联发现项与策略闭环；决策记录不能作为阻断成功证明。`;
+  byId('runtimeBoundary').textContent = `本次执行版本的观测验证：${response.capability_verification === 'verified' ? '已验证' : '未验证'}。归因以证据候选展示，可能冲突；关联发现项与策略闭环未整合到此时间线，决策记录不能作为阻断成功证明。`;
   runtimeExecution = id; runtimeCursor = response.next_cursor;
   byId('runtimeMore').hidden = !runtimeCursor;
 }
@@ -407,3 +408,76 @@ byId('runtimeRefresh').addEventListener('click', () => refreshRuntime().catch((e
 }));
 byId('runtimeExecution').addEventListener('change', () => showRuntimeTimeline(false).catch((error) => showNotice(error.message, 'error')));
 byId('runtimeMore').addEventListener('click', () => showRuntimeTimeline(true).catch((error) => showNotice(error.message, 'error')));
+
+async function refreshApprovals() {
+  const result = await request('/api/v1/approvals');
+  const box = byId('approvalRequests'); box.replaceChildren();
+  for (const row of result.approvals) {
+    const item = document.createElement('article'); item.className = 'runtimeItem';
+    const label = document.createElement('p');
+    label.textContent = `${row.host_id} · ${row.product} ${row.product_version} · ${row.tool_name} · ${row.state} · 截止 ${formatTime(row.expires_at)}`;
+    const digest = document.createElement('code'); digest.textContent = `参数 SHA-256: ${row.params_sha256}`;
+    item.append(label,digest);
+    if (row.state === 'pending' && ['admin','operator'].includes(state.user?.role)) {
+      for (const [decision, text] of [['approved','批准本次调用'],['denied','拒绝本次调用']]) {
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'secondaryButton'; button.textContent = text;
+        button.addEventListener('click',async () => {
+          button.disabled = true;
+          try {
+            await request(`/api/v1/approvals/${encodeURIComponent(row.approval_id)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision,params_sha256:row.params_sha256})});
+            await refreshApprovals();
+          } catch (error) { showNotice(error.message,'error'); button.disabled=false; }
+        }); item.append(button);
+      }
+    }
+    box.append(item);
+  }
+  if (!result.approvals.length) box.textContent = '暂无调用审批请求。';
+}
+
+async function refreshHostEvents() {
+  const host = byId('runtimeHost').value.trim();
+  if (!host) return;
+  const result = await request(`/api/v1/runtime-events?host_id=${encodeURIComponent(host)}`);
+  const box = byId('hostEvents');box.replaceChildren();
+  for (const row of result.events) {
+    const item=document.createElement('li');
+    item.textContent=`${formatTime(row.occurred_at)} · ${row.event_type} · PID ${row.pid ?? '未知'} / PPID ${row.ppid ?? '未知'} · ${row.executable || ''} · ${row.resource_path || row.resource_host || ''} · ${row.result || ''} · ${row.execution_id ? '有执行上下文' : '未归因'}`;
+    box.append(item);
+  }
+  if (!result.events.length) box.textContent='该设备尚无运行事件。';
+}
+
+async function correlateCurrent() {
+  const id=byId('runtimeExecution').value;if(!id)return;
+  const result=await request(`/api/v1/executions/${encodeURIComponent(id)}/correlate`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  const edges=await request(`/api/v1/executions/${encodeURIComponent(id)}/attributions`);
+  const box=byId('attributionCandidates');box.replaceChildren();
+  const summary=document.createElement('p');summary.textContent=`候选 ${result.candidate_count} · 强候选选择 ${result.selected_count} · 本次扫描未归因 ${result.unattributed_count}（同主机事件可能属于其他会话）`;box.append(summary);
+  for(const edge of edges.attributions){const line=document.createElement('p');line.textContent=`${edge.event_id} → ${edge.intent_id} · ${edge.method} · ${edge.confidence} · ${edge.selected ? '当前选择，仍须核验证据' : '未选择候选'}`;box.append(line);}
+}
+
+async function refreshGovernance() {
+  const box=byId('governanceItems');box.replaceChildren();
+  for(const [path,label] of [['risk-assessments','风险评估'],['policy-decisions','策略决定'],['admissions','准入检查'],['incidents','Incident']]){
+    const result=await request('/api/v1/'+path);const section=document.createElement('section');
+    const title=document.createElement('h3');title.textContent=`${label} · ${result.items.length}`;section.append(title);
+    for(const row of result.items){const line=document.createElement('p');line.textContent=path==='risk-assessments'?`固有 ${row.intrinsic_risk} / 运行 ${row.runtime_risk} / 暴露 ${row.exposure_risk} · ${row.confidence}`:path==='policy-decisions'?`${row.action} · ${row.policy_version} · ${row.subject_kind}:${row.subject_id}`:path==='admissions'?`${row.asset_instance_id} · ${row.state} · ${row.content_hash}`:`${row.title} · ${row.status} · ${row.severity}`;section.append(line);}
+    box.append(section);
+  }
+}
+
+function guarded(action) { return () => action().catch(error => {if(!(error instanceof UnauthenticatedError))showNotice(error.message,'error');}); }
+byId('approvalRefresh').addEventListener('click',guarded(refreshApprovals));
+byId('hostEventsRefresh').addEventListener('click',guarded(refreshHostEvents));
+byId('correlateExecution').addEventListener('click',guarded(correlateCurrent));
+byId('governanceRefresh').addEventListener('click',guarded(refreshGovernance));
+
+let approvalRefreshBusy = false;
+setInterval(async () => {
+  if (!state.user || document.hidden || location.hash !== '#approvals' || approvalRefreshBusy) return;
+  approvalRefreshBusy = true;
+  try { await refreshApprovals(); }
+  catch (error) { if (!(error instanceof UnauthenticatedError)) showNotice(error.message, 'error'); }
+  finally { approvalRefreshBusy = false; }
+}, 2000);

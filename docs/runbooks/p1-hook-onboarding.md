@@ -65,3 +65,14 @@ node --check web/app.js
 ```
 
 第二条使用版本化真实 fixture 调用实际 endpoint CLI 和临时 HTTP 控制面，验证两产品时间线、重放去重和吊销队列；它属于 fixture 联调，不能代替产品实测。实测证据另见 [P1 报告](../acceptance/2026-11-11-p1.md)。
+
+## P1 审批修复与 P2 采集新增部署
+
+- 测试机新服务 asgp-audit-collector：agentsec-lab + SupplementaryGroups=adm，CPUQuota=10%，MemoryMax=96M，只读 Audit、状态写目录单独开放。
+- 新文件规则仅 `/home/agentsec-lab/lab/asgp-p23` 的 asgp_p2_files；exec/connect 复用旧项目已有 UID 1000 规则，不清空旧规则或停止旧服务。
+- config 增加 approval_mode=control_plane、approval_timeout_seconds=15、runtime_anchors=true、audit_log、audit_uid、audit_keys。当前默认 fail_mode=observe；命中需确认规则才启用同步审批。PreToolUse timeout=25，其他 Hook=3。
+- 本轮部署前私有备份为开发机 fusion-before-p23.db、测试机 config-before-p23.json。迁移为 schema v6，新增调用审批/归因/风险/策略/准入/Incident/历史表；早期试运行归因表会补源记录级联关系。
+- 审批可在“调用审批”页面处理，或 govern 权限调用 POST /api/v1/approvals/{id}，body 含 decision（approved/denied）和本请求 params_sha256。禁止脚本自动批准真实用户请求；自动测试批准只针对明确的合成/无害测试调用。
+- 关闭本轮 collector 时先停止服务，只卸载 asgp_p2_files watch 和 98-asgp-p2.rules，不执行 auditctl -D。旧规则由原服务维护。Hook 的回退仍用精确卸载/重装，不覆盖他人配置。
+- Audit 事件无 execution_id 是有效结果；先执行 correlate 建立证据候选，不直接给事件改上 execution_id。selected 仍是当前证据选择，不是已证因果。
+- 新状态机只提供已明确交付的动作；Admission 的 stage/commit/verify 目前 409 installer_required，不在此 runbook 宣称安装已经完成。

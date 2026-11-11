@@ -218,3 +218,29 @@ Batch 顶层 collector_id/events，可带 host_id（忽略）；事件包含 eve
 版本化错误为 `{error: {code, request_id}}`；鉴权错误沿用 P0 的字符串 error + request_id。状态包括 400 invalid_payload/suspected_secret_parameter/unsupported_decision，401 无效凭据，403 吊销，404 unknown_execution，409 host_unbound/execution_id_conflict/intent_id_conflict，503 v1_disabled。错误和审计不回显提交值。`ASGP_V1_ENABLED=0` 只关闭 /api/v1。
 
 Timeline 永久显式列出 sections_pending 中的 attribution/finding/policy_decision；attribution_supported=false。当前产品验证不跨版本继承；Intent 的 decision 不是 EnforcementEvidence。P1 设备端的参数值省略/本地哈希并不等于扫描报告原文禁止存储，原始扫描报告仍按 P0 权限独立复核。
+
+## 9. P1 审批修复与 P2/P3 首片接口
+
+当前 schema v6。以下接口已实现；所有写入默认需要 govern 权限（operator/admin），只读需要控制台 read；唯有 approval-requests 的创建设备请求/查询自身请求走独立设备令牌。
+
+| 方法 | 路径 | 行为 |
+| --- | --- | --- |
+| POST | `/api/v1/approval-requests` | 设备提交 product/version/session/tool_call_id/tool_name/params_sha256，截止 1–20 秒；同调用和摘要幂等 |
+| GET | `/api/v1/approval-requests/{id}` | 仅原设备查询状态；过期变 expired |
+| GET | `/api/v1/approvals` | 控制台列出最近请求 |
+| POST | `/api/v1/approvals/{id}` | govern；decision=approved/denied 和 params_sha256，最终决定不可反转 |
+| GET | `/api/v1/runtime-events?host_id=...` | 主机事件，含未归因事件 |
+| POST | `/api/v1/executions/{id}/correlate` | govern；建立可冲突候选边，不改写原始事件 |
+| GET | `/api/v1/executions/{id}/attributions` | 查询 method/confidence/score/selected/evidence_refs/rule_version |
+| POST/GET | `/api/v1/risk-assessments` | 根据 finding_ids、event_ids 完整复合标识及声明 exposure 分维度评估/查询 |
+| POST | `/api/v1/policies/evaluate` | assessment_id + subject_kind/id，返回独立 PolicyDecision，无生效宣称 |
+| GET | `/api/v1/policy-decisions` | 查询策略决定 |
+| POST | `/api/v1/admissions/check` | asset_instance_id/content_hash/transaction_id，幂等检查 |
+| POST | `/api/v1/admissions/{id}/approve` | 记录实际授权操作者 |
+| POST | `/api/v1/admissions/{id}/{stage,commit,verify,reconcile,rollback}` | 安装器未实现，409 installer_required；不能用状态写入冒充安装 |
+| GET | `/api/v1/admissions` | 查询当前准入检查/批准记录 |
+| POST/GET | `/api/v1/incidents` | 创建/查询工单 |
+| PATCH | `/api/v1/incidents/{id}` | 校验状态机；真实风险关闭需匹配检测器/目标且工单开启后的 clean 复测证据 |
+| POST | `/api/v1/incidents/{id}/evidence` | 关联存在的 Finding/Execution/Attribution/复测 DetectorRun |
+
+设备申请审批不上传原始命令；审批批准不会生成 EnforcementEvidence。产品矩阵新增 mediated_approval_supported/protocol，将平台审批与产品原生能力区分。时间线现支持 attributions 并包含经候选边关联的主机事件，finding/policy_decision 仍列为未整合部分；未归因原始事件留在主机查询中。

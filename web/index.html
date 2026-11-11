@@ -19,6 +19,9 @@
           <a class="navItem" href="#findings">发现项</a>
           <a class="navItem" href="#engines">扫描引擎</a>
           <a class="navItem" href="#runtime">运行时间线</a>
+          <a class="navItem" href="#approvals">调用审批</a>
+          <a class="navItem" href="#hostRuntime">主机运行事件</a>
+          <a class="navItem" href="#governance">治理记录</a>
         </nav>
         <div class="sidebarFoot">
           <div id="sessionChip" class="sessionChip" hidden>
@@ -56,6 +59,25 @@
           <p id="runtimeBoundary" class="fieldHint">展示 Hook 观测；行为归因和治理闭环尚未接入。</p>
           <ol id="runtimeEntries" class="runtimeEntries"></ol>
           <button id="runtimeMore" type="button" class="textButton" hidden>加载更多</button>
+        </section>
+
+        <section id="approvals" class="panel">
+          <div class="sectionHeading"><h2>调用审批</h2><button id="approvalRefresh" class="textButton" type="button">刷新待审批</button></div>
+          <p class="fieldHint">ASGP 审批绑定设备、调用与参数哈希。它不是 Codex 原生 ask。页面不展示原始命令，批准前请核对测试端本地上下文；拒绝、超时或控制面不可达均不放行。</p>
+          <div id="approvalRequests">点击刷新查看审批。</div>
+        </section>
+        <section id="hostRuntime" class="panel">
+          <div class="sectionHeading"><h2>主机运行事件</h2><button id="hostEventsRefresh" class="textButton" type="button">刷新主机事件</button></div>
+          <label for="runtimeHost">主机 ID</label><input id="runtimeHost" value="test-agentsec-01" />
+          <p class="fieldHint">Linux Audit 是观测来源，事件没有调用证据时保持未归因；不展示进程参数。</p>
+          <ul id="hostEvents" class="runtimeEntries"></ul>
+          <button id="correlateExecution" class="secondaryButton" type="button">分析上方选中会话的归因候选</button>
+          <div id="attributionCandidates" class="fieldHint"></div>
+        </section>
+        <section id="governance" class="panel">
+          <div class="sectionHeading"><h2>治理记录</h2><button id="governanceRefresh" class="textButton" type="button">刷新治理记录</button></div>
+          <p class="fieldHint">策略决定不等于已生效。准入目前只有检查和批准；实际安装事务尚未接通，不显示安装成功。</p>
+          <div id="governanceItems"></div>
         </section>
 
         <section id="providers" class="panel providerPanel">

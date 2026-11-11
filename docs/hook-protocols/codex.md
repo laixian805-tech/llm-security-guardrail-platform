@@ -1,3 +1,5 @@
+> 后续修复：已新增并实测 ASGP 控制面调用审批，批准后返回 allow，拒绝/超时返回 deny。它以 mediated_approval_supported 单独声明，不把原生 ask 改为支持；证据见 [本轮报告](../acceptance/2026-11-11-p23-start.md)。下文原生 ask 的负面对照仍成立。
+
 # Codex 原生 Hook 协议：0.166.0
 
 状态：2026-11-11 在 `116.62.28.177` 的 `agentsec-lab` 用户中实测；保留现有 StepFun Responses profile，模型 `step-5-preview`。不再把 Codex 作为无法摄入的占位适配器。

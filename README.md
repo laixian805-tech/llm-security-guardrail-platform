@@ -4,17 +4,15 @@ ASGP 是独立的 Agent 安全治理平台，目标是把多产品 Agent 接入�
 
 ## 当前阶段
 
-P0 已落地扫描编排、领域契约、认证/RBAC、设备登记、审计和数据保留；P1 已打通两产品 Hook → 端侧脱敏/outbox → 设备认证摄入 → 执行时间线。
+P0 扫描/认证基础与 P1 两产品 Hook/设备摄入/时间线已实现；P1 确认缺口已补 ASGP 调用审批，P2/P3 第一批实现正在按证据推进。
 
-- Claude Code **2.1.152**：测试机实测四类事件、放行、阻断和确认（接受/拒绝）。
-- Codex **0.166.0**：测试机实测四类事件与阻断；本版本忽略 Hook ask，**不支持 confirm**，需确认规则在端侧按拒绝处理。
-- 测试端为 `116.62.28.177` 的 `agentsec-lab`；开发控制面不安装 Hook。端点默认 observe。
-- 供应商 StepFun Step Plan 的 Responses 与 Chat Completions 已分别 Probe 通过，Claude 也通过其 Anthropic 兼容入口完成真实任务。两种 profile 继续独立管理；同一基础地址不代表协议相同。
-- P2 的 Linux Audit、行为归因与 P3 的 Policy/Admission/Incident 尚未实现，不宣称已有运行时因果链或完整治理闭环。
+- Claude Code **2.1.152**、Codex **0.166.0** 均在 `116.62.28.177` 专用测试用户真实接入 StepFun。开发机只运行控制面。
+- Codex 原生 Hook ask 不支持；新增 **ASGP 调用审批**绑定设备、调用和参数哈希，批准才 allow，拒绝/超时/离线 deny。它单独声明为 mediated approval，不冒充原生能力。
+- P2：Linux Audit 采集、持久游标/outbox、进程/文件/网络事件、可冲突归因候选已接通并有两产品真实安全探针；总体覆盖率、长期丢失、压力/磁盘指标仍待验收。
+- P3：分维度风险、策略决定、调用审批、准入检查/批准、Incident/证据/复测状态机和基础页面已开始；真实安装事务与完整治理闭环未交付。
+- 端侧常驻默认 observe，真实控制测试限专用账户。StepFun Responses/Chat Completions 分别 Probe 通过。
 
-本轮证据与限制见 [P1 实测报告](docs/acceptance/2026-11-11-p1.md)，部署/卸载见 [runbook](docs/runbooks/p1-hook-onboarding.md)。接手前状态快照保留在 [接手梳理](docs/project-handover.zh-CN.md)。
-
-架构与路线见 [ARCHITECTURE.md](ARCHITECTURE.md)、[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)。
+本轮结果见 [P1 修复与 P2/P3 开始实施](docs/acceptance/2026-11-11-p23-start.md)，上一轮 [P1 正式复核](docs/acceptance/2026-11-11-p1-recheck.md)作为历史保留；不能把新增审批、候选归因和状态机等同于 P2/P3 已全量验收。
 
 旧平台模块如何映射到 ASGP、哪些概念保留而不搬运代码，见[旧平台审计与迁移映射](docs/legacy-platform-review.zh-CN.md)。
 

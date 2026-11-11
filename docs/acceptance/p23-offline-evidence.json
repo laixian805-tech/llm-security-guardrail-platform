@@ -1,0 +1,23 @@
+{
+  "before": {
+    "sent": 3530
+  },
+  "offline_with_collector_restart": {
+    "pending": 15,
+    "sent": 3530
+  },
+  "recovered": {
+    "sent": 3553
+  },
+  "probe": {
+    "product": "offline",
+    "pid": 85845,
+    "ppid": 85844,
+    "path": "/home/agentsec-lab/lab/asgp-p23/runtime-offline.proof",
+    "host": "127.0.0.1",
+    "port": 54293,
+    "result": "passed"
+  },
+  "passed": true,
+  "scope": "collector restart plus actual SSH tunnel interruption; known non-Agent background probe remains unattributed"
+}
