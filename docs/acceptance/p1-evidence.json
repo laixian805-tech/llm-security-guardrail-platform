@@ -1,0 +1,228 @@
+{
+  "date": "2026-11-11",
+  "test_host": "116.62.28.177",
+  "test_user": "agentsec-lab",
+  "versions": {
+    "codex": "0.166.0",
+    "claude-code": "2.1.152"
+  },
+  "provider": "StepFun Step Plan",
+  "model": "step-5-preview",
+  "decisions": [
+    {
+      "product": "codex",
+      "decision": "allow",
+      "returncode": 0,
+      "proof_exists": true,
+      "proof_matches": true
+    },
+    {
+      "product": "codex",
+      "decision": "deny",
+      "returncode": 0,
+      "proof_exists": false,
+      "proof_matches": false
+    },
+    {
+      "product": "claude-code",
+      "decision": "allow",
+      "returncode": 0,
+      "proof_exists": true,
+      "proof_matches": true
+    },
+    {
+      "product": "claude-code",
+      "decision": "deny",
+      "returncode": 0,
+      "proof_exists": false,
+      "proof_matches": false
+    }
+  ],
+  "confirmation_negative_control": {
+    "method": "preserved original codex ask proof files; initial app-server probe returned zero permission requests",
+    "codex_unsupported_ask_original_proofs": [
+      {
+        "approve_requested_by_test": false,
+        "proof_exists": true,
+        "proof_matches": true
+      },
+      {
+        "approve_requested_by_test": true,
+        "proof_exists": true,
+        "proof_matches": true
+      }
+    ],
+    "conclusion": "native ask is ignored; current guard denies instead"
+  },
+  "current_confirmation_behavior": [
+    {
+      "product": "codex",
+      "approve": false,
+      "permission_requests": [],
+      "proof_exists": false,
+      "proof_matches": false,
+      "errors": []
+    },
+    {
+      "product": "codex",
+      "approve": true,
+      "permission_requests": [],
+      "proof_exists": false,
+      "proof_matches": false,
+      "errors": []
+    },
+    {
+      "product": "claude-code",
+      "approve": false,
+      "permission_requests": [
+        {
+          "type": "can_use_tool",
+          "tool_name": "Bash"
+        }
+      ],
+      "proof_exists": false,
+      "proof_matches": false,
+      "errors": []
+    },
+    {
+      "product": "claude-code",
+      "approve": true,
+      "permission_requests": [
+        {
+          "type": "can_use_tool",
+          "tool_name": "Bash"
+        }
+      ],
+      "proof_exists": true,
+      "proof_matches": true,
+      "errors": []
+    }
+  ],
+  "offline": {
+    "before": {
+      "sent": 40
+    },
+    "offline": {
+      "pending": 4,
+      "sent": 40
+    },
+    "recovered": {
+      "sent": 44
+    },
+    "status": "passed"
+  },
+  "rollback": {
+    "uninstall_restored_original_bytes": {
+      "codex": true,
+      "claude-code": true
+    },
+    "reinstalled": true
+  },
+  "provider_probe": {
+    "provider_id": "stepfun",
+    "results": [
+      {
+        "provider_id": "stepfun",
+        "profile_kind": "codex",
+        "wire_api": "responses",
+        "base_url": "https://api.stepfun.com/step_plan/v1",
+        "model": "step-5-preview",
+        "model_echoed": "step-5-preview",
+        "status": "passed",
+        "latency_ms": 711,
+        "http_status": 200,
+        "capabilities": [
+          "structured_output",
+          "tool_calling"
+        ],
+        "error_kind": null,
+        "error": null
+      },
+      {
+        "provider_id": "stepfun",
+        "profile_kind": "scanner",
+        "wire_api": "chat_completions",
+        "base_url": "https://api.stepfun.com/step_plan/v1",
+        "model": "step-5-preview",
+        "model_echoed": "step-5-preview",
+        "status": "passed",
+        "latency_ms": 1888,
+        "http_status": 200,
+        "capabilities": [
+          "structured_output",
+          "tool_calling"
+        ],
+        "error_kind": null,
+        "error": null
+      }
+    ]
+  },
+  "endpoint_latency": {
+    "samples": 10,
+    "p50_ms": 78.97,
+    "max_ms": 96.66,
+    "method": "synthetic payload; real hook process and SQLite; no network"
+  },
+  "tests": {
+    "passed": 263,
+    "skipped": 0,
+    "seconds": 66.17
+  },
+  "limitations": [
+    "Codex 0.166.0 native Hook confirm unsupported; confirmation rules denied",
+    "OS collection and attribution not implemented",
+    "default deployment observe",
+    "P0 complete acceptance still pending"
+  ],
+  "execution_summary": [
+    {
+      "product": "claude-code",
+      "product_version": "2.1.152",
+      "outcome": "completed",
+      "executions": 7,
+      "intents": 7
+    },
+    {
+      "product": "claude-code",
+      "product_version": "2.1.152",
+      "outcome": "running",
+      "executions": 1,
+      "intents": 1
+    },
+    {
+      "product": "codex",
+      "product_version": "0.166.0",
+      "outcome": "completed",
+      "executions": 9,
+      "intents": 9
+    },
+    {
+      "product": "codex",
+      "product_version": "0.166.0",
+      "outcome": "running",
+      "executions": 1,
+      "intents": 1
+    }
+  ],
+  "browser": {
+    "engine": "Chromium",
+    "desktop": "1440x1100",
+    "mobile": "390x844",
+    "both_products_visible": true,
+    "page_errors": [],
+    "mobile_horizontal_overflow": false
+  },
+  "deployment": {
+    "control_plane_active": true,
+    "ssh_tunnel_active": true,
+    "endpoint_reporter_active": true,
+    "endpoint_mode": "observe",
+    "endpoint_queue": {
+      "sent": 61
+    },
+    "product_fingerprint_files": {
+      "codex": 2,
+      "claude-code": 1
+    }
+  }
+}

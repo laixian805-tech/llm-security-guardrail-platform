@@ -4,15 +4,17 @@ ASGP 是独立的 Agent 安全治理平台，目标是把多产品 Agent 接入�
 
 ## 当前阶段
 
-当前运行版本是**扫描引擎集成原型**：
+P0 已落地扫描编排、领域契约、认证/RBAC、设备登记、审计和数据保留；P1 已打通两产品 Hook → 端侧脱敏/outbox → 设备认证摄入 → 执行时间线。
 
-- 已接入 SkillSpector、Snyk Agent Scan、Cisco MCP Scanner，以及 A.I.G 的独立扫描 CLI。
-- 接受 SARIF 2.1.0 和扫描器 JSON 报告，并保留引擎、规则、证据位置和风险分。
-- 使用 SQLite 保存扫描记录；扫描目标限制在 `workspace/`。
-- 控制面已要求登录鉴权、角色权限、请求审计和数据保留，详见下方「控制台认证」。
-- 页面、API、扫描适配器和结果存储是 ASGP 自己的控制面骨架。
+- Claude Code **2.1.152**：测试机实测四类事件、放行、阻断和确认（接受/拒绝）。
+- Codex **0.166.0**：测试机实测四类事件与阻断；本版本忽略 Hook ask，**不支持 confirm**，需确认规则在端侧按拒绝处理。
+- 测试端为 `116.62.28.177` 的 `agentsec-lab`；开发控制面不安装 Hook。端点默认 observe。
+- 供应商 StepFun Step Plan 的 Responses 与 Chat Completions 已分别 Probe 通过，Claude 也通过其 Anthropic 兼容入口完成真实任务。两种 profile 继续独立管理；同一基础地址不代表协议相同。
+- P2 的 Linux Audit、行为归因与 P3 的 Policy/Admission/Incident 尚未实现，不宣称已有运行时因果链或完整治理闭环。
 
-Execution/Intent/Event 采集、进程/文件/网络关联、策略拦截、准入事务和 Incident 闭环属于目标架构，尚未实现。整体分层见 [ARCHITECTURE.md](ARCHITECTURE.md)，数据结构见 [DATA_MODEL.md](DATA_MODEL.md)，接口见 [API_CONTRACT.md](API_CONTRACT.md)，实施次序见 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)。A.I.G 主平台是否纳入 ASGP 的评审见 [docs/aig-platform-review.zh-CN.md](docs/aig-platform-review.zh-CN.md)。
+本轮证据与限制见 [P1 实测报告](docs/acceptance/2026-11-11-p1.md)，部署/卸载见 [runbook](docs/runbooks/p1-hook-onboarding.md)。接手前状态快照保留在 [接手梳理](docs/project-handover.zh-CN.md)。
+
+架构与路线见 [ARCHITECTURE.md](ARCHITECTURE.md)、[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)。
 
 旧平台模块如何映射到 ASGP、哪些概念保留而不搬运代码，见[旧平台审计与迁移映射](docs/legacy-platform-review.zh-CN.md)。
 
@@ -24,10 +26,10 @@ Execution/Intent/Event 采集、进程/文件/网络关联、策略拦截、准�
 ./scripts/setup-engines.sh
 cp .env.example .env
 # 在 .env 中填写密钥后启动
-FUSION_BIND=0.0.0.0 PORT=8000 ./scripts/run-local.sh
+FUSION_BIND=127.0.0.1 PORT=8000 ./scripts/run-local.sh
 ```
 
-当前演示地址为 `http://43.139.77.64:8000`。扫描目标放入 `workspace/`，页面填写其相对路径。引擎源码路径由 `FUSION_UPSTREAM_ROOT` 和 `FUSION_AIG_SOURCE_ROOT` 指定。
+当前受管控制面只监听 `127.0.0.1:8000`，通过有权限的 SSH 转发访问。扫描目标放入 `workspace/`，页面填写其相对路径。引擎源码路径由 `FUSION_UPSTREAM_ROOT` 和 `FUSION_AIG_SOURCE_ROOT` 指定。
 
 ## 模型 API
 

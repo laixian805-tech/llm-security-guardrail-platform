@@ -2,4 +2,4 @@
 
 状态：已采纳。
 
-ASGP V1 的控制面采用模块化 FastAPI 应用，各领域模块有明确契约；Agent Hook 和 Runtime Collector 作为独立数据面组件部署。这样在保持早期部署规模较小的同时，避免端点权限、离线队列和采集故障与管理 API 混成同一执行权限边界。只有在写入吞吐、部署规模或隔离需求被实测后，才拆分 Worker/Collector 服务。
+ASGP V1 的控制面采用模块化单体（当前为标准库 HTTP + Pydantic + SQLite 原生 SQL，FastAPI 为目标技术栈），各领域模块有明确契约；Agent Hook 和 Runtime Collector 作为独立数据面组件部署。这样在保持早期部署规模较小的同时，避免端点权限、离线队列和采集故障与管理 API 混成同一执行权限边界。只有在写入吞吐、部署规模或隔离需求被实测后，才拆分 Worker/Collector 服务。

@@ -27,7 +27,7 @@
 - 上游提供 SARIF 2.1.0 时，平台保留原始引擎名、规则 ID、严重级别、位置和消息。
 - Snyk Agent Scan 声明其 CLI 输出格式仍可能变化，因此它的原始 JSON 仅由适配器读取，不作为平台 API 契约。
 - Cisco MCP Scanner 与 Agent Scan 的部分运行模式会连接远端 MCP 服务或启动本地 MCP 命令；当前工作台只开放静态扫描模式。
-- A.I.G 上游默认 Docker 部署没有认证。本平台当前可按 `FUSION_BIND` 监听公网接口，接口本身尚无登录认证。
+- A.I.G 上游默认 Docker 部署没有认证。ASGP 当前已实现认证/RBAC 与设备上报鉴权，部署实例仅监听 loopback；上游平台的默认鉴权状态不等于 ASGP 的状态。
 
 ## 源码位置
 

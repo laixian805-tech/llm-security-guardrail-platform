@@ -2,7 +2,7 @@
 
 **状态：目标架构草案 v0.1**  
 **产品：ASGP — Agent Security Governance Platform**  
-**当前代码：扫描引擎集成原型；本文件描述目标系统，不宣称所有模块已经实现。**
+**当前代码：P0 扫描与认证基础 + P1 两产品 Hook/设备摄入/时间线。本文其余部分包含目标系统设计，当前状态以 README 和验收报告为准。**
 
 ## 1. 平台定义
 
@@ -173,20 +173,20 @@ Policy Decision 与 Enforcement Evidence 分开。Admission 在安装/启用前�
 
 ## 9. 目标技术栈
 
-| 模块 | V1 目标 | 原型现状 |
+| 模块 | V1 目标 | 当前实现 |
 | --- | --- | --- |
 | 后端 | FastAPI + Pydantic v2 + SQLAlchemy 2，模块化单体 | Python 标准库 `ThreadingHTTPServer` |
-| 数据库 | SQLite 开发；PostgreSQL 多设备正式环境 | SQLite `data/fusion.db`，只有扫描结果表 |
+| 数据库 | SQLite 开发；PostgreSQL 多设备正式环境 | SQLite `data/fusion.db`，schema v5，扫描、身份、执行/意图/事件表 |
 | 前端 | React + TypeScript | 静态 HTML/CSS/JavaScript |
 | Worker | asyncio + 有界任务队列；以后按吞吐拆分 | 请求线程中同步调用 CLI，300 秒超时 |
-| 运行时采集 | Claude/Codex Hook + Linux Audit；后评估 eBPF | 尚未实现 |
+| 运行时采集 | Claude/Codex Hook + Linux Audit；后评估 eBPF | 两产品 Hook 已实测；Linux Audit 尚未实现 |
 | 策略 | 内部策略接口，后续评估 OPA | 尚未实现 |
 
 V1 不引入 Kafka、Redis、Neo4j。先用关系表和递归查询表达事件链；只有性能或协作规模测得瓶颈后再拆 Worker、加消息系统或图存储。
 
 ## 10. 安全基线与当前限制
 
-- 当前实例因演示需要监听 `0.0.0.0:8000`，尚无登录认证、RBAC 或设备认证；不要将敏感样本放进 `workspace/`。
+- 当前控制面监听 `127.0.0.1:8000`，已实现登录、RBAC 和独立设备令牌认证；测试机经 SSH 加密隧道上报。公网生产接入仍需 HTTPS 和部署侧收敛。
 - Python venv 只隔离依赖，不是 OS sandbox。扫描 Worker 后续应以非 root、只读目标、最小环境变量、无默认外网、资源限制方式运行。
 - Provider Key 由本地 `.env`、Codex provider config header 或 Secret Store 提供；只在内存中读取，不能落盘到 ASGP 数据库。
 - 只有真正位于执行路径并获得产品确认的 Hook 决策才统计为“阻断”；Linux Audit/eBPF 事件只是观测证据。

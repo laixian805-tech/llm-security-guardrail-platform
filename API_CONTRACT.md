@@ -1,6 +1,6 @@
 # ASGP API 契约草案
 
-**状态：目标 API v1 草案。** 本文中的 `/api/v1/*` 是下一阶段契约，不代表当前原型已经实现。当前原型端点列在文末。
+**状态：P0 原型 API + P1 执行上下文接口已实现；其余为目标契约。** `/api/v1/products`、executions/intents/runtime-events/timeline 已落地，资产/策略/准入/Incident 尚未实现。当前原型端点列在文末。
 
 ## 1. 通用约定
 
@@ -193,3 +193,28 @@
 | `POST` | `/api/retention/prune` | `manage_retention` | 立即执行一次清理 |
 
 角色权限：`viewer` 只有 `read`；`operator` 增加 `scan`、`probe`、`import_report` 和 `read_raw_report`；`admin` 再增加 `manage_users`、`manage_retention`、`read_audit`。设备令牌不属于这三档，它只证明上报资格。原始报告含扫描器整段输出、可能带目标源码片段，因此单独设 `read_raw_report`，列表和详情接口都不回传正文。
+
+## 8. P1 已实现接口（2026-11-11）
+
+设备写路径只认 Authorization: Bearer 的设备令牌，不接受控制台会话或 Cookie；读路径必须使用控制台用户的 read 权限。设备 host 未绑定返回 409；服务端覆盖客户端的 host_id/device_id。
+
+| 方法 | 路径 | 凭据/响应 |
+| --- | --- | --- |
+| GET | `/api/v1/products` | 控制台 read；原样返回版本化能力矩阵 |
+| POST | `/api/v1/executions` | 设备；200 `{execution_id, duplicate, request_id}`，创建和收尾共用 |
+| POST | `/api/v1/executions/{id}/intents` | 设备；200 `{intent_id, duplicate, request_id}`，tool_call_id 合并 Pre/Post |
+| POST | `/api/v1/runtime-events:batch` | 设备；1–500 条，整批校验/单事务，200 `{inserted, duplicates, request_id}` |
+| GET | `/api/v1/executions` | 控制台 read；host_id/product/limit 过滤，最新优先 |
+| GET | `/api/v1/executions/{id}/timeline` | 控制台 read；limit/cursor，排序键为时间/kind/id |
+| PATCH | `/api/devices/{id}` | 管理员；增加 host_id 绑定，已绑定不可改成另一主机 |
+| POST | `/api/devices/{id}/rotate-token` | 管理员；新 token 仅返回一次，旧 token 即刻失效 |
+
+Execution 输入必需 execution_id/product/product_version/session_id/started_at；可选 outcome（默认 running）、ended_at、asset_instance_id、host_id/device_id（两身份字段被覆盖）。终态必须带 ended_at，不能早于 started_at。产品仅 codex/claude-code。
+
+Intent 输入必需 intent_id/tool_name/hook_event_type/occurred_at；可选 tool_call_id、decision、decision_reason、params_summary、params_sha256、redaction_applied、ended_at、product_result。execution_id 取 URL，created_at 由服务端覆盖；P1 不接受 parent_intent_id。只有 PreToolUse 可带决策，Codex ask 和非实测版本决策会拒绝。
+
+Batch 顶层 collector_id/events，可带 host_id（忽略）；事件包含 event_id/event_type/occurred_at，可选 execution_id、intent_ref、process、resource、action/result、sequence/evidence_refs。设备与 received_at 由服务端填写。未知字段明确拒绝；同一 host/collector/event 只写一次。此端点存在不代表已实现 Linux Audit。
+
+版本化错误为 `{error: {code, request_id}}`；鉴权错误沿用 P0 的字符串 error + request_id。状态包括 400 invalid_payload/suspected_secret_parameter/unsupported_decision，401 无效凭据，403 吊销，404 unknown_execution，409 host_unbound/execution_id_conflict/intent_id_conflict，503 v1_disabled。错误和审计不回显提交值。`ASGP_V1_ENABLED=0` 只关闭 /api/v1。
+
+Timeline 永久显式列出 sections_pending 中的 attribution/finding/policy_decision；attribution_supported=false。当前产品验证不跨版本继承；Intent 的 decision 不是 EnforcementEvidence。P1 设备端的参数值省略/本地哈希并不等于扫描报告原文禁止存储，原始扫描报告仍按 P0 权限独立复核。

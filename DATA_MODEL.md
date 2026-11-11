@@ -1,6 +1,6 @@
 # ASGP 核心数据模型
 
-**状态：目标模型草案 v0.1。** 本文定义未来 ASGP 的业务契约；当前原型 SQLite 只有 `scans` 与 `findings` 两张主要表，尚未实现下列完整模型。
+**状态：目标模型及阶段实现说明。** P0 已实现 DetectorRun/RawReport/Finding、身份/审计/保留；P1 已实现 Execution/Intent/RuntimeEvent，SQLite schema v5。资产注册关系、EventAttribution、PolicyDecision、EnforcementEvidence、Admission 和 Incident 仍属目标模型，不能由此文推导为已实现。
 
 ## 1. 关系总览
 
@@ -118,3 +118,12 @@ Intent 与 RuntimeEvent 之间的证据关联记录：`attribution_id`、`intent
 3. **PolicyDecision 不是 EnforcementEvidence。** 需要 Hook/product 回执或 OS 证据证明决定生效。
 4. **RuntimeEvent 可以未归因。** 空 Attribution 是有效结果，不是数据错误。
 5. **Admission 与扫描分开。** 扫描结论不代表安装成功、启用成功或产品实际加载。
+
+## P1 已落地的契约补充（2026-11-11）
+
+- execution_id/intent_id/event_id 由端点生成，重试保持稳定；相同设备的同一 product/session 只保留一条 Execution。
+- Execution 摄入同时处理创建和收尾，终态不被重放的 running 覆盖；Intent 以 execution/tool_call_id 合并 Pre/Post，没有调用 ID 时按 intent_id 去重。
+- 服务端的 host_id/device_id 来自设备绑定，客户端自报值被覆盖；不能跨设备挂接 Execution、Intent 或事件。
+- asset_instance_id 只保存引用，目前无资产注册表校验；parent_intent_id 暂不支持摄入。
+- RuntimeEvent.intent_ref 只作采集器提示，不是 EventAttribution；Hook 接入不等于已实现 OS 运行时采集。
+- 产品能力仅对实测版本成立：Claude 2.1.152 observe/confirm/deny，Codex 0.166.0 observe/deny（ask 被产品忽略，禁止声明 confirm）。
