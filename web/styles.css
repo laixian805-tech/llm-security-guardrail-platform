@@ -130,3 +130,8 @@ footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8p
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   footer { display: grid; }
 }
+.runtimeEntries { list-style: none; padding-left: 12px; border-left: 2px solid #35564f; }
+.runtimeEntries li { padding: 12px 16px; margin: 10px 0; background: #142822; border-radius: 8px; overflow-wrap: anywhere; }
+.runtimeEntries p { color: #a9c3b8; margin-bottom: 0; }
+#runtime select { width: 100%; max-width: 100%; }
+#runtimeProducts { overflow-wrap: anywhere; }

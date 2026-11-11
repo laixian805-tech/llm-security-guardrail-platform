@@ -1,0 +1,13 @@
+[Unit]
+Description=ASGP encrypted loopback tunnel to test endpoint
+After=network-online.target asgp-control-plane.service
+Wants=network-online.target
+[Service]
+Type=simple
+ExecStart=/usr/bin/ssh -N -T -i /root/.asgp/deployment/test-tunnel-key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o ServerAliveInterval=20 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -R 127.0.0.1:18082:127.0.0.1:8000 agentsec-lab@116.62.28.177
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+MemoryMax=96M
+[Install]
+WantedBy=multi-user.target

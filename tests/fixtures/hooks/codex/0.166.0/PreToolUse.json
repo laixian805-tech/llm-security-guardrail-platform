@@ -1,0 +1,14 @@
+{
+  "session_id": "fixture-session",
+  "turn_id": "fixture-turn",
+  "transcript_path": "/private/local/transcript.jsonl",
+  "cwd": "/lab/asgp-p1",
+  "hook_event_name": "PreToolUse",
+  "model": "step-5-preview",
+  "permission_mode": "bypassPermissions",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "printf ASGP_CODEX_PROBE"
+  },
+  "tool_use_id": "fixture-call"
+}

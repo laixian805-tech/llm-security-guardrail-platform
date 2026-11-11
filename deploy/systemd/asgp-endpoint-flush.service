@@ -1,0 +1,20 @@
+[Unit]
+Description=ASGP endpoint outbox reporter
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=agentsec-lab
+Group=agentsec-lab
+WorkingDirectory=/home/agentsec-lab/.asgp/source
+Environment=ASGP_ENDPOINT_CONFIG=/home/agentsec-lab/.asgp/endpoint/config.json
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m endpoint.flush --watch
+Restart=always
+RestartSec=5
+UMask=0077
+MemoryMax=96M
+NoNewPrivileges=true
+PrivateTmp=true
+[Install]
+WantedBy=multi-user.target

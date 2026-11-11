@@ -18,6 +18,7 @@
           <a class="navItem" href="#scan">新建扫描</a>
           <a class="navItem" href="#findings">发现项</a>
           <a class="navItem" href="#engines">扫描引擎</a>
+          <a class="navItem" href="#runtime">运行时间线</a>
         </nav>
         <div class="sidebarFoot">
           <div id="sessionChip" class="sessionChip" hidden>
@@ -44,6 +45,17 @@
           <div class="metric"><span>发现项</span><strong id="metricFindings">—</strong><small>已归一化的引擎结果</small></div>
           <div class="metric"><span>高优先级</span><strong id="metricHigh">—</strong><small>严重与高危等级</small></div>
           <div class="metric"><span>最近扫描</span><strong id="metricLatest">—</strong><small>UTC 时间</small></div>
+        </section>
+
+        <section id="runtime" class="panel">
+          <div class="sectionHeading"><div><p class="eyebrow">执行观测</p><h2>运行时间线</h2></div><button id="runtimeRefresh" type="button" class="textButton">刷新执行记录</button></div>
+          <div id="runtimeProducts" class="fieldHint"></div>
+          <label for="runtimeExecution">产品、测试设备与会话</label>
+          <select id="runtimeExecution"></select>
+          <p id="runtimeEmpty" class="fieldHint">暂无上报执行。请在已登记的测试设备运行 Agent 后刷新。</p>
+          <p id="runtimeBoundary" class="fieldHint">展示 Hook 观测；行为归因和治理闭环尚未接入。</p>
+          <ol id="runtimeEntries" class="runtimeEntries"></ol>
+          <button id="runtimeMore" type="button" class="textButton" hidden>加载更多</button>
         </section>
 
         <section id="providers" class="panel providerPanel">

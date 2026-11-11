@@ -33,9 +33,14 @@ from domain import (
     RetentionKind,
 )
 from model_providers import PROFILE_KINDS, provider_catalog
+from products.registry import ProductCatalog
 from services.auth_service import AuthError, AuthService
 from services.provider_probe import ProviderProbeService
 from services.scan_service import ScanService
+from services.ingestion_service import IngestionService, IngestError
+from services.timeline_service import TimelineService
+from api.v1 import is_device_route, route as route_v1
+from pydantic import ValidationError
 from storage.repositories import Storage, now_iso
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,6 +74,9 @@ catalog = DetectorCatalog(
     probe_status=probe_service.status_for,
 )
 scan_service = ScanService(storage=storage, catalog=catalog)
+product_catalog = ProductCatalog()
+ingestion_service = IngestionService(storage)
+timeline_service = TimelineService(storage)
 
 # 保留策略默认值先落库，否则第一次清理时读不到规则。
 from storage.repositories import RetentionRepository  # noqa: E402
@@ -97,6 +105,10 @@ def _required_permission(method: str, path: str) -> Permission | None:
             return Permission.READ_RAW_REPORT
         return Permission.SCAN if method == "POST" else Permission.READ
     if path in ("/api/engines", "/api/summary", "/api/providers"):
+        return Permission.READ
+    # /api/v1 下的设备上报端点走设备令牌认证，不经过本权限表；此处只覆盖
+    # 控制台读的产品能力矩阵。
+    if path == "/api/v1/products":
         return Permission.READ
     if path == "/api/users" or path.startswith("/api/users/"):
         return Permission.MANAGE_USERS
@@ -219,8 +231,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))
-        if length <= 0 or length > MAX_BODY_BYTES:
-            raise ValueError(f"请求内容大小须在 1 到 {MAX_BODY_BYTES} 字节之间。")
+        maximum = 16 * 1024 * 1024 if self.path.startswith("/api/v1/") else MAX_BODY_BYTES
+        if length <= 0 or length > maximum:
+            raise ValueError("invalid_body_size")
         raw = self.rfile.read(length)
         value = json.loads(raw.decode("utf-8"))
         if not isinstance(value, dict):
@@ -260,13 +273,22 @@ class Handler(BaseHTTPRequestHandler):
         self._status_sent = 500
         self._user = None
         self._session_row = None
+        self._device = None
+        self._request_id = request_id
 
         permission = _required_permission(method, path)
         actor_kind = ActorKind.ANONYMOUS
         actor_id = "anonymous"
         user = None
         try:
-            if permission is not None:
+            if path.startswith("/api/v1/") and os.environ.get("ASGP_V1_ENABLED", "1") == "0":
+                raise IngestError("v1_disabled", 503)
+            if is_device_route(method, path):
+                header = self.headers.get("Authorization", "")
+                scheme, _, token = header.partition(" ")
+                self._device = auth_service.resolve_device(token.strip() if scheme.lower() == "bearer" else "")
+                actor_kind, actor_id = ActorKind.DEVICE, self._device.device_id
+            elif permission is not None:
                 user, session_row = auth_service.authenticate(self._token())
                 self._user = user
                 self._session_row = session_row
@@ -274,7 +296,9 @@ class Handler(BaseHTTPRequestHandler):
                 actor_id = user.username
                 auth_service.require(user, permission)
 
-            if method == "GET":
+            if route_v1(self, method, parsed, ingestion_service, timeline_service):
+                pass
+            elif method == "GET":
                 self._route_get(parsed)
             elif method == "POST":
                 self._route_post(parsed)
@@ -299,8 +323,14 @@ class Handler(BaseHTTPRequestHandler):
                 action=f"{method} {path}", resource=path, outcome=AuditOutcome.DENIED,
                 detail={"reason": exc.kind},
             )
+        except (IngestError, ValidationError) as exc:
+            code = exc.code if isinstance(exc, IngestError) else "invalid_payload"
+            status = exc.status if isinstance(exc, IngestError) else 400
+            self._send(status, {"error": {"code": code, "request_id": request_id}})
+            auth_service.audit(request_id=request_id, actor_kind=actor_kind, actor_id=actor_id,
+                action=f"{method} {path}", resource=path, outcome=AuditOutcome.ERROR, detail={"code": code})
         except ValueError as exc:
-            self._send(400, {"error": str(exc), "request_id": request_id})
+            self._send(400, {"error": "invalid_payload" if path.startswith("/api/v1/") else str(exc), "request_id": request_id})
             auth_service.audit(
                 request_id=request_id, actor_kind=actor_kind, actor_id=actor_id,
                 action=f"{method} {path}", resource=path, outcome=AuditOutcome.ERROR,
@@ -318,7 +348,7 @@ class Handler(BaseHTTPRequestHandler):
                 outcome=AuditOutcome.ERROR, detail={"kind": exc.kind.value},
             )
         except Exception as exc:
-            self._send(500, {"error": f"服务器内部错误（{type(exc).__name__}）：{exc}",
+            self._send(500, {"error": "internal_error",
                              "request_id": request_id})
             auth_service.audit(
                 request_id=request_id, actor_kind=actor_kind, actor_id=actor_id,
@@ -358,6 +388,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"engines": _engine_rows()})
         elif path == "/api/providers":
             self._send(200, provider_catalog(probe_service.probe_status_map()))
+        elif path == "/api/v1/products":
+            # 能力矩阵原样回传：verification 与 unsupported_reason 由界面
+            # 直接展示，控制面不做"看起来支持"的加工。
+            self._send(200, {"products": [descriptor.model_dump()
+                                          for descriptor in product_catalog.descriptors()]})
         elif path == "/api/summary":
             self._send(200, scan_service.runs.summary())
         elif path == "/api/scans":
@@ -505,6 +540,11 @@ class Handler(BaseHTTPRequestHandler):
             if not label:
                 raise ValueError("设备标签不能为空。")
             self._send(201, auth_service.enroll_device(actor=self._actor(), label=label))
+        elif path.startswith("/api/devices/") and path.endswith("/rotate-token"):
+            device_id = path.split("/")[3]
+            auth_service.require(self._actor(), Permission.MANAGE_USERS)
+            token = ingestion_service.devices.rotate_credential(device_id=device_id)
+            self._send(200, {"device_id": device_id, "token": token})
         elif path == "/api/retention":
             data_kind = RetentionKind(str(body.get("data_kind") or ""))
             days = int(body.get("retention_days"))
@@ -548,8 +588,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True, "user_id": user_id})
         elif path.startswith("/api/devices/") and path.count("/") == 3:
             device_id = urllib.parse.unquote(path.rsplit("/", 1)[-1])
-            status = DeviceStatus(str(body.get("status") or ""))
-            auth_service.set_device_status(actor=actor, device_id=device_id, status=status)
+            if "host_id" in body:
+                host_id = body["host_id"]
+                if not isinstance(host_id, str) or not host_id.strip() or len(host_id) > 160:
+                    raise ValueError("invalid_host_id")
+                ingestion_service.devices.set_host(device_id=device_id, host_id=host_id)
+            if "status" in body:
+                status = DeviceStatus(str(body["status"]))
+                auth_service.set_device_status(actor=actor, device_id=device_id, status=status)
+            if not {"host_id", "status"}.intersection(body):
+                raise ValueError("host_id_or_status_required")
             self._send(200, {"ok": True, "device_id": device_id})
         else:
             self._send(404, {"error": "找不到该接口。"})
@@ -575,9 +623,9 @@ def main() -> None:
         password=os.environ.get("FUSION_ADMIN_PASSWORD") or None
     )
     if bootstrapped:
-        print("已创建初始管理员账号（口令只显示这一次，请立即登录修改）：")
-        print(f"  用户名：{bootstrapped[0]}")
-        print(f"  口  令：{bootstrapped[1]}")
+        print(f"已创建管理员账号：{bootstrapped[0]}")
+        if not os.environ.get("FUSION_ADMIN_PASSWORD"):
+            print(f"一次性口令：{bootstrapped[1]}")
     purged = auth_service.purge_expired_sessions()
     if purged:
         print(f"已清理过期会话 {purged} 条。")

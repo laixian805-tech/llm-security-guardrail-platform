@@ -54,7 +54,7 @@ def _codex_provider(provider_id: str) -> dict[str, str]:
         "base_url": _safe_base_url(provider.get("base_url")),
         "wire_api": str(provider.get("wire_api") or ""),
         "source": "codex_config" if provider else "not_found",
-        "credential_configured": str(authorization).lower().startswith("bearer "),
+        "credential_configured": bool(_codex_provider_key(provider_id)),
     }
 
 
@@ -71,11 +71,13 @@ def _codex_provider_key(provider_id: str) -> str:
         return ""
     headers = provider.get("http_headers") or {}
     authorization = headers.get("Authorization") or headers.get("authorization") if isinstance(headers, dict) else ""
-    if not isinstance(authorization, str):
-        return ""
-    scheme, separator, value = authorization.partition(" ")
-    if separator and scheme.lower() == "bearer":
-        return value.strip()
+    if isinstance(authorization, str):
+        scheme, separator, value = authorization.partition(" ")
+        if separator and scheme.lower() == "bearer":
+            return value.strip()
+    env_key = provider.get("env_key")
+    if isinstance(env_key, str):
+        return os.environ.get(env_key, "")
     return ""
 
 
@@ -105,7 +107,12 @@ def _scanner_profile(provider_id: str) -> dict[str, Any]:
         missing = "讯飞星火候选未配置；请设置 XUNFEI_API_PASSWORD、XUNFEI_MODEL 和 XUNFEI_CHAT_BASE_URL。"
     else:
         model = os.environ.get("STEPFUN_MODEL", "step-5-preview")
-        base_url = _safe_base_url(os.environ.get("STEPFUN_CHAT_BASE_URL", "https://api.stepfun.com/v1"))
+        # Step Plan credentials use the plan endpoint for both independently
+        # probed protocols. Sending that key to the standard billing endpoint
+        # can return 402 even while Responses and Anthropic are usable.
+        codex_base = _codex_provider("stepfun")["base_url"]
+        default_base = codex_base if urlsplit(codex_base).path == "/step_plan/v1" else "https://api.stepfun.com/v1"
+        base_url = _safe_base_url(os.environ.get("STEPFUN_CHAT_BASE_URL", default_base))
         missing = "StepFun 主用模型未配置；请设置 STEPFUN_API_KEY。"
     return {
         "provider_id": provider_id,

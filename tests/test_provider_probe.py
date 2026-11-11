@@ -449,3 +449,23 @@ class TestDomainContract:
             codex_profile=WireProfile(wire_api=WireApi.RESPONSES, source="codex_config"),
         )
         assert profile.selected is True
+
+
+def test_codex_env_key_and_step_plan_chat_endpoint_are_resolved(tmp_path,monkeypatch):
+    from model_providers import resolve_wire_profile, provider_catalog
+    config=tmp_path/'config.toml'
+    config.write_text('''[model_providers.stepfun]
+base_url="https://api.stepfun.com/step_plan/v1"
+wire_api="responses"
+env_key="TEST_STEP_PLAN_KEY"
+''')
+    monkeypatch.setenv('CODEX_CONFIG_PATH',str(config))
+    monkeypatch.setenv('TEST_STEP_PLAN_KEY','fake-plan-key-never-persisted')
+    monkeypatch.setenv('STEPFUN_CODEX_MODEL','step-5-preview')
+    monkeypatch.delenv('STEPFUN_API_KEY',raising=False)
+    monkeypatch.delenv('STEPFUN_CHAT_BASE_URL',raising=False)
+    assert resolve_wire_profile('stepfun','codex')['api_key']=='fake-plan-key-never-persisted'
+    assert resolve_wire_profile('stepfun','scanner')['base_url']=='https://api.stepfun.com/step_plan/v1'
+    assert 'fake-plan-key-never-persisted' not in json.dumps(provider_catalog())
+    monkeypatch.setenv('STEPFUN_CHAT_BASE_URL','https://api.stepfun.com/v1')
+    assert resolve_wire_profile('stepfun','scanner')['base_url']=='https://api.stepfun.com/v1'

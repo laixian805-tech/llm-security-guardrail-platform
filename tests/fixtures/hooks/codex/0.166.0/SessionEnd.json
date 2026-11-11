@@ -1,0 +1,7 @@
+{
+  "session_id": "fixture-session",
+  "transcript_path": "/private/local/transcript.jsonl",
+  "cwd": "/lab/asgp-p1",
+  "hook_event_name": "SessionEnd",
+  "reason": "other"
+}

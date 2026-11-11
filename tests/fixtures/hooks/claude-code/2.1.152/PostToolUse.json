@@ -1,0 +1,24 @@
+{
+  "session_id": "fixture-session",
+  "transcript_path": "/private/local/transcript.jsonl",
+  "cwd": "/lab/asgp-p1",
+  "permission_mode": "default",
+  "effort": {
+    "level": "high"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "printf ASGP_CLAUDE_PROBE",
+    "description": "Print ASGP_CLAUDE_PROBE"
+  },
+  "tool_response": {
+    "stdout": "ASGP_CLAUDE_PROBE",
+    "stderr": "",
+    "interrupted": false,
+    "isImage": false,
+    "noOutputExpected": false
+  },
+  "tool_use_id": "fixture-call",
+  "duration_ms": 117
+}

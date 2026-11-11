@@ -43,7 +43,7 @@ async function request(path, options) {
     throw new UnauthenticatedError("未认证");
   }
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || `请求失败（${response.status}）`);
+  if (!response.ok) throw new Error((typeof payload.error === "object" ? payload.error.code : payload.error) || `请求失败（${response.status}）`);
   return payload;
 }
 
@@ -230,6 +230,7 @@ async function refresh() {
     renderProviders();
     renderEngines();
     await renderScans();
+    await refreshRuntime();
   } catch (error) {
     if (error instanceof UnauthenticatedError) return;  // 已跳登录页
     showNotice(error.message, "error");
@@ -349,3 +350,60 @@ async function boot() {
 }
 
 boot();
+
+let runtimeCursor = null;
+let runtimeExecution = null;
+async function refreshRuntime() {
+  const [catalog, result] = await Promise.all([
+    request('/api/v1/products'), request('/api/v1/executions?limit=100'),
+  ]);
+  const products = byId('runtimeProducts');
+  products.replaceChildren();
+  for (const product of catalog.products) {
+    const line = document.createElement('p');
+    const verified = product.events.length > 0 && product.events.every((event) => event.verification === 'verified');
+    line.textContent = `${product.product_id} ${product.product_version} · ${verified ? '事件观测已验证' : '事件观测未验证'} · ${product.boundary}`;
+    products.append(line);
+  }
+  const select = byId('runtimeExecution');
+  const previous = select.value;
+  select.replaceChildren();
+  for (const execution of result.executions) {
+    const option = document.createElement('option');
+    option.value = execution.execution_id;
+    option.textContent = `${execution.product} ${execution.product_version} · ${execution.host_id} · ${formatTime(execution.started_at)} · ${execution.outcome}`;
+    select.append(option);
+  }
+  if (result.executions.some((execution) => execution.execution_id === previous)) select.value = previous;
+  byId('runtimeEmpty').hidden = result.executions.length > 0;
+  if (select.value) await showRuntimeTimeline(false);
+  else byId('runtimeEntries').replaceChildren();
+}
+
+async function showRuntimeTimeline(append) {
+  const id = byId('runtimeExecution').value;
+  if (!id) return;
+  const cursor = append && runtimeExecution === id ? runtimeCursor : null;
+  const response = await request(`/api/v1/executions/${encodeURIComponent(id)}/timeline?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
+  const list = byId('runtimeEntries');
+  if (!append) list.replaceChildren();
+  for (const entry of response.entries) {
+    const item = document.createElement('li');
+    const title = document.createElement('strong');
+    title.textContent = `${formatTime(entry.occurred_at)} · ${entry.kind === 'intent' ? entry.data.tool_name : entry.data.event_type}`;
+    const detail = document.createElement('p');
+    detail.textContent = entry.kind === 'intent'
+      ? `调用 ${entry.data.tool_call_id || '未提供调用 ID'} · 决策记录 ${entry.data.decision} · 结果 ${entry.data.product_result || '尚未观测'} · 参数值已省略`
+      : `${entry.data.action || ''} ${entry.data.result || ''}`;
+    item.append(title, detail); list.append(item);
+  }
+  byId('runtimeBoundary').textContent = `本次执行版本的观测验证：${response.capability_verification === 'verified' ? '已验证' : '未验证'}。尚未提供行为归因、关联发现项与策略闭环；决策记录不能作为阻断成功证明。`;
+  runtimeExecution = id; runtimeCursor = response.next_cursor;
+  byId('runtimeMore').hidden = !runtimeCursor;
+}
+
+byId('runtimeRefresh').addEventListener('click', () => refreshRuntime().catch((error) => {
+  if (!(error instanceof UnauthenticatedError)) showNotice(error.message, 'error');
+}));
+byId('runtimeExecution').addEventListener('change', () => showRuntimeTimeline(false).catch((error) => showNotice(error.message, 'error')));
+byId('runtimeMore').addEventListener('click', () => showRuntimeTimeline(true).catch((error) => showNotice(error.message, 'error')));

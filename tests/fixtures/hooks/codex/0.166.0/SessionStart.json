@@ -1,0 +1,9 @@
+{
+  "session_id": "fixture-session",
+  "transcript_path": "/private/local/transcript.jsonl",
+  "cwd": "/lab/asgp-p1",
+  "hook_event_name": "SessionStart",
+  "model": "step-5-preview",
+  "permission_mode": "bypassPermissions",
+  "source": "startup"
+}
