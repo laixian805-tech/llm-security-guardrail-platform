@@ -3,11 +3,20 @@
 不按“离谁最近”硬连。无证据时返回空；多个同强候选保留冲突。
 """
 from datetime import datetime,timezone
-import hashlib,json
+import hashlib,json,re
 from domain import EventAttribution,AttributionMethod,Confidence,EvidenceRef
 from services.ingestion_service import IngestError
 
 VERSION='attribution-v2'
+
+# 端侧把家目录归一成 ~，控制面对事件路径也必须用同一规则，否则弱关联永远匹配不上。
+HOME_PREFIX=re.compile(r'^/(?:home|Users)/[^/]+')
+
+
+def _hint_form(path):
+    """把路径归一成与端侧 resource_hints 同一形态；非路径返回 None。"""
+    if not path:return None
+    return HOME_PREFIX.sub('~',str(path).rstrip('/.,;:'))
 
 
 class AttributionService:
@@ -54,10 +63,16 @@ class AttributionService:
             if not candidates:
                 # Weak candidates require an explicit matching resource hint, not time alone.
                 for intent in intents:
-                    resource=event['resource_path'] or event['resource_host']
+                    resource=_hint_form(event['resource_path']) or event['resource_host']
                     try:summary=json.loads(intent['params_summary'])
                     except (ValueError,TypeError):continue
-                    if resource and isinstance(summary,dict) and summary.get('resource_hint')==resource and abs(seconds(event['occurred_at'])-seconds(intent['occurred_at']))<=2:
+                    if not isinstance(summary,dict):continue
+                    # 端侧产出 resource_hints（列表）；resource_hint（单数）是早期字段，
+                    # 保留兼容，避免历史 intent 突然失去弱关联。
+                    hints=summary.get('resource_hints')
+                    if not hints and summary.get('resource_hint'):
+                        hints=[summary['resource_hint']]
+                    if resource and hints and resource in hints and abs(seconds(event['occurred_at'])-seconds(intent['occurred_at']))<=2:
                         candidates.append((intent,AttributionMethod.TEMPORAL_FEATURE,.35))
             strong=len([x for x in candidates if x[2]>=.8])
             for intent,method,score in candidates:
@@ -82,7 +97,23 @@ class AttributionService:
                 if conflicts>1:
                     c.execute('UPDATE event_attributions SET selected=0 WHERE host_id=? AND collector_id=? AND event_id=?',identity)
         stored=self.list(execution_id)
-        return {'execution_id':execution_id,'candidate_count':len(edges),'selected_count':sum(e['selected'] for e in stored),'unattributed_count':len(events)-len({(e.host_id,e.collector_id,e.event_id) for e in edges}),'rule_version':VERSION}
+        # 三个计数必须分开，否则"没有候选"和"有候选但不敢选"会被读成同一个数。
+        # hook_anchor 是"哪条调用对应哪个 pid"的绑定元数据，不是被归因对象，
+        # 把它算进分母会让未归因率凭空变高。
+        subjects=[e for e in events if e['event_type']!='hook_anchor']
+        covered={(e.host_id,e.collector_id,e.event_id) for e in edges}
+        chosen={(e.host_id,e.collector_id,e.event_id) for e in edges if e.selected}
+        no_candidate=[e for e in subjects if (e['host_id'],e['collector_id'],e['event_id']) not in covered]
+        ambiguous=[e for e in subjects if (e['host_id'],e['collector_id'],e['event_id']) in covered
+                   and (e['host_id'],e['collector_id'],e['event_id']) not in chosen]
+        return {'execution_id':execution_id,'candidate_count':len(edges),
+            'selected_count':sum(e['selected'] for e in stored),
+            'subject_count':len(subjects),'no_candidate_count':len(no_candidate),
+            'ambiguous_count':len(ambiguous),
+            # 没有任何 selected 归因的事件数：两者之和。冲突降级与无候选对下游
+            # 的含义不同（前者是"不敢连"，后者是"连不上"），所以分别给出。
+            'unattributed_count':len(no_candidate)+len(ambiguous),
+            'rule_version':VERSION}
 
     def list(self,execution_id):
         with self.storage.connection() as c:

@@ -38,8 +38,10 @@ from services.auth_service import AuthError, AuthService
 from services.provider_probe import ProviderProbeService
 from services.scan_service import ScanService
 from services.ingestion_service import IngestionService, IngestError
+from services.coverage_service import CoverageService
 from services.timeline_service import TimelineService
 from services.asset_service import AssetService
+from services.dataflow_service import DataFlowService
 from api.v1 import PRODUCT_VERIFICATION, is_device_route, route as route_v1
 from api.governance import route as route_governance
 from services.governance_service import GovernanceService
@@ -84,8 +86,10 @@ catalog = DetectorCatalog(
 scan_service = ScanService(storage=storage, catalog=catalog)
 product_catalog = ProductCatalog()
 ingestion_service = IngestionService(storage)
+coverage_service = CoverageService(storage)
 timeline_service = TimelineService(storage)
 asset_service = AssetService(storage)
+dataflow_service = DataFlowService(storage)
 _product_bindings = parse_bindings(os.environ.get("ASGP_PRODUCT_BINDINGS"))
 governance_service = GovernanceService(
     storage,
@@ -143,6 +147,10 @@ def _required_permission(method: str, path: str) -> Permission | None:
         return Permission.READ if method == 'GET' else Permission.GOVERN
     if path.startswith('/api/v1/executions/') and path.endswith('/findings'):
         return Permission.GOVERN
+    # 覆盖度对账：POST 由设备令牌走 is_device_route，不经本表；这里只覆盖
+    # 控制台读的汇总。
+    if path == '/api/v1/coverage':
+        return Permission.READ
     if path.endswith('/correlate'):
         return Permission.GOVERN
     if path == "/api/users" or path.startswith("/api/users/"):
@@ -334,6 +342,9 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith('/api/v1/executions/') and path.endswith('/correlate') and method == 'POST':
                 execution_id = path.split('/')[4]
                 self._send(200, attribution_service.correlate(execution_id))
+            elif path.startswith('/api/v1/executions/') and path.endswith('/data-flows') and method == 'GET':
+                # 按会话现场重建数据外发候选链；不落库，避免为启发式结果造历史表。
+                self._send(200, dataflow_service.trace(path.split('/')[4]))
             elif PRODUCT_VERIFICATION.fullmatch(path) and method == 'POST':
                 # 端侧在自己主机上确认产品是否真的加载，回传证据；控制面只记录。
                 self._send(200, governance_service.record_product_verification(
@@ -343,8 +354,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {'attributions': attribution_service.list(execution_id)})
             elif route_governance(self, method, parsed, governance_service, approval_service):
                 pass
+            elif path == '/api/v1/coverage' and method == 'GET':
+                query = parse_qs(parsed.query)
+                try:
+                    window = min(720, max(1, int((query.get('window_hours') or ['24'])[0])))
+                except ValueError:
+                    window = 24
+                self._send(200, coverage_service.summary(
+                    host_id=(query.get('host_id') or [None])[0], window_hours=window))
             elif route_v1(self, method, parsed, ingestion_service, timeline_service,
-                          asset_service):
+                          asset_service, coverage_service):
                 pass
             elif method == "GET":
                 self._route_get(parsed)

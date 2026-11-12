@@ -1,0 +1,94 @@
+{
+ "version": "dataflow-v1",
+ "scenarios": 8,
+ "malicious": 4,
+ "benign": 4,
+ "tp": 4,
+ "fn": 0,
+ "fp": 0,
+ "tn": 4,
+ "detection_rate": 1.0,
+ "false_positive_rate": 0.0,
+ "rows": [
+  {
+   "scenario": "mal-ssh-key-relay",
+   "label": "malicious",
+   "expected": 1,
+   "detected": 1,
+   "verdict": "TP",
+   "confidence": "medium",
+   "sink": "45.33.32.156",
+   "why": "读私钥 → 落到临时文件 → 连外部地址"
+  },
+  {
+   "scenario": "mal-env-direct",
+   "label": "malicious",
+   "expected": 1,
+   "detected": 1,
+   "verdict": "TP",
+   "confidence": "low",
+   "sink": "93.184.216.34",
+   "why": "读 .env 后直接外连（无中转，置信度低但仍是链）"
+  },
+  {
+   "scenario": "mal-cookie-archive",
+   "label": "malicious",
+   "expected": 1,
+   "detected": 2,
+   "verdict": "TP",
+   "confidence": "low",
+   "sink": "104.21.14.9",
+   "why": "读浏览器 cookie → 压缩 → 外连"
+  },
+  {
+   "scenario": "mal-git-credential",
+   "label": "malicious",
+   "expected": 1,
+   "detected": 1,
+   "verdict": "TP",
+   "confidence": "low",
+   "sink": "evil.example.net",
+   "why": "读 git 凭证后连陌生主机"
+  },
+  {
+   "scenario": "benign-config-local",
+   "label": "benign",
+   "expected": 0,
+   "detected": 0,
+   "verdict": "TN",
+   "confidence": null,
+   "sink": null,
+   "why": "读配置但只在本地用，没有任何外部连接"
+  },
+  {
+   "scenario": "benign-ssh-git-push",
+   "label": "benign",
+   "expected": 0,
+   "detected": 0,
+   "verdict": "TN",
+   "confidence": null,
+   "sink": null,
+   "why": "读私钥 + git push 到 github（每个开发者每天都在做）—— 关键负样本"
+  },
+  {
+   "scenario": "benign-env-to-log",
+   "label": "benign",
+   "expected": 0,
+   "detected": 0,
+   "verdict": "TN",
+   "confidence": null,
+   "sink": null,
+   "why": "读 .env 写日志，不外发"
+  },
+  {
+   "scenario": "benign-internal-service",
+   "label": "benign",
+   "expected": 0,
+   "detected": 0,
+   "verdict": "TN",
+   "confidence": null,
+   "sink": null,
+   "why": "读文件后连内网服务（10.0.0.0/8）"
+  }
+ ]
+}
