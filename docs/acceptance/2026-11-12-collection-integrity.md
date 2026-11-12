@@ -1,0 +1,84 @@
+# 采集完整性测试：Hook 与 Audit（2026-11-12）
+
+运行时数据可信是这套平台的前提。如果 Hook 丢事件、Audit 漏记录，后面所有归因、策略、工单都是建在沙子上。本轮做两个可数对照实验，用**物理后果**而不是日志字数来判定。
+
+## 一、Audit 层：20 次操作，零丢失
+
+**方法**：清空受监控目录 → 记录 `audit.log` 行号水位线 → 以 uid=1000 执行 20 次文件创建 → 只统计水位线之后的新增记录。用目录 watch 规则 `agentsec_test_assets`。
+
+| 层 | 期望 | 实测 | 结论 |
+| --- | --- | --- | --- |
+| auditd 子系统 | 20 次创建 | PATH 记录 20 条、`nametype=CREATE` 20 条、SYSCALL 20 条、唯一文件名 20 个 | 零丢失 |
+| 采集器解析 | 20 个事件 | 198 行原始 → 122 条可解析记录 → 28 个 audit 事件组 → **20 个归一化事件**，唯一路径 20 | 零丢失 |
+
+28 组里有 8 组被正确过滤（PARENT 记录与无关 key），说明解析器不是"照单全收"。
+
+**踩到的坑**：`PATH` 记录里没有 `pid` 字段（pid 在配对的 `SYSCALL` 里），按 `pid=` 过滤 PATH 会得到 0 条，看起来像"审计没记录"。改用行号水位线才准。
+
+## 二、Hook 层：25 次调用，放行的都有后置事件
+
+**方法**：让 qwen-code 真实跑若干会话，用产品自己的 transcript（`~/.qwen/projects/*/chats/*.jsonl` 里的 `functionCall`）作为"产品实际发起几次"的真值，再与端侧 outbox 的 PreToolUse/PostToolUse 对照。
+
+| execution | 放行/观测的前置事件 | 被拦 | 后置事件 | 判定 |
+| --- | --- | --- | --- | --- |
+| exec_0f8b57 | 2 | 0 | 2 | ✓ |
+| exec_7cbf73 | 2 | 0 | 2 | ✓ |
+| exec_8880a3 | 2 | 0 | 2 | ✓ |
+| exec_8cffa0 | 1 | 0 | 1 | ✓ |
+| exec_1904945 | 1 | 0 | 1 | ✓ |
+| exec_6455a1 | 1 | 0 | 1 | ✓ |
+| exec_b6bbbec | 4 | 1 | 4 | ✓ |
+| exec_b01fa7 | 2 | 3 | 2 | ✓ |
+| exec_f7049f | 1 | 2 | 1 | ✓ |
+| exec_6027d3 | 1 | 0 | **0** | ✗ 缺 1 |
+| exec_3bfb25 | 1 | 1 | **0** | ✗ 缺 1 |
+
+- **11 个执行、25 次前置事件**（20 次放行/观测 + 5 次被拦）。
+- **放行的 20 次调用里 18 次有后置事件**（90%）。
+- **被拦的 5 次调用全部没有后置事件**——这是正确行为：被拦就没执行，不该有 PostToolUse。
+- transcript 与 hook 计数对齐：session `98de6b52` 的 transcript 记 2 次 `functionCall`，hook 记 2 条 Pre + 2 条 Post。
+
+## 三、缺的 2 次是什么原因
+
+两次缺失都发生在 07:2x UTC（15:2x CST），正是 qwen 在 1.7G 内存机器上被 **OOM kill**（exit -9）的那几次。
+
+这暴露一个真实的采集边界：
+
+| 事件 | 采集时机 | 进程被 kill 时 |
+| --- | --- | --- |
+| PreToolUse | 调用**前**，hook 进程独立执行 | 已落 outbox，不丢 |
+| PostToolUse | 调用**后**，依赖产品正常返回 | **丢失** |
+
+也就是说：**前置事件可靠，后置事件依赖产品存活**。这不是 bug，是设计上必须承认的边界——要覆盖它需要旁路（Audit 层的 execve/exit 事件可以补上"这次调用最终有没有执行"），这正好说明三层采集缺一不可。
+
+## 四、统计口径上踩的三个坑（都修正了）
+
+1. **`PATH` 记录没有 `pid`**，按 pid 过滤审计日志会得到 0 条。
+2. **outbox 会因重试保留多条同 `record_id` 记录**，必须 `distinct record_id` 去重，否则重复计数。
+3. **observe 模式下决策是 `not_applicable` 而不是 `allow`**，按 `decision=='allow'` 统计会把所有观测调用漏掉，得出"后置事件多于放行数"的假异常。
+
+## 结论
+
+| 维度 | 结果 |
+| --- | --- |
+| Audit 子系统完整性 | 20/20（100%） |
+| 采集器解析完整性 | 20/20（100%） |
+| Hook 前置事件完整性 | 25/25（100%，被拦的也算采集到） |
+| Hook 后置事件完整性 | 18/20（90%），缺失 2 次均由产品进程被 OOM kill 导致 |
+| 被拦调用的后置事件 | 0/5，符合语义 |
+
+## 边界
+
+- Hook 层样本 25 次、11 个执行，规模仍小；要更硬的结论需要压测（并发调用、长会话）。
+- 只测了 qwen-code；Claude/Codex 的 Hook 完整性未单独做对照实验（同一套 endpoint 代码，但产品触发行为可能不同）。
+- Audit 只覆盖 `execve`/`connect`/目录读写三类规则，未覆盖全量系统调用——这是规则选择的结果，不是能力上限。
+
+## 复现
+
+```bash
+# Audit 层
+rm -rf /home/agentsec-lab/lab/agentsec-assets/*
+BEFORE=$(wc -l < /var/log/audit/audit.log)
+python3 /tmp/audit_probe.py 20
+tail -n +$((BEFORE+1)) /var/log/audit/audit.log | grep -c 'probe-[0-9]*\.txt'   # 期望 20
+```
