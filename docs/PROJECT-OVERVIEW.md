@@ -80,6 +80,8 @@ Hook 能观测到一次工具调用，不代表能拦住它。**能力必须按�
 | schema_version 与字面量比较 | 同上 | 每次回归 |
 | 契约模型与 JSON Schema 漂移 | `scripts/export-schemas.py --check` | 改领域模型后 |
 
+`scripts/test.sh` 已把扫描器放在 pytest 之前：几十毫秒报错，不必等两分钟测试跑完才发现版本真值散了。实测引入一个未使用常量，脚本退出码 1 且不进入 pytest。
+
 `tests/test_consistency.py` 把这四项变成回归门槛：新写的硬编码会让构建变红，
 而不是等人半年后发现。
 
