@@ -255,3 +255,17 @@ Timeline 永久显式列出 sections_pending 中的 attribution/finding/policy_d
 | POST | `/api/v1/incidents/{id}/evidence` | 关联存在的 Finding/Execution/Attribution/复测 DetectorRun |
 
 设备申请审批不上传原始命令；审批批准不会生成 EnforcementEvidence。产品矩阵新增 mediated_approval_supported/protocol，将平台审批与产品原生能力区分。时间线现支持 attributions 并包含经候选边关联的主机事件，finding/policy_decision 仍列为未整合部分；未归因原始事件留在主机查询中。
+
+## 10. 控制台工作台（2026-11-12）
+
+`web/` 无构建控制台把上面的治理接口暴露成可操作视图，接口契约不变：
+
+| 视图 | 数据与操作 |
+| --- | --- |
+| 资产中心 | `GET /api/v1/products` 能力矩阵（按版本展示事件观测等级、每类 Hook 能力、ASGP 审批可用性）+ `GET /api/v1/executions` 的主机/执行聚合；不显示安装/启用/运行三态 |
+| 检测中心 | `/api/scans`、`/api/scans/{id}` 的归一化发现项；可作为风险评估证据 |
+| 风险与策略 | 创建风险评估（finding_ids / event_ids / 声明 exposure）、`policies/evaluate`、活跃版本与版本列表、草稿创建与原子激活 |
+| 准入安装 | `admissions/check` 创建；按状态给出 批准 / 暂存（需填 inbound 下相对路径）/ 提交 / 校验 / 复核 / 回滚 按钮 |
+| Incident 中心 | `incidents` 创建、按服务端转移表给出的下一个状态、`incidents/{id}/evidence` 关联证据 |
+
+写操作统一要求 govern 权限（operator/admin），只读账号按钮置灰但列表仍可查看。界面固定标注：策略决定不是执行回执、托管目录是平台自己的包管理存储而非产品加载路径、关闭 Incident 需要 clean 复测 DetectorRun 证据。

@@ -13,10 +13,11 @@
 
 ## 2026-11-12 进度
 
-第 5 条的前两项已落地，完整回归 304 项全绿：
+第 5 条的前三项已落地，完整回归 304 项全绿：
 
 - 受管安装器 `backend/services/managed_installer.py` 与准入状态机改造（详见 IMPLEMENTATION_PLAN「P3 第二片」）。stage/commit/verify/reconcile/rollback 全部有真实文件系统后果；content_drift、installed_content_mismatch、installer_not_staged、实例互斥等失败路径均有测试覆盖。
 - 策略版本管理：`PolicyRuleSet` + 原子激活 + 默认版本播种；evaluate 记录实际 policy_version，无活跃版本返回 500 不静默回退。
+- 控制台工作台：资产中心、检测中心、风险与策略、准入安装、Incident 中心替代原「治理记录」占位页；准入每个转移、策略激活、Incident 流转都有界面入口，只读账号写操作置灰。真实 headless Chromium 走完整流程 40 项检查通过，证据见 [控制台实测](acceptance/2026-11-12-console.md)。
 - schema v7（admissions.rollback_ref、policy_versions）、contracts/policy-version.schema.json、API_CONTRACT.md 已同步。
 
-仍未完成：完整 Asset/Detection/Incident/Policy 工作台前端、策略版本管理界面、托管目录磁盘配额与清理、真实产品安装器（当前安装目标是平台托管目录，不是产品加载路径）、真实 ASR/Utility/MTTR 指标。
+仍未完成：资产清单 API 与 Asset/AssetInstance 三态、策略版本管理的影响评估与规则编辑器、托管目录磁盘配额与清理、真实产品安装器（当前安装目标是平台托管目录，不是产品加载路径）、时间线整合 Finding/Policy Decision、真实 ASR/Utility/MTTR 指标。

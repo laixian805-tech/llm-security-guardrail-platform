@@ -105,6 +105,14 @@ td small { display: block; color: var(--muted); margin-top: 3px; }
 .statusPill.gated { background: var(--amber-dark); color: var(--amber); }
 .statusPill.missing { background: #2b3436; color: #a5b2b3; }
 .statusPill.completed, .statusPill.imported { background: #1d3b2c; color: var(--green); }
+/* 治理状态：与后端 AdmissionState/PolicyStatus/IncidentStatus 的取值同名。 */
+.statusPill.approved, .statusPill.staged, .statusPill.active, .statusPill.allow,
+.statusPill.investigating, .statusPill.confirmed, .statusPill.mitigating { background: var(--teal-dark); color: var(--teal); }
+.statusPill.check, .statusPill.draft, .statusPill.audit, .statusPill.confirm,
+.statusPill.verifying, .statusPill.open, .statusPill.reopened { background: var(--amber-dark); color: var(--amber); }
+.statusPill.block, .statusPill.failed, .statusPill.false_positive { background: var(--red-dark); color: var(--red); }
+.statusPill.committed, .statusPill.verified, .statusPill.reconciled { background: #1d3b2c; color: var(--green); }
+.statusPill.retired, .statusPill.rolled_back, .statusPill.closed { background: #2b3436; color: #a5b2b3; }
 .severityPill.critical, .severityPill.high { background: var(--red-dark); color: var(--red); }
 .severityPill.medium { background: var(--amber-dark); color: var(--amber); }
 .severityPill.low, .severityPill.info { background: #223b38; color: #8bd8c6; }
@@ -139,3 +147,26 @@ footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8p
 .runtimeItem code { display: block; font-size: 11px; }
 .runtimeItem button { margin-right: 12px; }
 #governanceItems, #attributionCandidates { overflow-wrap: anywhere; }
+
+/* 治理工作台：多中心布局与表单内嵌面板。 */
+.centerGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 14px; align-items: start; }
+.nestedPanel { margin-bottom: 0; background: var(--surface-2); }
+.nestedPanel .sectionHeading { margin-bottom: 12px; }
+.nestedPanel h3 { margin: 0; font-size: 14px; }
+textarea { width: 100%; min-height: 132px; border: 1px solid #35474a; border-radius: 5px; background: #10191c; color: var(--text); padding: 9px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; }
+.checkList { display: grid; gap: 7px; max-height: 186px; overflow: auto; border: 1px solid var(--border); border-radius: 5px; padding: 10px; background: #10191c; }
+.checkList label { display: flex; gap: 8px; align-items: flex-start; margin: 0; font-weight: 500; font-size: 12px; color: #d8e1e2; line-height: 1.45; }
+.checkList input[type=checkbox] { width: auto; height: auto; margin-top: 2px; }
+.checkList .fieldHint { margin: 0; }
+.exposureSet { border: 1px solid var(--border); border-radius: 5px; padding: 10px 12px 12px; margin: 6px 0 0; display: grid; gap: 7px; }
+.exposureSet legend { color: #c3d0d1; font-size: 12px; font-weight: 650; padding: 0 4px; }
+.inlineLabel { display: flex; gap: 8px; align-items: center; margin: 0; font-weight: 500; }
+.inlineLabel input { width: auto; height: auto; }
+.ruleRow, .recordItem { padding: 11px 13px; margin-top: 9px; border: 1px solid var(--border); border-radius: 6px; background: #142822; overflow-wrap: anywhere; }
+.ruleRow strong, .recordItem strong { display: block; font-size: 13px; }
+.ruleRow p, .recordItem p { margin: 5px 0 0; color: #a9c3b8; font-size: 12px; line-height: 1.5; }
+.recordList + .recordList { margin-top: 4px; }
+.actionCell { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 220px; }
+.actionCell select, .actionCell input { width: auto; min-width: 120px; height: 32px; font-size: 12px; }
+.actionCell button { margin-top: 0; min-height: 32px; font-size: 12px; }
+td code { font-size: 11px; }

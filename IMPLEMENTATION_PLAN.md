@@ -98,14 +98,15 @@ P2 第一片已实现 Audit 采集、持久游标/队列、候选归因、主机
 
 验收证据与未完成项见 [本轮实施记录](docs/acceptance/2026-11-11-p23-start.md)，接续计划见 [P2/P3 实施计划](docs/plans/p2-p3-execution.md)。**P2/P3 不标全量完成，历史 P1 原生确认缺口不因更改文案而豁免。**
 
-## P3 第二片：受管安装器与策略版本（2026-11-12）
+## P3 第二片：受管安装器、策略版本与治理工作台（2026-11-12）
 
 - `backend/services/managed_installer.py`：受限托管目录（inbound/staging/installed/backup）内的真实 stage/commit/verify/rollback。目录树哈希包含相对路径、文件 sha256 与权限位；符号链接、setuid/setgid 与非普通文件拒绝入装；来源路径封闭在 inbound 下，标识符只允许单个安全分量。
 - 准入状态机改为安装器驱动：stage 实测暂存哈希，与审批声明不一致直接 failed（content_drift）；commit 前复核并先快照旧版本再原子替换，重复 commit 幂等；verify/reconcile 重算落盘哈希，不一致记 failed；rollback 按 admission.rollback_ref 恢复快照或移除首次安装，未提交事务只丢弃暂存。安装中的实例拒绝新事务。
 - 策略版本管理：`PolicyRuleSet`（draft/active/retired）+ 原子激活（旧版本停用与新版本生效同一事务），迁移播种默认 `policy-v1`；evaluate 按活跃版本规则依序求值并记录实际 policy_version，无活跃版本返回 500 不静默回退。
+- 控制台工作台（`web/`，无构建）：资产中心（产品能力矩阵 + 主机与执行上下文）、检测中心、风险与策略（分维度评估 → 求值 → 决定记录、版本创建与激活）、准入安装（每次转移都有文件系统后果的按钮）、Incident 中心（状态流转与证据关联）。写操作按 govern 权限置灰，只读账号仍可查看。
 - schema v7：admissions 增 rollback_ref，新增 policy_versions 表；契约新增 policy-version.schema.json。
 
-**仍未验收：** 策略版本的管理界面与规则影响评估、托管目录的磁盘配额与清理、真实 Skill/MCP 安装器（当前安装目标是平台托管目录，不是产品加载路径）、多中心工作台、真实 ASR/Utility/MTTR 指标。
+**仍未验收：** 资产清单 API 与 Asset/AssetInstance 三态、策略版本的管理界面影响评估与规则编辑器、托管目录的磁盘配额与清理、真实 Skill/MCP 安装器（当前安装目标是平台托管目录，不是产品加载路径）、时间线整合 Finding/Policy Decision、真实 ASR/Utility/MTTR 指标。控制台实测证据见 [2026-11-12 控制台记录](docs/acceptance/2026-11-12-console.md)。
 
 ## 后续阶段：跨平台与规模扩展
 

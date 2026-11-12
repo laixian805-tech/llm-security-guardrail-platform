@@ -15,13 +15,16 @@
         <div class="workspaceLabel">工作区</div>
         <nav aria-label="主导航">
           <a class="navItem active" href="#overview">概览</a>
+          <a class="navItem" href="#assets">资产中心</a>
+          <a class="navItem" href="#detections">检测中心</a>
           <a class="navItem" href="#scan">新建扫描</a>
-          <a class="navItem" href="#findings">发现项</a>
           <a class="navItem" href="#engines">扫描引擎</a>
           <a class="navItem" href="#runtime">运行时间线</a>
-          <a class="navItem" href="#approvals">调用审批</a>
           <a class="navItem" href="#hostRuntime">主机运行事件</a>
-          <a class="navItem" href="#governance">治理记录</a>
+          <a class="navItem" href="#approvals">调用审批</a>
+          <a class="navItem" href="#policy">风险与策略</a>
+          <a class="navItem" href="#admissions">准入安装</a>
+          <a class="navItem" href="#incidents">Incident 中心</a>
         </nav>
         <div class="sidebarFoot">
           <div id="sessionChip" class="sessionChip" hidden>
@@ -36,7 +39,7 @@
         <header class="topbar">
           <div>
             <p class="eyebrow">智能体安全工作台</p>
-            <h1>扫描任务</h1>
+            <h1>安全治理工作台</h1>
           </div>
           <button id="refreshButton" class="iconButton" type="button" title="刷新数据" aria-label="刷新数据">↻</button>
         </header>
@@ -48,6 +51,42 @@
           <div class="metric"><span>发现项</span><strong id="metricFindings">—</strong><small>已归一化的引擎结果</small></div>
           <div class="metric"><span>高优先级</span><strong id="metricHigh">—</strong><small>严重与高危等级</small></div>
           <div class="metric"><span>最近扫描</span><strong id="metricLatest">—</strong><small>UTC 时间</small></div>
+        </section>
+
+        <section id="assets" class="panel">
+          <div class="sectionHeading"><div><p class="eyebrow">资产</p><h2>资产中心</h2></div><button id="assetsRefresh" type="button" class="textButton">刷新资产视图</button></div>
+          <p class="fieldHint">资产清单接口（<code>GET /api/v1/assets</code>）尚未实现，本页不显示安装/启用/运行三态，也不代表资产已纳管。此处只呈现已实测的产品能力矩阵、主机与执行上下文：产品能力随版本变化，未实测事件只允许 observe。</p>
+          <div class="tableWrap">
+            <table>
+              <thead><tr><th>产品 / 版本</th><th>供应商</th><th>Hook 传输</th><th>采集器</th><th>事件观测</th><th>ASGP 调用审批</th><th>可摄入</th></tr></thead>
+              <tbody id="assetProductRows"></tbody>
+            </table>
+          </div>
+          <div class="sectionHeading findingHeading"><div><p class="eyebrow">接入面</p><h2>主机与执行上下文</h2></div><span id="assetHostCount" class="subtleText"></span></div>
+          <div class="tableWrap">
+            <table>
+              <thead><tr><th>主机</th><th>执行次数</th><th>产品</th><th>关联资产实例引用</th><th>最近活动</th></tr></thead>
+              <tbody id="assetHostRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="detections" class="panel">
+          <div class="sectionHeading"><div><p class="eyebrow">检测</p><h2>检测运行</h2></div><span id="scanCount" class="subtleText"></span></div>
+          <div class="tableWrap">
+            <table>
+              <thead><tr><th>引擎</th><th>目标</th><th>状态</th><th>发现项</th><th>完成时间</th></tr></thead>
+              <tbody id="scanRows"></tbody>
+            </table>
+          </div>
+          <div class="sectionHeading findingHeading"><div><p class="eyebrow">统一结果</p><h2>发现项</h2></div><span id="findingCount" class="subtleText"></span></div>
+          <div class="tableWrap">
+            <table>
+              <thead><tr><th>严重级别</th><th>风险分</th><th>引擎</th><th>规则</th><th>发现内容</th><th>位置</th></tr></thead>
+              <tbody id="findingRows"></tbody>
+            </table>
+          </div>
+          <p class="fieldHint">超时、解析错误与部分覆盖不会显示为无发现项；失败运行保持失败状态。原始报告正文按 <code>read_raw_report</code> 权限单独复核，列表与详情都不回传。</p>
         </section>
 
         <section id="runtime" class="panel">
@@ -62,33 +101,142 @@
         </section>
 
         <section id="approvals" class="panel">
-          <div class="sectionHeading"><h2>调用审批</h2><button id="approvalRefresh" class="textButton" type="button">刷新待审批</button></div>
+          <div class="sectionHeading"><h2>调用审批</h2><button id="approvalRefresh" type="button" class="textButton">刷新待审批</button></div>
           <p class="fieldHint">ASGP 审批绑定设备、调用与参数哈希。它不是 Codex 原生 ask。页面不展示原始命令，批准前请核对测试端本地上下文；拒绝、超时或控制面不可达均不放行。</p>
           <div id="approvalRequests">点击刷新查看审批。</div>
         </section>
         <section id="hostRuntime" class="panel">
-          <div class="sectionHeading"><h2>主机运行事件</h2><button id="hostEventsRefresh" class="textButton" type="button">刷新主机事件</button></div>
+          <div class="sectionHeading"><h2>主机运行事件</h2><button id="hostEventsRefresh" type="button" class="textButton">刷新主机事件</button></div>
           <label for="runtimeHost">主机 ID</label><input id="runtimeHost" value="test-agentsec-01" />
           <p class="fieldHint">Linux Audit 是观测来源，事件没有调用证据时保持未归因；不展示进程参数。</p>
           <ul id="hostEvents" class="runtimeEntries"></ul>
           <button id="correlateExecution" class="secondaryButton" type="button">分析上方选中会话的归因候选</button>
           <div id="attributionCandidates" class="fieldHint"></div>
         </section>
-        <section id="governance" class="panel">
-          <div class="sectionHeading"><h2>治理记录</h2><button id="governanceRefresh" class="textButton" type="button">刷新治理记录</button></div>
-          <p class="fieldHint">策略决定不等于已生效。准入目前只有检查和批准；实际安装事务尚未接通，不显示安装成功。</p>
-          <div id="governanceItems"></div>
-        </section>
 
-        <section id="providers" class="panel providerPanel">
-          <div class="sectionHeading"><div><p class="eyebrow">模型服务</p><h2>供应商配置</h2></div><span id="providerSelection" class="subtleText"></span></div>
+        <section id="policy" class="panel">
+          <div class="sectionHeading"><div><p class="eyebrow">决策</p><h2>风险与策略</h2></div><button id="policyRefresh" type="button" class="textButton">刷新策略视图</button></div>
+          <p class="fieldHint">固有风险、运行风险、暴露风险分维度评估，不同量纲不在代码里相加；求值按当前活跃策略版本依序匹配，并记录实际生效的 <code>policy_version</code>。没有活跃版本时求值返回 500，不静默回退。策略决定不等于执行：阻断成功必须另有 EnforcementEvidence。</p>
+
+          <div class="centerGrid">
+            <form id="riskForm" class="panel nestedPanel">
+              <div class="sectionHeading"><h3>创建风险评估</h3></div>
+              <label for="riskAsset">资产 ID（可选）</label>
+              <input id="riskAsset" placeholder="asset_..." />
+              <label for="riskExecution">关联执行（可选）</label>
+              <select id="riskExecution"></select>
+              <label>证据：发现项</label>
+              <div id="riskFindings" class="checkList"><p class="fieldHint">暂无发现项。请先在检测中心加载扫描记录。</p></div>
+              <label>证据：主机运行事件</label>
+              <div id="riskEvents" class="checkList"><p class="fieldHint">暂无运行事件。请先在主机运行事件按主机加载。</p></div>
+              <fieldset class="exposureSet">
+                <legend>暴露面（声明值，非独立测量）</legend>
+                <label class="inlineLabel" for="exposurePrivileged"><input id="exposurePrivileged" type="checkbox" /> 特权上下文</label>
+                <label class="inlineLabel" for="exposureNetwork"><input id="exposureNetwork" type="checkbox" /> 可访问网络</label>
+                <label class="inlineLabel" for="exposureUntrusted"><input id="exposureUntrusted" type="checkbox" /> 来源不可信</label>
+              </fieldset>
+              <button id="riskSubmit" class="primaryButton" type="submit">提交风险评估</button>
+            </form>
+
+            <form id="evaluateForm" class="panel nestedPanel">
+              <div class="sectionHeading"><h3>按策略求值</h3></div>
+              <label for="evalAssessment">风险评估</label>
+              <select id="evalAssessment"></select>
+              <label for="evalSubjectKind">主体类型</label>
+              <input id="evalSubjectKind" list="subjectKinds" placeholder="asset_instance" />
+              <datalist id="subjectKinds">
+                <option value="asset_instance"></option>
+                <option value="execution"></option>
+                <option value="host"></option>
+                <option value="skill"></option>
+                <option value="mcp_server"></option>
+              </datalist>
+              <label for="evalSubjectId">主体 ID</label>
+              <input id="evalSubjectId" placeholder="inst_..." />
+              <button id="evaluateSubmit" class="primaryButton" type="submit">求值并记录决定</button>
+              <p class="fieldHint">决定记录 <code>enforcement_expected=false</code>；产品是否真正执行由 Hook 回执与准入安装证据另行证明。</p>
+            </form>
+          </div>
+
+          <div class="sectionHeading findingHeading"><div><p class="eyebrow">生效中</p><h2>当前活跃策略版本</h2></div><span id="policyActiveMeta" class="subtleText"></span></div>
+          <div id="policyActive"></div>
+
+          <div class="sectionHeading findingHeading"><div><p class="eyebrow">版本</p><h2>策略版本</h2></div><span id="policyVersionCount" class="subtleText"></span></div>
           <div class="tableWrap">
             <table>
-              <thead><tr><th>供应商</th><th>角色</th><th>Codex 接口</th><th>扫描器接口</th><th>模型</th><th>配置状态</th></tr></thead>
-              <tbody id="providerRows"></tbody>
+              <thead><tr><th>版本</th><th>状态</th><th>规则</th><th>创建者</th><th>创建时间</th><th>激活时间</th><th>操作</th></tr></thead>
+              <tbody id="policyVersionRows"></tbody>
             </table>
           </div>
-          <p class="fieldHint providerHint">仅展示接口与密钥是否已配置，不读取或显示密钥值。模型调用密钥由进程环境变量提供。</p>
+          <p class="fieldHint">激活是原子操作：旧版本停用与新版本生效在同一事务；已停用版本不能再次激活。</p>
+
+          <form id="policyDraftForm" class="panel nestedPanel">
+            <div class="sectionHeading"><h3>新建草稿版本</h3></div>
+            <label for="policyVersionName">版本号</label>
+            <input id="policyVersionName" placeholder="policy-v2" required />
+            <label for="policyRulesJson">规则（JSON 数组，依序首个命中者胜出）</label>
+            <textarea id="policyRulesJson" spellcheck="false" required></textarea>
+            <button id="policyTemplateButton" class="textButton" type="button">填入默认规则模板</button>
+            <p class="fieldHint">条件字段 <code>intrinsic_risk_min</code>、<code>runtime_risk_min</code>、<code>exposure_risk_min</code>、<code>any_dimension_above</code>、<code>peak_at_most</code> 均可省略；全部省略即无条件兜底规则。</p>
+            <button id="policyDraftSubmit" class="primaryButton" type="submit">创建草稿</button>
+          </form>
+
+          <div class="sectionHeading findingHeading"><div><p class="eyebrow">记录</p><h2>风险评估与策略决定</h2></div></div>
+          <div id="riskList" class="recordList"></div>
+          <div id="decisionList" class="recordList"></div>
+        </section>
+
+        <section id="admissions" class="panel">
+          <div class="sectionHeading"><div><p class="eyebrow">准入</p><h2>准入安装</h2></div><button id="admissionsRefresh" type="button" class="textButton">刷新准入记录</button></div>
+          <p class="fieldHint">受管安装器只在平台托管目录（inbound / staging / installed / backup）内做真实的 stage/commit/verify/reconcile/rollback，每次转移都有文件系统后果，body 布尔值不能代替安装证据。托管目录是平台自己的包管理存储，<b>不代表 Agent 产品已加载该包</b>。</p>
+          <form id="admissionForm" class="panel nestedPanel">
+            <div class="sectionHeading"><h3>创建准入检查</h3></div>
+            <label for="admissionAsset">资产实例 ID</label>
+            <input id="admissionAsset" placeholder="inst_demo" required />
+            <label for="admissionHash">内容哈希（64 位小写十六进制）</label>
+            <input id="admissionHash" placeholder="sha256" required />
+            <label for="admissionTransaction">事务 ID</label>
+            <input id="admissionTransaction" placeholder="txn_001" required />
+            <button id="admissionSubmit" class="primaryButton" type="submit">创建检查</button>
+            <p class="fieldHint">两个标识符都会被用作目录名，只允许单个安全路径分量；安装中的实例拒绝新事务。</p>
+          </form>
+          <div class="tableWrap">
+            <table>
+              <thead><tr><th>准入 / 事务</th><th>资产实例</th><th>声明哈希</th><th>实测哈希</th><th>状态</th><th>回滚凭据</th><th>失败原因</th><th>操作</th></tr></thead>
+              <tbody id="admissionRows"></tbody>
+            </table>
+          </div>
+          <p class="fieldHint">暂存来源填写托管 inbound 目录下的相对路径；越界路径、符号链接与 setuid/setgid 文件会被拒绝。</p>
+        </section>
+
+        <section id="incidents" class="panel">
+          <div class="sectionHeading"><div><p class="eyebrow">闭环</p><h2>Incident 中心</h2></div><button id="incidentsRefresh" type="button" class="textButton">刷新工单</button></div>
+          <p class="fieldHint">工单从发现项走向调查、确认、修复、复测与关闭。真实风险关闭需要工单开启后、同检测器同目标的 clean 复测 DetectorRun 证据；<code>retest_passed</code> 布尔值不作为证据。</p>
+          <form id="incidentForm" class="panel nestedPanel">
+            <div class="sectionHeading"><h3>新建工单</h3></div>
+            <label for="incidentTitle">标题</label>
+            <input id="incidentTitle" placeholder="可疑 Skill 凭据读取" required />
+            <label for="incidentSeverity">严重级别</label>
+            <select id="incidentSeverity">
+              <option value="unknown">未评级</option>
+              <option value="info">信息</option>
+              <option value="low">低</option>
+              <option value="medium">中</option>
+              <option value="high">高</option>
+              <option value="critical">严重</option>
+            </select>
+            <label for="incidentOwner">负责人</label>
+            <input id="incidentOwner" placeholder="analyst" />
+            <label for="incidentSummary">摘要</label>
+            <input id="incidentSummary" placeholder="观测到的事实与待确认问题" />
+            <button id="incidentSubmit" class="primaryButton" type="submit">创建工单</button>
+          </form>
+          <div class="tableWrap">
+            <table>
+              <thead><tr><th>工单</th><th>严重级别</th><th>状态</th><th>负责人</th><th>开启时间</th><th>关闭时间</th><th>状态流转与证据</th></tr></thead>
+              <tbody id="incidentRows"></tbody>
+            </table>
+          </div>
         </section>
 
         <section class="workGrid">
@@ -130,21 +278,15 @@
           </div>
         </section>
 
-        <section id="findings" class="panel findingsPanel">
-          <div class="sectionHeading"><div><p class="eyebrow">复核</p><h2>近期扫描</h2></div><span id="scanCount" class="subtleText"></span></div>
+        <section id="providers" class="panel providerPanel">
+          <div class="sectionHeading"><div><p class="eyebrow">模型服务</p><h2>供应商配置</h2></div><span id="providerSelection" class="subtleText"></span></div>
           <div class="tableWrap">
             <table>
-              <thead><tr><th>引擎</th><th>目标</th><th>状态</th><th>发现项</th><th>完成时间</th></tr></thead>
-              <tbody id="scanRows"></tbody>
+              <thead><tr><th>供应商</th><th>角色</th><th>Codex 接口</th><th>扫描器接口</th><th>模型</th><th>配置状态</th></tr></thead>
+              <tbody id="providerRows"></tbody>
             </table>
           </div>
-          <div class="sectionHeading findingHeading"><div><p class="eyebrow">统一结果</p><h2>发现项</h2></div><span id="findingCount" class="subtleText"></span></div>
-          <div class="tableWrap">
-            <table>
-              <thead><tr><th>严重级别</th><th>风险分</th><th>引擎</th><th>规则</th><th>发现内容</th><th>位置</th></tr></thead>
-              <tbody id="findingRows"></tbody>
-            </table>
-          </div>
+          <p class="fieldHint providerHint">仅展示接口与密钥是否已配置，不读取或显示密钥值。模型调用密钥由进程环境变量提供。</p>
         </section>
 
         <footer><span>ASGP · Agent Security Governance Platform</span><span>Based on Tencent Zhuque Lab AI-Infra-Guard · <a href="https://github.com/Tencent/AI-Infra-Guard" target="_blank" rel="noreferrer">上游项目</a></span></footer>
