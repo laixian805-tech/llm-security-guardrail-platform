@@ -6,6 +6,7 @@ ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/'backend'));
 from storage.repositories import Storage,DeviceIdentityRepository
 from services.ingestion_service import IngestionService
 from services.attribution_service import AttributionService
+from adapters.products.capabilities import PRODUCT_VERSIONS
 
 
 def main():
@@ -13,7 +14,7 @@ def main():
         storage=Storage(Path(tmp)/'trace.db');devices=DeviceIdentityRepository(storage)
         device,_=devices.enroll(label='labeled-trace');devices.set_host(device_id=device,host_id='trace-host')
         ingest=IngestionService(storage);stamp='2026-11-11T12:00:00+00:00'
-        ingest.execution(device,{'execution_id':'exec','session_id':'s','product':'codex','product_version':'0.166.0','started_at':stamp})
+        ingest.execution(device,{'execution_id':'exec','session_id':'s','product':'codex','product_version':PRODUCT_VERSIONS['codex'],'started_at':stamp})
         ingest.intent(device,'exec',{'intent_id':'i','tool_call_id':'call','tool_name':'Bash','hook_event_type':'pre_tool_use','occurred_at':stamp})
         rows=[{'event_id':'hook','execution_id':'exec','intent_ref':'i','event_type':'hook_anchor','occurred_at':stamp,'process':{'pid':100,'ppid':1}},
               {'event_id':'process','event_type':'process_start','occurred_at':stamp,'process':{'pid':101,'ppid':100}},

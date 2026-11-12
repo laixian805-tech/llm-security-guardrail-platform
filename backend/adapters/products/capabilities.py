@@ -23,7 +23,13 @@ from domain import (
 )
 from domain.product import DECISION_NONE
 
-ADAPTER_VERSION = "1.0.0"
+# 适配器版本：descriptor 一律引用这个常量。曾经这里写 "1.0.0"、descriptor 里
+# 另写 "1.1.0"，改常量不生效——版本号有常量就必须只有一处真值。
+ADAPTER_VERSION = "1.1.0"
+
+# 各产品的验证版本。版本门控要求它与设备上报值相等，所以这里就是"声明版本"
+# 的唯一来源；改版本只动这一处。
+PRODUCT_VERSIONS = {"claude-code": "2.1.152", "codex": "0.166.0", "qwen-code": "0.26.8"}
 
 # Claude Code payload 里已知但不外传的字段：transcript_path 指向本地会话
 # 记录（可能含 prompt 正文），cwd 与 permission_mode 是本机执行上下文。
@@ -81,7 +87,7 @@ def _boundary(product):
 
 def descriptor(product, version, vendor, events=None, unsupported_fields=None):
     return AgentProductDescriptor(
-        product_id=product, product_version=version, adapter_version="1.1.0",
+        product_id=product, product_version=version, adapter_version=ADAPTER_VERSION,
         vendor=vendor, hook_transport=HookTransport.STDIN_JSON,
         collector_id=product+"-hook-v1", events=verified_events(product,version,events),
         unsupported_fields=list(unsupported_fields or CLAUDE_CODE_LOCAL_ONLY_FIELDS),
@@ -93,11 +99,11 @@ def descriptor(product, version, vendor, events=None, unsupported_fields=None):
 
 
 PRODUCT_CAPABILITIES = {
-    "claude-code":descriptor("claude-code","2.1.152","Anthropic"),
-    "codex":descriptor("codex","0.166.0","OpenAI"),
+    "claude-code":descriptor("claude-code",PRODUCT_VERSIONS["claude-code"],"Anthropic"),
+    "codex":descriptor("codex",PRODUCT_VERSIONS["codex"],"OpenAI"),
     # 声明版本取设备实版本：版本门控要求 descriptor.product_version 与执行上报
     # 的 product_version 相等，声明 0.27.2 会让 0.26.8 的决策记录被拒收。
     # 0.27.2 的抓包协议形状与 0.26.8 一致（同字段集），测试对两个版本都跑。
-    "qwen-code":descriptor("qwen-code","0.26.8","Alibaba",events=QWEN_CODE_EVENTS,
+    "qwen-code":descriptor("qwen-code",PRODUCT_VERSIONS["qwen-code"],"Alibaba",events=QWEN_CODE_EVENTS,
                            unsupported_fields=QWEN_CODE_LOCAL_ONLY_FIELDS),
 }

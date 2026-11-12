@@ -26,6 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
 
+from adapters.products.capabilities import PRODUCT_VERSIONS  # noqa: E402
 from services.attribution_service import AttributionService  # noqa: E402
 from storage.repositories import Storage  # noqa: E402
 
@@ -211,7 +212,7 @@ def seed(db_path: Path) -> None:
         conn.execute(
             "INSERT INTO executions (execution_id,host_id,device_id,product,product_version,"
             "session_id,started_at,outcome,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            ("exec_attr_eval", "test-agentsec-01", "dev_attr_eval", "qwen-code", "0.26.8",
+            ("exec_attr_eval", "test-agentsec-01", "dev_attr_eval", "qwen-code", PRODUCT_VERSIONS["qwen-code"],
              "s-attr-eval", at(0), "completed", at(0), at(0)))
         for scene in SCENARIOS:
             for item in scene["intents"]:

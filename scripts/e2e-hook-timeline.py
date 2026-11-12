@@ -11,6 +11,9 @@ import tempfile
 import time
 import urllib.request
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
+from adapters.products.capabilities import PRODUCT_VERSIONS  # noqa: E402
+
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 
@@ -40,7 +43,7 @@ def main():
                 device=request('/api/devices',{'label':'fixture-e2e'},session['token'])
                 request('/api/devices/'+device['device_id'],{'host_id':'fixture-host'},session['token'],method='PATCH')
                 config={'server_base_url':base,'device_token':device['token'],'state_dir':str(state/'endpoint'),
-                        'product_versions':{'codex':'0.166.0','claude-code':'2.1.152'},'fail_mode':'observe'}
+                        'product_versions':{'codex':PRODUCT_VERSIONS['codex'],'claude-code':PRODUCT_VERSIONS['claude-code']},'fail_mode':'observe'}
                 config_path=state/'endpoint-config.json';config_path.write_text(json.dumps(config));config_path.chmod(0o600)
                 child_env=dict(os.environ,ASGP_ENDPOINT_CONFIG=str(config_path))
                 for product,version in config['product_versions'].items():
