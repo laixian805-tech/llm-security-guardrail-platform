@@ -1,8 +1,8 @@
 __pycache__/
 *.py[cod]
-data/*.db*
-data/tmp/
-data/engine-home/
+# 运行期数据一律不入库：数据库含设备令牌哈希与审计流，managed 含真实安装内容，
+# engine-home 是扫描器家目录。只提交代码与文档。
+data/
 .venv/
 .venvs/
 logs/
