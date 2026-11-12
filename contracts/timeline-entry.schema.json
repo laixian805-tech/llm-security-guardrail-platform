@@ -13,7 +13,10 @@
     "kind": {
       "enum": [
         "intent",
-        "runtime_event"
+        "runtime_event",
+        "finding",
+        "policy_decision",
+        "admission"
       ],
       "title": "Kind",
       "type": "string"

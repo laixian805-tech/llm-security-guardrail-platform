@@ -15,7 +15,10 @@ def test_timeline_equal_timestamp_cursor_and_identity_conflict(api,admin_token):
     first=call(api.base,'GET',url,token=admin_token).json()
     assert first['attribution_supported'] is True
     assert 'attribution' in first['sections_supported']
-    assert 'finding' in first['sections_pending']
+    # finding/policy_decision/admission 已接入，不再列为未实现分段。
+    assert 'finding' in first['sections_supported']
+    assert first['sections_pending']==[]
+    assert first['section_links']['finding'].startswith('分析员显式关联')
     second=call(api.base,'GET',url+'&cursor='+first['next_cursor'],token=admin_token).json()
     assert [r['id'] for r in first['entries']+second['entries']]==['i0','i1','i2']
     assert second['next_cursor'] is None
