@@ -13,7 +13,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
 
 from services.ingestion_service import IngestError
@@ -22,7 +22,8 @@ VERSION = "dataflow-v1"
 
 # 命中即视为"值得关注的数据源"。顺序无关，命中任意一个就算。
 SENSITIVE_MARKERS = (
-    ".ssh/", "id_rsa", "id_ed25519", "id_ecdsa",
+    # 目录级路径（~/.ssh）也要算：列一遍目录同样能看出有哪些密钥。
+    ".ssh", "id_rsa", "id_ed25519", "id_ecdsa",
     ".aws/credentials", ".git-credentials", ".npmrc", ".pypirc",
     ".kube/config", ".docker/config.json", "keychain", "login data",
     ".env", "credentials", "cookies", "cookie.sqlite", "wallet.dat",
@@ -112,6 +113,29 @@ class DataFlowService:
                 "SELECT event_id,event_type,occurred_at,resource_host,resource_port,resource_path,pid"
                 " FROM runtime_events WHERE execution_id=? AND event_type IN"
                 " ('network_connect','file_access') ORDER BY occurred_at", (execution_id,))]
+            # 真实采集里审计事件几乎都不带 execution_id（全库 18820 条只有 17 条有），
+            # 按执行查会永远为空。退回"同主机 + 时间窗"，并如实标注依据——
+            # 时间窗匹配的 sink 有可能属于同期别的进程，置信度要降级。
+            sink_basis = "execution_id"
+            if not events:
+                started = str(execution["started_at"])
+                # 事件带毫秒、intent 时间不带，直接用字符串当上界会把同一秒里
+                # 毫秒更大的事件排除掉（13:02:46 < 13:02:46.357）。统一按时间戳
+                # 计算并留 90 秒缓冲：进程退出、连接收尾通常晚于最后一次工具调用。
+                last = max((datetime.fromisoformat(str(i["occurred_at"])) for i in intents),
+                           default=datetime.fromisoformat(started))
+                if execution["ended_at"]:
+                    end_dt = datetime.fromisoformat(str(execution["ended_at"]))
+                else:
+                    end_dt = last + timedelta(seconds=90)
+                ended = end_dt.isoformat()
+                events = [dict(row) for row in conn.execute(
+                    "SELECT event_id,event_type,occurred_at,resource_host,resource_port,resource_path,pid"
+                    " FROM runtime_events WHERE host_id=? AND device_id=? AND occurred_at>=?"
+                    " AND occurred_at<=? AND event_type IN ('network_connect','file_access')"
+                    " ORDER BY occurred_at",
+                    (execution["host_id"], execution["device_id"], started, ended))]
+                sink_basis = "time_window"
             anchors = [dict(row) for row in conn.execute(
                 "SELECT intent_id,occurred_at FROM intents WHERE execution_id=?", (execution_id,))]
         _ = anchors  # 保留查询以便后续做时间对齐扩展
@@ -123,11 +147,11 @@ class DataFlowService:
             if not sensitive:
                 continue
             for source_path in sensitive:
-                flow = self._build(intent, source_path, intents[index + 1:], events)
+                flow = self._build(intent, source_path, intents[index + 1:], events, sink_basis)
                 if flow:
                     flows.append(flow)
         return {"execution_id": execution_id, "version": VERSION,
-                "flows": flows, "note": self._note()}
+                "sink_basis": sink_basis, "flows": flows, "note": self._note()}
 
     # --- 内部 ----------------------------------------------------------
 
@@ -145,7 +169,7 @@ class DataFlowService:
         return [str(hint) for hint in (hints or [])]
 
     def _build(self, source_intent: dict, source_path: str,
-               later_intents: list[dict], events: list[dict]) -> dict | None:
+               later_intents: list[dict], events: list[dict], sink_basis: str) -> dict | None:
         """从一次敏感读取出发，找中转跳与外部 sink。没有 sink 就不产链。"""
         source_time = str(source_intent["occurred_at"])
         name = _basename(source_path)
@@ -189,6 +213,10 @@ class DataFlowService:
         tool = str(source_intent.get("tool_name") or "")
         command_like = any(token in tool for token in EXFIL_COMMANDS)
         confidence = "medium" if (hops or command_like) else "low"
+        if sink_basis == "time_window" and confidence == "medium":
+            # sink 只是"同一时间窗内这台机器的某个连接"，可能不属于本次执行，
+            # 那么强结论就站不住——降一级，而不是继续按 medium 报。
+            confidence = "low"
 
         sink = sinks[0]
         evidence = [_evidence("intent", source_intent["intent_id"]),
@@ -206,6 +234,7 @@ class DataFlowService:
             "sink": {"host": sink.get("resource_host"), "port": sink.get("resource_port"),
                      "event_id": sink["event_id"], "occurred_at": sink["occurred_at"]},
             "sink_count": len(sinks),
+            "sink_basis": sink_basis,
             "confidence": confidence,
             "evidence_refs": evidence,
             "detected_at": now(),

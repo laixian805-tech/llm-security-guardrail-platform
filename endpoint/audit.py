@@ -118,7 +118,10 @@ def collect_once(config,*,settled=False):
             if parsed:
                 key=parsed[:2];groups.setdefault(key,[]).append(parsed);positions.setdefault(key,position)
             position+=len(line)
-        end=offset+len(raw)
+        # 游标绝不能超过被读文件的实际长度：日志轮转时 offset 可能在旧文件上
+        # 累加出越界值，一旦保存进去，后续采集会一直在越界位置读不到数据，
+        # 表现为"事件时间停在几小时前"。夹紧是最省的兜底。
+        end=min(offset+len(raw),stat.st_size)
         if groups and not settled:
             last=next(reversed(groups))
             if not any(r[2]=='EOE' for r in groups[last]):
