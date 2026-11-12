@@ -3,13 +3,17 @@ const state = {
   engines: [], providers: [], scans: [], selectedScan: null, user: null,
   products: [], executions: [], findings: [], hostEvents: [],
   assessments: [], decisions: [], admissions: [], incidents: [],
-  policyVersions: [], activePolicy: null,
+  policyVersions: [], activePolicy: null, ledger: { items: [], links: {} },
 };
 const roleLabels = { admin: "管理员", operator: "操作员", viewer: "只读" };
 const severityLabels = {
   critical: "严重", high: "高", medium: "中", low: "低", info: "信息", unknown: "未评级",
 };
 const statusLabels = { completed: "已完成", imported: "已导入", failed: "失败" };
+const findingStatusLabels = {
+  new: "新建", triaged: "已分级", resolved: "已解决",
+  false_positive: "误报", reopened: "重新打开",
+};
 const admissionStateLabels = {
   check: "待审批", approved: "已批准", staged: "已暂存", committed: "已提交",
   verified: "已验证", reconciled: "已复核", rolled_back: "已回滚", failed: "失败",
@@ -26,6 +30,18 @@ const hookEventLabels = {
   post_tool_use: "工具调用后", session_end: "会话结束",
 };
 const capabilityLabels = { observe: "观测", confirm: "确认", deny: "拒绝" };
+const assetTypeLabels = {
+  agent: "Agent", skill: "Skill", mcp_server: "MCP Server", plugin: "插件", tool: "工具",
+};
+const installationStateLabels = {
+  unknown: "未知", installed: "已安装", absent: "缺失", broken: "损坏",
+};
+const activationStateLabels = { unknown: "未知", disabled: "已停用", enabled: "已启用" };
+const runtimeStateLabels = { unknown: "未知", running: "运行中", stopped: "已停止", idle: "空闲" };
+const timelineSectionLabels = {
+  intent: "Hook 意图", runtime_event: "运行事件", attribution: "归因候选",
+  finding: "发现项", policy_decision: "策略决定", admission: "准入事务",
+};
 // 与服务端 incident_transition 的转移表一致；服务端仍是权威校验方。
 const incidentTransitions = {
   open: ["investigating"],
@@ -129,7 +145,9 @@ function formatTime(value) {
   return Number.isNaN(date.valueOf()) ? value : `${new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(date)} UTC`;
 }
 
-function guarded(action) { return () => action().catch(error => {if(!(error instanceof UnauthenticatedError))showNotice(error.message,'error');}); }
+// 参数必须透传：submit 处理函数要拿 event 调 preventDefault，否则表单会走原生
+// GET 提交把整页刷掉。
+function guarded(action) { return (...args) => action(...args).catch(error => {if(!(error instanceof UnauthenticatedError))showNotice(error.message,'error');}); }
 
 // 写操作统一要求 govern 权限（operator/admin）；只读账号看到的按钮置灰而不是隐藏，
 // 避免界面看起来"没有这个功能"。
@@ -141,7 +159,9 @@ function applyGovernanceGating() {
     'admissionSubmit','incidentSubmit','correlateExecution','riskAsset','riskExecution',
     'exposurePrivileged','exposureNetwork','exposureUntrusted','evalSubjectKind','evalSubjectId',
     'policyVersionName','policyRulesJson','admissionAsset','admissionHash','admissionTransaction',
-    'incidentTitle','incidentSeverity','incidentOwner','incidentSummary'];
+    'incidentTitle','incidentSeverity','incidentOwner','incidentSummary',
+    'assetType','assetName','assetProduct','assetPublisher','assetHost','assetScope',
+    'assetInstallPath','assetVersion','assetHash','assetRegisterSubmit'];
   for (const id of controls) {
     const element = byId(id);
     if (!element) continue;
@@ -490,16 +510,54 @@ async function showRuntimeTimeline(append) {
   for (const entry of response.entries) {
     const item = document.createElement('li');
     const title = document.createElement('strong');
-    title.textContent = `${formatTime(entry.occurred_at)} · ${entry.kind === 'intent' ? entry.data.tool_name : entry.data.event_type}`;
+    title.textContent = `${formatTime(entry.occurred_at)} · ${timelineEntryTitle(entry)}`;
     const detail = document.createElement('p');
-    detail.textContent = entry.kind === 'intent'
-      ? `调用 ${entry.data.tool_call_id || '未提供调用 ID'} · 决策记录 ${entry.data.decision} · 结果 ${entry.data.product_result || '尚未观测'} · 参数值已省略`
-      : `${entry.data.action || ''} ${entry.data.result || ''} · 归因候选 ${(entry.data.attributions || []).length}`;
+    detail.textContent = timelineEntryDetail(entry);
     item.append(title, detail); list.append(item);
   }
-  byId('runtimeBoundary').textContent = `本次执行版本的观测验证：${response.capability_verification === 'verified' ? '已验证' : '未验证'}。归因以证据候选展示，可能冲突；关联发现项与策略闭环未整合到此时间线，决策记录不能作为阻断成功证明。`;
+  byId('runtimeBoundary').textContent = `本次执行版本的观测验证：${response.capability_verification === 'verified' ? '已验证' : '未验证'}。归因以证据候选展示，可能冲突；策略决定不等于执行，阻断成功必须另有执行证据。`;
+  const links = byId('runtimeSectionLinks');
+  links.replaceChildren();
+  const supported = document.createElement('span');
+  supported.textContent = `已接入分段：${response.sections_supported.map((name) => timelineSectionLabels[name] || name).join('、')}${response.sections_pending.length ? `；未实现：${response.sections_pending.join('、')}` : ''}`;
+  links.append(supported);
+  for (const [key, text] of Object.entries(response.section_links || {})) {
+    const line = document.createElement('small');
+    line.textContent = `${timelineSectionLabels[key] || key}：${text}`;
+    links.append(line);
+  }
   runtimeExecution = id; runtimeCursor = response.next_cursor;
   byId('runtimeMore').hidden = !runtimeCursor;
+}
+
+function timelineEntryTitle(entry) {
+  const data = entry.data;
+  switch (entry.kind) {
+    case 'intent': return data.tool_name;
+    case 'runtime_event': return data.event_type;
+    case 'finding': return `发现项 ${data.finding_id}`;
+    case 'admission': return `准入 ${data.transaction_id}`;
+    case 'policy_decision': return `策略决定 ${data.decision_id}`;
+    default: return entry.kind;
+  }
+}
+
+function timelineEntryDetail(entry) {
+  const data = entry.data;
+  switch (entry.kind) {
+    case 'intent':
+      return `调用 ${data.tool_call_id || '未提供调用 ID'} · 决策记录 ${data.decision} · 结果 ${data.product_result || '尚未观测'} · 参数值已省略`;
+    case 'runtime_event':
+      return `${data.action || ''} ${data.result || ''} · 归因候选 ${(data.attributions || []).length} · 事件 ID ${data.event_id}`;
+    case 'finding':
+      return `${data.title} · 严重级别 ${severityLabels[data.severity] || data.severity} · 状态 ${findingStatusLabels[data.status] || data.status} · 分析员 ${data.linked_by || '未登记'}${data.link_note ? ` · ${data.link_note}` : ''}`;
+    case 'admission':
+      return `${admissionStateLabels[data.state] || data.state} · 声明 ${data.content_hash.slice(0, 16)}… · 实测 ${data.observed_content_hash ? `${data.observed_content_hash.slice(0, 16)}…` : '未测量'} · 实例 ${data.asset_instance_id}`;
+    case 'policy_decision':
+      return `${data.subject_kind || ''} ${data.subject_id} · 动作 ${actionLabels[data.action] || data.action} · 策略版本 ${data.policy_version} · 执行预期 ${data.enforcement_expected ? '是' : '否'}`;
+    default:
+      return entry.id;
+  }
 }
 
 byId('runtimeRefresh').addEventListener('click', guarded(refreshRuntime));
@@ -559,15 +617,195 @@ async function correlateCurrent() {
 /* ---------- 资产中心 ---------- */
 
 async function refreshAssets() {
-  const [catalog, executions] = await Promise.all([
+  const [catalog, executions, ledger] = await Promise.all([
     request('/api/v1/products'), request('/api/v1/executions?limit=200'),
+    request(assetLedgerQuery()),
   ]);
   state.products = catalog.products;
   state.executions = executions.executions;
+  state.ledger = ledger;
   renderAssetProducts();
   renderAssetHosts();
+  renderAssetLedger();
   renderExecutionChoices();
 }
+
+// 筛选串在 URL 上，刷新和分享视图都保留同一批条件。
+function assetLedgerQuery() {
+  const params = new URLSearchParams();
+  const query = byId('assetFilterQuery').value.trim();
+  const type = byId('assetFilterType').value;
+  const install = byId('assetFilterInstall').value;
+  const runtime = byId('assetFilterRuntime').value;
+  if (query) params.set('query', query);
+  if (type) params.set('asset_type', type);
+  if (install) params.set('installation_state', install);
+  if (runtime) params.set('runtime_state', runtime);
+  params.set('limit', '200');
+  return `/api/v1/assets?${params.toString()}`;
+}
+
+function renderAssetLedger() {
+  const tbody = byId('assetLedgerRows');
+  tbody.replaceChildren();
+  for (const item of state.ledger.items) {
+    const row = document.createElement('tr');
+    const name = addCell(row, item.asset.canonical_name);
+    const id = document.createElement('small');
+    id.textContent = `${item.asset.asset_id}${item.asset.publisher ? ` · ${item.asset.publisher}` : ''}${item.asset.provenance ? ` · ${item.asset.provenance}` : ''}`;
+    name.append(id);
+    addCell(row, assetTypeLabels[item.asset.asset_type] || item.asset.asset_type);
+    addCell(row, item.asset.product || '未指定');
+    const copies = addCell(row, item.instances.length ? '' : '未登记副本');
+    for (const instance of item.instances) {
+      const line = document.createElement('small');
+      line.textContent = `${instance.host_id} / ${instance.product_scope}${instance.install_path ? ` · ${instance.install_path}` : ''}`;
+      copies.append(line);
+    }
+    const states = item.instances.length
+      ? [['installation_state', installationStateLabels], ['activation_state', activationStateLabels],
+         ['runtime_state', runtimeStateLabels]]
+      : [];
+    for (const [field, labels] of states) {
+      // 多个副本可能处于不同状态：一个 pill 会撒谎，直接把不同取值都列出来。
+      const values = [...new Set(item.instances.map((instance) => instance[field]))];
+      if (values.length === 1) addPillCell(row, values[0], labels);
+      else addCell(row, values.map((value) => labels[value] || value).join(' / '));
+    }
+    if (!states.length) {
+      for (let index = 0; index < 3; index += 1) addCell(row, '—');
+    }
+    const counts = addCell(row, '');
+    counts.textContent = item.instances.length
+      ? `${item.instances.reduce((sum, i) => sum + i.admission_count, 0)} / ${item.instances.reduce((sum, i) => sum + i.execution_count, 0)}`
+      : '—';
+    const actions = document.createElement('td');
+    actions.className = 'actionCell';
+    const trace = document.createElement('button');
+    trace.type = 'button';
+    trace.className = 'secondaryButton';
+    trace.textContent = '追踪';
+    trace.addEventListener('click', () => showAssetTrace(item.asset.asset_id));
+    actions.append(trace);
+    row.append(actions);
+    tbody.append(row);
+  }
+  if (!state.ledger.items.length) {
+    addEmptyRow(tbody, 9, '没有符合条件的资产。登记后这里会出现逻辑资产与副本。');
+  }
+  byId('assetLedgerCount').textContent = `${state.ledger.items.length} 个逻辑资产`;
+  const links = byId('assetLedgerLinks');
+  links.replaceChildren();
+  const intro = document.createElement('span');
+  intro.textContent = '关联方式：';
+  links.append(intro);
+  for (const [key, text] of Object.entries(state.ledger.links || {})) {
+    const line = document.createElement('small');
+    line.textContent = `${timelineSectionLabels[key] || key}：${text}`;
+    links.append(line);
+  }
+}
+
+async function showAssetTrace(assetId) {
+  const trace = await request(`/api/v1/assets/${encodeURIComponent(assetId)}`);
+  const box = byId('assetTrace');
+  box.replaceChildren();
+  const head = document.createElement('article');
+  head.className = 'recordItem';
+  const title = document.createElement('strong');
+  title.textContent = `${trace.asset.canonical_name} · ${trace.asset.asset_id}`;
+  const meta = document.createElement('p');
+  meta.textContent = `${assetTypeLabels[trace.asset.asset_type] || trace.asset.asset_type} · 产品 ${trace.asset.product || '未指定'} · 发布方 ${trace.asset.publisher || '未登记'}`;
+  head.append(title, meta);
+  box.append(head);
+
+  const sections = [
+    ['内容版本', trace.releases, (row) => `${row.version} · ${row.content_hash.slice(0, 16)}… · 签名${row.signature_verified ? '已验证' : '未验证'}`],
+    ['副本与三态', trace.instances, (row) => `${row.host_id} / ${row.product_scope} · 安装 ${installationStateLabels[row.installation_state] || row.installation_state} · 启用 ${activationStateLabels[row.activation_state] || row.activation_state} · 运行 ${runtimeStateLabels[row.runtime_state] || row.runtime_state} · 准入 ${row.admission_count} 次 · 执行 ${row.execution_count} 次`],
+    ['准入事务', trace.admissions, (row) => `${row.transaction_id} · ${admissionStateLabels[row.state] || row.state} · 声明 ${row.content_hash.slice(0, 16)}… · 实测 ${row.observed_content_hash ? `${row.observed_content_hash.slice(0, 16)}…` : '未测量'}`],
+    ['执行记录', trace.executions, (row) => `${row.execution_id} · ${row.product} ${row.product_version} · ${row.host_id} · ${row.outcome}`],
+    ['发现项', trace.findings, (row) => `${row.finding_id} · ${row.title} · 严重级别 ${severityLabels[row.severity] || row.severity} · 关联人 ${row.linked_by || '未显式关联'}${row.link_note ? ` · ${row.link_note}` : ''}`],
+    ['策略决定', trace.policy_decisions, (row) => `${row.decision_id} · ${row.subject_kind || ''} ${row.subject_id} · 动作 ${actionLabels[row.action] || row.action} · 策略 ${row.policy_version}`],
+    ['Incident', trace.incidents, (row) => `${row.incident_id} · ${row.title} · ${incidentStatusLabels[row.status] || row.status} · 证据 ${row.evidence || '无'}`],
+  ];
+  for (const [name, rows, describe] of sections) {
+    const article = document.createElement('article');
+    article.className = 'recordItem';
+    const label = document.createElement('strong');
+    label.textContent = `${name}（${rows.length}）`;
+    article.append(label);
+    if (!rows.length) {
+      const empty = document.createElement('p');
+      empty.textContent = '暂无记录。';
+      article.append(empty);
+    }
+    for (const row of rows.slice(0, 20)) {
+      const line = document.createElement('p');
+      line.textContent = describe(row);
+      article.append(line);
+    }
+    box.append(article);
+  }
+  const links = document.createElement('article');
+  links.className = 'recordItem';
+  const linksTitle = document.createElement('strong');
+  linksTitle.textContent = '关联方式';
+  links.append(linksTitle);
+  for (const [key, text] of Object.entries(trace.links || {})) {
+    const line = document.createElement('p');
+    line.textContent = `${timelineSectionLabels[key] || key}：${text}`;
+    links.append(line);
+  }
+  box.append(links);
+  byId('assetTrace').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+byId('assetFilterForm').addEventListener('submit', guarded(async (event) => {
+  event.preventDefault();
+  await refreshAssets();
+}));
+
+byId('assetRegisterForm').addEventListener('submit', guarded(async (event) => {
+  event.preventDefault();
+  const button = byId('assetRegisterSubmit');
+  button.disabled = true;
+  try {
+    const asset = await request('/api/v1/assets', {
+      method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({
+        asset_type: byId('assetType').value,
+        canonical_name: byId('assetName').value.trim(),
+        product: byId('assetProduct').value.trim() || undefined,
+        publisher: byId('assetPublisher').value.trim() || undefined,
+      }),
+    });
+    const instance = await request('/api/v1/asset-instances', {
+      method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({
+        asset_id: asset.asset.asset_id,
+        host_id: byId('assetHost').value.trim(),
+        product_scope: byId('assetScope').value.trim(),
+        install_path: byId('assetInstallPath').value.trim() || undefined,
+      }),
+    });
+    const version = byId('assetVersion').value.trim();
+    const hash = byId('assetHash').value.trim();
+    if (version && hash) {
+      await request('/api/v1/asset-releases', {
+        method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({
+          asset_id: asset.asset.asset_id, version, content_hash: hash,
+        }),
+      });
+    }
+    const notes = [`资产 ${asset.asset.asset_id}${asset.duplicate ? '（已存在，返回原记录）' : ''}`,
+      `副本 ${instance.instance.instance_id}${instance.duplicate ? '（已存在）' : ''}`];
+    if (version && hash) notes.push(`内容版本 ${version}`);
+    showNotice(`登记完成：${notes.join(' · ')}`, 'success');
+    await refreshAssets();
+  } catch (error) {
+    showNotice(error.message, 'error');
+  } finally {
+    button.disabled = !canGovern();
+  }
+}));
 
 // 产品级验证等级取最保守的条目：适配器上的 verification 是计算属性，不出现在
 // 序列化结果里，因此按事件逐条聚合，任一条未实测整个产品就是未实测。

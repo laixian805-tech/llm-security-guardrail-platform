@@ -14,6 +14,8 @@ P0 扫描/认证基础与 P1 两产品 Hook/设备摄入/时间线已实现；P1
 
 本轮结果见 [P1 修复与 P2/P3 开始实施](docs/acceptance/2026-11-11-p23-start.md)，上一轮 [P1 正式复核](docs/acceptance/2026-11-11-p1-recheck.md)作为历史保留；不能把新增审批、候选归因和状态机等同于 P2/P3 已全量验收。
 
+项目定位、架构思想、能力现状、作品赛与面试口径见 [项目总览](docs/PROJECT-OVERVIEW.md)。
+
 旧平台模块如何映射到 ASGP、哪些概念保留而不搬运代码，见[旧平台审计与迁移映射](docs/legacy-platform-review.zh-CN.md)。
 
 ## 启动

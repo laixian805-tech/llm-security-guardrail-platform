@@ -1,0 +1,427 @@
+{
+  "sample_count": 25,
+  "malicious": 18,
+  "benign": 7,
+  "detector": "skillspector-static-only",
+  "thresholds": {
+    "any": {
+      "tp": 15,
+      "fn": 3,
+      "fp": 0,
+      "tn": 7,
+      "undetermined": 0,
+      "detection_rate": 0.8333,
+      "fpr": 0.0
+    },
+    "high": {
+      "tp": 15,
+      "fn": 3,
+      "fp": 0,
+      "tn": 7,
+      "undetermined": 0,
+      "detection_rate": 0.8333,
+      "fpr": 0.0
+    }
+  },
+  "by_category": {
+    "benign": {
+      "samples": 7,
+      "detected": 0,
+      "rate": 0.0
+    },
+    "exfiltration": {
+      "samples": 3,
+      "detected": 2,
+      "rate": 0.6667
+    },
+    "hidden_instruction": {
+      "samples": 5,
+      "detected": 4,
+      "rate": 0.8
+    },
+    "mcp_poison": {
+      "samples": 2,
+      "detected": 2,
+      "rate": 1.0
+    },
+    "privilege": {
+      "samples": 5,
+      "detected": 4,
+      "rate": 0.8
+    },
+    "supply_chain": {
+      "samples": 3,
+      "detected": 3,
+      "rate": 1.0
+    }
+  },
+  "errors": [],
+  "rows": [
+    {
+      "sample": "benign-changelog",
+      "label": "benign",
+      "category": "benign",
+      "failed": false,
+      "retried": null,
+      "any_issue": false,
+      "severe": false,
+      "issue_count": 0,
+      "risk_score": 0,
+      "severity": "LOW",
+      "issue_ids": []
+    },
+    {
+      "sample": "benign-code-formatter",
+      "label": "benign",
+      "category": "benign",
+      "failed": false,
+      "retried": null,
+      "any_issue": false,
+      "severe": false,
+      "issue_count": 0,
+      "risk_score": 0,
+      "severity": "LOW",
+      "issue_ids": []
+    },
+    {
+      "sample": "benign-doc-index",
+      "label": "benign",
+      "category": "benign",
+      "failed": false,
+      "retried": null,
+      "any_issue": false,
+      "severe": false,
+      "issue_count": 0,
+      "risk_score": 0,
+      "severity": "LOW",
+      "issue_ids": []
+    },
+    {
+      "sample": "benign-doc-writer",
+      "label": "benign",
+      "category": "benign",
+      "failed": false,
+      "retried": null,
+      "any_issue": false,
+      "severe": false,
+      "issue_count": 0,
+      "risk_score": 0,
+      "severity": "LOW",
+      "issue_ids": []
+    },
+    {
+      "sample": "benign-git-helper",
+      "label": "benign",
+      "category": "benign",
+      "failed": false,
+      "retried": null,
+      "any_issue": false,
+      "severe": false,
+      "issue_count": 0,
+      "risk_score": 0,
+      "severity": "LOW",
+      "issue_ids": []
+    },
+    {
+      "sample": "benign-json-formatter",
+      "label": "benign",
+      "category": "benign",
+      "failed": false,
+      "retried": null,
+      "any_issue": false,
+      "severe": false,
+      "issue_count": 0,
+      "risk_score": 0,
+      "severity": "LOW",
+      "issue_ids": []
+    },
+    {
+      "sample": "benign-test-runner",
+      "label": "benign",
+      "category": "benign",
+      "failed": false,
+      "retried": null,
+      "any_issue": false,
+      "severe": false,
+      "issue_count": 0,
+      "risk_score": 0,
+      "severity": "LOW",
+      "issue_ids": []
+    },
+    {
+      "sample": "chain-pip-untrusted",
+      "label": "malicious",
+      "category": "supply_chain",
+      "failed": false,
+      "retried": null,
+      "any_issue": true,
+      "severe": true,
+      "issue_count": 1,
+      "risk_score": 25,
+      "severity": "MEDIUM",
+      "issue_ids": [
+        "SC10"
+      ]
+    },
+    {
+      "sample": "chain-reverse-shell",
+      "label": "malicious",
+      "category": "supply_chain",
+      "failed": false,
+      "retried": null,
+      "any_issue": true,
+      "severe": true,
+      "issue_count": 1,
+      "risk_score": 42,
+      "severity": "MEDIUM",
+      "issue_ids": [
+        "YR1"
+      ]
+    },
+    {
+      "sample": "chain-runtime-download",
+      "label": "malicious",
+      "category": "supply_chain",
+      "failed": false,
+      "retried": null,
+      "any_issue": true,
+      "severe": true,
+      "issue_count": 1,
+      "risk_score": 20,
+      "severity": "LOW",
+      "issue_ids": [
+        "SC2"
+      ]
+    },
+    {
+      "sample": "exfil-curl-passwd",
+      "label": "malicious",
+      "category": "exfiltration",
+      "failed": false,
+      "retried": null,
+      "any_issue": true,
+      "severe": true,
+      "issue_count": 2,
+      "risk_score": 21,
+      "severity": "MEDIUM",
+      "issue_ids": [
+        "E1",
+        "PE3"
+      ]
+    },
+    {
+      "sample": "exfil-dns-tunnel",
+      "label": "malicious",
+      "category": "exfiltration",
+      "failed": false,
+      "retried": null,
+      "any_issue": true,
+      "severe": true,
+      "issue_count": 2,
+      "risk_score": 33,
+      "severity": "MEDIUM",
+      "issue_ids": [
+        "PE3"
+      ]
+    },
+    {
+      "sample": "exfil-env-dump",
+      "label": "malicious",
+      "category": "exfiltration",
+      "failed": false,
+      "retried": null,
+      "any_issue": false,
+      "severe": false,
+      "issue_count": 0,
+      "risk_score": 0,
+      "severity": "LOW",
+      "issue_ids": []
+    },
+    {
+      "sample": "inj-base64-payload",
+      "label": "malicious",
+      "category": "hidden_instruction",
+      "failed": false,
+      "retried": null,
+      "any_issue": true,
+      "severe": true,
+      "issue_count": 2,
+      "risk_score": 40,
+      "severity": "MEDIUM",
+      "issue_ids": [
+        "SC3",
+        "TM2"
+      ]
+    },
+    {
+      "sample": "inj-disable-audit",
+      "label": "malicious",
+      "category": "hidden_instruction",
+      "failed": false,
+      "retried": null,
+      "any_issue": false,
+      "severe": false,
+      "issue_count": 0,
+      "risk_score": 0,
+      "severity": "LOW",
+      "issue_ids": []
+    },
+    {
+      "sample": "inj-html-comment",
+      "label": "malicious",
+      "category": "hidden_instruction",
+      "failed": false,
+      "retried": null,
+      "any_issue": true,
+      "severe": true,
+      "issue_count": 3,
+      "risk_score": 60,
+      "severity": "HIGH",
+      "issue_ids": [
+        "P2",
+        "PE3",
+        "YR4"
+      ]
+    },
+    {
+      "sample": "inj-ignore-previous",
+      "label": "malicious",
+      "category": "hidden_instruction",
+      "failed": false,
+      "retried": null,
+      "any_issue": true,
+      "severe": true,
+      "issue_count": 2,
+      "risk_score": 40,
+      "severity": "MEDIUM",
+      "issue_ids": [
+        "AR1",
+        "P1"
+      ]
+    },
+    {
+      "sample": "inj-zero-width",
+      "label": "malicious",
+      "category": "hidden_instruction",
+      "failed": false,
+      "retried": null,
+      "any_issue": true,
+      "severe": true,
+      "issue_count": 4,
+      "risk_score": 65,
+      "severity": "HIGH",
+      "issue_ids": [
+        "AE4",
+        "P2",
+        "PE3",
+        "YR4"
+      ]
+    },
+    {
+      "sample": "mcp-desc-tool-poison",
+      "label": "malicious",
+      "category": "mcp_poison",
+      "failed": false,
+      "retried": null,
+      "any_issue": true,
+      "severe": true,
+      "issue_count": 1,
+      "risk_score": 22,
+      "severity": "MEDIUM",
+      "issue_ids": [
+        "PE3"
+      ]
+    },
+    {
+      "sample": "mcp-unpinned-server",
+      "label": "malicious",
+      "category": "mcp_poison",
+      "failed": false,
+      "retried": null,
+      "any_issue": true,
+      "severe": true,
+      "issue_count": 3,
+      "risk_score": 52,
+      "severity": "HIGH",
+      "issue_ids": [
+        "RP1",
+        "SC2",
+        "TM2"
+      ]
+    },
+    {
+      "sample": "priv-git-credentials",
+      "label": "malicious",
+      "category": "privilege",
+      "failed": false,
+      "retried": null,
+      "any_issue": true,
+      "severe": true,
+      "issue_count": 1,
+      "risk_score": 22,
+      "severity": "MEDIUM",
+      "issue_ids": [
+        "PE3"
+      ]
+    },
+    {
+      "sample": "priv-hardcoded-token",
+      "label": "malicious",
+      "category": "privilege",
+      "failed": false,
+      "retried": null,
+      "any_issue": false,
+      "severe": false,
+      "issue_count": 0,
+      "risk_score": 0,
+      "severity": "LOW",
+      "issue_ids": []
+    },
+    {
+      "sample": "priv-path-traversal",
+      "label": "malicious",
+      "category": "privilege",
+      "failed": false,
+      "retried": null,
+      "any_issue": true,
+      "severe": true,
+      "issue_count": 1,
+      "risk_score": 23,
+      "severity": "MEDIUM",
+      "issue_ids": [
+        "PE3"
+      ]
+    },
+    {
+      "sample": "priv-ssh-key-read",
+      "label": "malicious",
+      "category": "privilege",
+      "failed": false,
+      "retried": null,
+      "any_issue": true,
+      "severe": true,
+      "issue_count": 1,
+      "risk_score": 22,
+      "severity": "MEDIUM",
+      "issue_ids": [
+        "PE3"
+      ]
+    },
+    {
+      "sample": "priv-sudo-chmod",
+      "label": "malicious",
+      "category": "privilege",
+      "failed": false,
+      "retried": null,
+      "any_issue": true,
+      "severe": true,
+      "issue_count": 2,
+      "risk_score": 27,
+      "severity": "MEDIUM",
+      "issue_ids": [
+        "PE2",
+        "TM1"
+      ]
+    }
+  ]
+}

@@ -170,3 +170,13 @@ textarea { width: 100%; min-height: 132px; border: 1px solid #35474a; border-rad
 .actionCell select, .actionCell input { width: auto; min-width: 120px; height: 32px; font-size: 12px; }
 .actionCell button { margin-top: 0; min-height: 32px; font-size: 12px; }
 td code { font-size: 11px; }
+/* 资产台账筛选与登记表单。 */
+.filterRow { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; align-items: end; margin-bottom: 14px; }
+.filterRow label { margin-top: 0; }
+.filterActions { display: flex; align-items: end; }
+.filterActions button { margin-top: 0; }
+.inputPair { display: grid; gap: 8px; }
+.inputPair input { width: 100%; }
+#assetLedgerLinks span { color: var(--muted); font-size: 11px; }
+#assetLedgerLinks small, #runtimeSectionLinks small { display: block; margin: 3px 0 0 6px; color: var(--muted); line-height: 1.5; }
+#assetTrace { margin-top: 14px; }

@@ -20,4 +20,14 @@
 - 控制台工作台：资产中心、检测中心、风险与策略、准入安装、Incident 中心替代原「治理记录」占位页；准入每个转移、策略激活、Incident 流转都有界面入口，只读账号写操作置灰。真实 headless Chromium 走完整流程 40 项检查通过，证据见 [控制台实测](acceptance/2026-11-12-console.md)。
 - schema v7（admissions.rollback_ref、policy_versions）、contracts/policy-version.schema.json、API_CONTRACT.md 已同步。
 
-仍未完成：资产清单 API 与 Asset/AssetInstance 三态、策略版本管理的影响评估与规则编辑器、托管目录磁盘配额与清理、真实产品安装器（当前安装目标是平台托管目录，不是产品加载路径）、时间线整合 Finding/Policy Decision、真实 ASR/Utility/MTTR 指标。
+仍未完成：策略版本管理的影响评估与规则编辑器、托管目录磁盘配额与清理、真实产品安装器（当前安装目标是平台托管目录，不是产品加载路径）、真实 ASR/Utility/MTTR 指标。
+
+## 2026-11-12 资产台账进度
+
+第 5 条的资产清单与时间线整合已落地，完整回归 353 项全绿：
+
+- schema v8：`assets` / `asset_instances` / `asset_releases` / `execution_findings` 四张表；三态不建列，查询时按准入事务与执行记录现算。
+- `backend/services/asset_service.py` + `backend/api/v1.py`：登记幂等、列表筛选（含按派生值匹配的 activation_state）、追踪视图、执行↔发现项显式关联；`section_links` / `TRACE_LINKS` 把关联方式写进响应。
+- 时间线接入 finding / admission / policy_decision，`sections_pending` 清空；控制台资产中心接入台账（登记表单、筛选、追踪视图）并渲染新分段。
+- `tests/test_asset_ledger.py` 25 项：登记幂等与校验、秘密形状拒收、三态推导规则表（含真实准入往返）、追踪视图串联、权限（只读可看不可写、设备令牌 401）、v8 迁移断言（表存在、版本号为 8、asset_instances 无三态列）。
+- 真实 headless Chromium 复核资产中心与运行时间线渲染，证据见 [资产台账实测](acceptance/2026-11-12-asset-ledger.md)。

@@ -106,7 +106,17 @@ P2 第一片已实现 Audit 采集、持久游标/队列、候选归因、主机
 - 控制台工作台（`web/`，无构建）：资产中心（产品能力矩阵 + 主机与执行上下文）、检测中心、风险与策略（分维度评估 → 求值 → 决定记录、版本创建与激活）、准入安装（每次转移都有文件系统后果的按钮）、Incident 中心（状态流转与证据关联）。写操作按 govern 权限置灰，只读账号仍可查看。
 - schema v7：admissions 增 rollback_ref，新增 policy_versions 表；契约新增 policy-version.schema.json。
 
-**仍未验收：** 资产清单 API 与 Asset/AssetInstance 三态、策略版本的管理界面影响评估与规则编辑器、托管目录的磁盘配额与清理、真实 Skill/MCP 安装器（当前安装目标是平台托管目录，不是产品加载路径）、时间线整合 Finding/Policy Decision、真实 ASR/Utility/MTTR 指标。控制台实测证据见 [2026-11-12 控制台记录](docs/acceptance/2026-11-12-console.md)。
+**仍未验收：** 策略版本的管理界面影响评估与规则编辑器、托管目录的磁盘配额与清理、真实 Skill/MCP 安装器（当前安装目标是平台托管目录，不是产品加载路径）、真实 ASR/Utility/MTTR 指标。控制台实测证据见 [2026-11-12 控制台记录](docs/acceptance/2026-11-12-console.md)。
+
+## P3 第三片：资产台账与时间线整合（2026-11-12）
+
+- `backend/storage/schema.py` v8：新增 `assets` / `asset_instances` / `asset_releases` / `execution_findings` 四张表与六个索引。三态**不建列**：安装/启用/运行由查询时现算，客户端声明值进不了存储。
+- `backend/services/asset_service.py`：登记（资产/副本/内容版本）全部幂等；`installation_state` 由准入事务推导（committed/verified/reconciled → installed，failed → unknown，rolled_back 到 first_install → absent，恢复到提交前快照 → installed），`runtime_state` 由执行记录推导（有 running → running，只有已收尾 → stopped，无引用 → unknown），`activation_state` 由准入的 `product_loaded` 派生（verified/reconciled + product_loaded=True → enabled；product_loaded=False 或 rolled_back → disabled；探测不可用 → unknown，不冒充已启用）。`executions`/`admissions` 里的存量 `asset_instance_id` 是 P1 遗留自由文本，不回溯校验。
+- 追踪视图 `GET /api/v1/assets/{id}` 串联 release/instance/admission/execution/finding/policy_decision/incident，并带 `links` 逐段说明关联方式；`POST /api/v1/executions/{id}/findings` 是分析员显式登记（actor_id + note），响应标 `association: analyst_linked`。
+- 时间线接入 finding / admission / policy_decision 三个分段，`sections_pending` 清空，新增 `section_links` 说明每段怎么被匹配；控制台资产中心接入台账（登记表单、筛选、追踪视图）并渲染新分段。
+- 控制台标注：启用状态只有"产品会话确认加载"才 enabled，探测不可用记 unknown；`activation_state` 筛选按派生值匹配，非法取值返回 400 而不是静默空结果。
+
+**仍未验收：** 策略版本的管理界面影响评估与规则编辑器、托管目录的磁盘配额与清理、真实 Skill/MCP 安装器、真实 ASR/Utility/MTTR 指标、测试端 116.62.28.177 复跑核验。验收证据见 [2026-11-12 资产台账记录](docs/acceptance/2026-11-12-asset-ledger.md)。
 
 ## 后续阶段：跨平台与规模扩展
 

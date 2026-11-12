@@ -55,7 +55,7 @@
 
         <section id="assets" class="panel">
           <div class="sectionHeading"><div><p class="eyebrow">资产</p><h2>资产中心</h2></div><button id="assetsRefresh" type="button" class="textButton">刷新资产视图</button></div>
-          <p class="fieldHint">资产清单接口（<code>GET /api/v1/assets</code>）尚未实现，本页不显示安装/启用/运行三态，也不代表资产已纳管。此处只呈现已实测的产品能力矩阵、主机与执行上下文：产品能力随版本变化，未实测事件只允许 observe。</p>
+          <p class="fieldHint">资产台账（<code>GET /api/v1/assets</code>）已接入。安装状态由准入事务推导，运行状态由执行记录推导，启用状态由准入记录里产品侧的加载结论（<code>product_loaded</code>）推导，三者都按平台真正持有的证据现算；<b>目录里有文件不算已启用</b>，只有产品会话真的确认加载过才记 <code>enabled</code>，探测不可用记 <code>unknown</code> 而不是 false，客户端声明的状态一律拒绝。</p>
           <div class="tableWrap">
             <table>
               <thead><tr><th>产品 / 版本</th><th>供应商</th><th>Hook 传输</th><th>采集器</th><th>事件观测</th><th>ASGP 调用审批</th><th>可摄入</th></tr></thead>
@@ -69,6 +69,85 @@
               <tbody id="assetHostRows"></tbody>
             </table>
           </div>
+
+          <div class="sectionHeading findingHeading"><div><p class="eyebrow">台账</p><h2>已登记资产</h2></div><span id="assetLedgerCount" class="subtleText"></span></div>
+          <form id="assetFilterForm" class="filterRow">
+            <div><label for="assetFilterQuery">名称包含</label><input id="assetFilterQuery" placeholder="demo-skill" /></div>
+            <div><label for="assetFilterType">资产类型</label>
+              <select id="assetFilterType">
+                <option value="">全部</option>
+                <option value="agent">agent</option>
+                <option value="skill">skill</option>
+                <option value="mcp_server">mcp_server</option>
+                <option value="plugin">plugin</option>
+                <option value="tool">tool</option>
+              </select>
+            </div>
+            <div><label for="assetFilterInstall">安装状态</label>
+              <select id="assetFilterInstall">
+                <option value="">全部</option>
+                <option value="unknown">unknown</option>
+                <option value="installed">installed</option>
+                <option value="absent">absent</option>
+                <option value="broken">broken</option>
+              </select>
+            </div>
+            <div><label for="assetFilterRuntime">运行状态</label>
+              <select id="assetFilterRuntime">
+                <option value="">全部</option>
+                <option value="unknown">unknown</option>
+                <option value="running">running</option>
+                <option value="stopped">stopped</option>
+                <option value="idle">idle</option>
+              </select>
+            </div>
+            <div class="filterActions"><button id="assetFilterApply" class="secondaryButton" type="submit">应用筛选</button></div>
+          </form>
+          <div class="tableWrap">
+            <table>
+              <thead><tr><th>资产</th><th>类型</th><th>产品</th><th>副本</th><th>安装</th><th>启用</th><th>运行</th><th>准入 / 执行</th><th>操作</th></tr></thead>
+              <tbody id="assetLedgerRows"></tbody>
+            </table>
+          </div>
+          <p class="fieldHint" id="assetLedgerLinks"></p>
+
+          <form id="assetRegisterForm" class="panel nestedPanel">
+            <div class="sectionHeading"><h3>登记资产与副本</h3></div>
+            <div class="centerGrid">
+              <div>
+                <label for="assetType">资产类型</label>
+                <select id="assetType">
+                  <option value="skill">skill</option>
+                  <option value="mcp_server">mcp_server</option>
+                  <option value="agent">agent</option>
+                  <option value="plugin">plugin</option>
+                  <option value="tool">tool</option>
+                </select>
+                <label for="assetName">规范名称</label>
+                <input id="assetName" placeholder="demo-skill" required />
+                <label for="assetProduct">产品（可选）</label>
+                <input id="assetProduct" placeholder="claude-code" />
+                <label for="assetPublisher">发布方（可选）</label>
+                <input id="assetPublisher" placeholder="acme" />
+              </div>
+              <div>
+                <label for="assetHost">主机 ID</label>
+                <input id="assetHost" placeholder="host_lab" required />
+                <label for="assetScope">产品作用域</label>
+                <input id="assetScope" placeholder="claude-code" value="claude-code" required />
+                <label for="assetInstallPath">安装路径（可选）</label>
+                <input id="assetInstallPath" placeholder="~/.claude/skills/demo" />
+                <label for="assetVersion">内容版本与哈希（可选）</label>
+                <div class="inputPair">
+                  <input id="assetVersion" placeholder="1.0.0" />
+                  <input id="assetHash" placeholder="sha256（64 位小写十六进制）" />
+                </div>
+              </div>
+            </div>
+            <button id="assetRegisterSubmit" class="primaryButton" type="submit">登记</button>
+            <p class="fieldHint">同名同类型同产品的逻辑资产只登记一次，重复登记返回原记录；副本按（资产，主机，产品作用域）去重。三态不在表单里：平台只记录自己持有的证据。</p>
+          </form>
+          <div id="assetTrace" class="recordList"></div>
         </section>
 
         <section id="detections" class="panel">
@@ -96,6 +175,7 @@
           <select id="runtimeExecution"></select>
           <p id="runtimeEmpty" class="fieldHint">暂无上报执行。请在已登记的测试设备运行 Agent 后刷新。</p>
           <p id="runtimeBoundary" class="fieldHint">展示 Hook 观测；行为归因和治理闭环尚未接入。</p>
+          <p id="runtimeSectionLinks" class="fieldHint"></p>
           <ol id="runtimeEntries" class="runtimeEntries"></ol>
           <button id="runtimeMore" type="button" class="textButton" hidden>加载更多</button>
         </section>

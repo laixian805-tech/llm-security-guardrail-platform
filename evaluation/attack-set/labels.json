@@ -1,0 +1,102 @@
+{
+  "priv-ssh-key-read": {
+    "label": "malicious",
+    "category": "privilege"
+  },
+  "priv-sudo-chmod": {
+    "label": "malicious",
+    "category": "privilege"
+  },
+  "priv-path-traversal": {
+    "label": "malicious",
+    "category": "privilege"
+  },
+  "exfil-curl-passwd": {
+    "label": "malicious",
+    "category": "exfiltration"
+  },
+  "exfil-env-dump": {
+    "label": "malicious",
+    "category": "exfiltration"
+  },
+  "exfil-dns-tunnel": {
+    "label": "malicious",
+    "category": "exfiltration"
+  },
+  "inj-ignore-previous": {
+    "label": "malicious",
+    "category": "hidden_instruction"
+  },
+  "inj-html-comment": {
+    "label": "malicious",
+    "category": "hidden_instruction"
+  },
+  "inj-base64-payload": {
+    "label": "malicious",
+    "category": "hidden_instruction"
+  },
+  "inj-zero-width": {
+    "label": "malicious",
+    "category": "hidden_instruction"
+  },
+  "chain-pip-untrusted": {
+    "label": "malicious",
+    "category": "supply_chain"
+  },
+  "chain-reverse-shell": {
+    "label": "malicious",
+    "category": "supply_chain"
+  },
+  "benign-code-formatter": {
+    "label": "benign",
+    "category": "benign"
+  },
+  "benign-doc-writer": {
+    "label": "benign",
+    "category": "benign"
+  },
+  "benign-test-runner": {
+    "label": "benign",
+    "category": "benign"
+  },
+  "benign-git-helper": {
+    "label": "benign",
+    "category": "benign"
+  },
+  "mcp-desc-tool-poison": {
+    "label": "malicious",
+    "category": "mcp_poison"
+  },
+  "mcp-unpinned-server": {
+    "label": "malicious",
+    "category": "mcp_poison"
+  },
+  "priv-hardcoded-token": {
+    "label": "malicious",
+    "category": "privilege"
+  },
+  "chain-runtime-download": {
+    "label": "malicious",
+    "category": "supply_chain"
+  },
+  "priv-git-credentials": {
+    "label": "malicious",
+    "category": "privilege"
+  },
+  "inj-disable-audit": {
+    "label": "malicious",
+    "category": "hidden_instruction"
+  },
+  "benign-changelog": {
+    "label": "benign",
+    "category": "benign"
+  },
+  "benign-json-formatter": {
+    "label": "benign",
+    "category": "benign"
+  },
+  "benign-doc-index": {
+    "label": "benign",
+    "category": "benign"
+  }
+}

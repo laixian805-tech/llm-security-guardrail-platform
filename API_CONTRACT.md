@@ -1,6 +1,6 @@
 # ASGP API 契约草案
 
-**状态：P0 原型 API + P1 执行上下文接口已实现；其余为目标契约。** `/api/v1/products`、executions/intents/runtime-events/timeline 已落地，资产/策略/准入/Incident 尚未实现。当前原型端点列在文末。
+**状态：P0 原型 API + P1 执行上下文 + 资产台账/治理接口已实现；其余为目标契约。** `/api/v1/products`、executions/intents/runtime-events/timeline、assets/asset-instances/asset-releases 已落地，`/api/v1/assets/inventory` 等目标端点仍未实现。当前原型端点列在文末。
 
 ## 1. 通用约定
 
@@ -87,7 +87,7 @@
 
 ### `GET /api/v1/assets`
 
-按 `asset_type`、`product`、`host_id`、`installation_state`、`activation_state`、`runtime_state`、`provenance` 和 risk level 筛选。
+按 `asset_type`、`product`、`host_id`、`installation_state`、`runtime_state`、`activation_state`、`provenance` 和 `query`（名称包含）筛选。已落地，见 §11；返回的 installation/runtime 是派生值。`host_id` 是资产级条件：该资产在指定主机上没有副本就不出现在结果里，只收窄 instances 而照样返回资产会把"这台主机上有什么"显示成"全部资产"。
 
 ### `POST /api/v1/scans`
 
@@ -144,7 +144,7 @@
 
 ### `GET /api/v1/executions/{execution_id}/timeline`
 
-返回 Intent、Runtime Event、Attribution、Finding 和 Policy Decision 按时间排序的调查视图。每条 Attribution 显示 `method`、`confidence` 和 `evidence_refs`。
+返回 Intent、Runtime Event、Attribution、Finding、Policy Decision 和 Admission 按时间排序的调查视图。每条 Attribution 显示 `method`、`confidence` 和 `evidence_refs`。响应带 `sections_supported` / `sections_pending` / `section_links`，逐段说明该分段是怎么被关联进来的；当前 attribution/finding/policy_decision/admission 均已接入，见 §11。
 
 ## 5. 决策与治理
 
@@ -220,11 +220,11 @@ Batch 顶层 collector_id/events，可带 host_id（忽略）；事件包含 eve
 
 版本化错误为 `{error: {code, request_id}}`；鉴权错误沿用 P0 的字符串 error + request_id。状态包括 400 invalid_payload/suspected_secret_parameter/unsupported_decision，401 无效凭据，403 吊销，404 unknown_execution，409 host_unbound/execution_id_conflict/intent_id_conflict，503 v1_disabled。错误和审计不回显提交值。`ASGP_V1_ENABLED=0` 只关闭 /api/v1。
 
-Timeline 永久显式列出 sections_pending 中的 attribution/finding/policy_decision；attribution_supported=false。当前产品验证不跨版本继承；Intent 的 decision 不是 EnforcementEvidence。P1 设备端的参数值省略/本地哈希并不等于扫描报告原文禁止存储，原始扫描报告仍按 P0 权限独立复核。
+Timeline 永久显式列出 sections_pending；P1 当时 attribution/finding/policy_decision 都还在该列表里，§11 接入后为空。当前产品验证不跨版本继承；Intent 的 decision 不是 EnforcementEvidence。P1 设备端的参数值省略/本地哈希并不等于扫描报告原文禁止存储，原始扫描报告仍按 P0 权限独立复核。
 
 ## 9. P1 审批修复与 P2/P3 首片接口
 
-当前 schema v6。以下接口已实现；所有写入默认需要 govern 权限（operator/admin），只读需要控制台 read；唯有 approval-requests 的创建设备请求/查询自身请求走独立设备令牌。
+当前 schema v8。以下接口已实现；所有写入默认需要 govern 权限（operator/admin），只读需要控制台 read；唯有 approval-requests 的创建设备请求/查询自身请求走独立设备令牌。
 
 | 方法 | 路径 | 行为 |
 | --- | --- | --- |
@@ -254,7 +254,7 @@ Timeline 永久显式列出 sections_pending 中的 attribution/finding/policy_d
 | PATCH | `/api/v1/incidents/{id}` | 校验状态机；真实风险关闭需匹配检测器/目标且工单开启后的 clean 复测证据 |
 | POST | `/api/v1/incidents/{id}/evidence` | 关联存在的 Finding/Execution/Attribution/复测 DetectorRun |
 
-设备申请审批不上传原始命令；审批批准不会生成 EnforcementEvidence。产品矩阵新增 mediated_approval_supported/protocol，将平台审批与产品原生能力区分。时间线现支持 attributions 并包含经候选边关联的主机事件，finding/policy_decision 仍列为未整合部分；未归因原始事件留在主机查询中。
+设备申请审批不上传原始命令；审批批准不会生成 EnforcementEvidence。产品矩阵新增 mediated_approval_supported/protocol，将平台审批与产品原生能力区分。时间线现支持 attributions 并包含经候选边关联的主机事件，finding/policy_decision 当时仍列为未整合部分（§11 接入后 sections_pending 为空）；未归因原始事件留在主机查询中。
 
 ## 10. 控制台工作台（2026-11-12）
 
@@ -262,10 +262,35 @@ Timeline 永久显式列出 sections_pending 中的 attribution/finding/policy_d
 
 | 视图 | 数据与操作 |
 | --- | --- |
-| 资产中心 | `GET /api/v1/products` 能力矩阵（按版本展示事件观测等级、每类 Hook 能力、ASGP 审批可用性）+ `GET /api/v1/executions` 的主机/执行聚合；不显示安装/启用/运行三态 |
+| 资产中心 | `GET /api/v1/products` 能力矩阵（按版本展示事件观测等级、每类 Hook 能力、ASGP 审批可用性）+ `GET /api/v1/executions` 的主机/执行聚合 + `GET /api/v1/assets` 台账（登记表单、筛选、追踪视图），见 §11 |
 | 检测中心 | `/api/scans`、`/api/scans/{id}` 的归一化发现项；可作为风险评估证据 |
 | 风险与策略 | 创建风险评估（finding_ids / event_ids / 声明 exposure）、`policies/evaluate`、活跃版本与版本列表、草稿创建与原子激活 |
 | 准入安装 | `admissions/check` 创建；按状态给出 批准 / 暂存（需填 inbound 下相对路径）/ 提交 / 校验 / 复核 / 回滚 按钮 |
 | Incident 中心 | `incidents` 创建、按服务端转移表给出的下一个状态、`incidents/{id}/evidence` 关联证据 |
 
 写操作统一要求 govern 权限（operator/admin），只读账号按钮置灰但列表仍可查看。界面固定标注：策略决定不是执行回执、托管目录是平台自己的包管理存储而非产品加载路径、关闭 Incident 需要 clean 复测 DetectorRun 证据。
+
+## 11. 资产台账与时间线分段（schema v8，2026-11-12）
+
+台账只登记平台自己持有的证据。安装/启用/运行三态**不落库**：每次查询时按准入事务和执行记录现算，客户端声明的状态一律拒绝，否则"看起来已安装"会被当成已安装。
+
+| 方法 | 路径 | 行为 |
+| --- | --- | --- |
+| POST | `/api/v1/assets` | 登记逻辑资产；asset_type/canonical_name 必填，可选 product/publisher/namespace/provenance。同名同类型同产品幂等，返回 `{asset, duplicate}` |
+| POST | `/api/v1/asset-instances` | 登记（asset_id, host_id, product_scope）副本，可选 install_path。重复登记只补空 install_path 并刷新 last_seen_at，不分裂出第二个副本 |
+| POST | `/api/v1/asset-releases` | 登记内容版本：version + 64 位小写十六进制 content_hash，可选 source_uri/signature_verified/published_at |
+| GET | `/api/v1/assets` | 台账列表；每项含 asset、instances（副本 + 派生三态 + admission_count/execution_count）和 links |
+| GET | `/api/v1/assets/{asset_id}` | 追踪视图：asset/releases/instances/admissions/executions/findings/policy_decisions/incidents/links；未知 asset 返回 404 |
+| POST | `/api/v1/executions/{id}/findings` | 分析员显式关联执行与发现项，记 actor_id 和 note；响应带 `association: "analyst_linked"` |
+
+三态推导规则（写进测试的规则表，不是口头约定）：
+
+- `installation_state`：准入事务里出现 committed/verified/reconciled 记 `installed`；failed 记 `unknown`（不重新 verify 说不清磁盘上是什么）；rolled_back 到 `first_install` 记 `absent`，恢复到提交前快照记 `installed`；只有 check/approved/staged 或没有任何事务时记 `unknown`。
+- `runtime_state`：存在 outcome=running 的执行记 `running`，只有已收尾执行记 `stopped`，从未被任何执行引用记 `unknown`。
+- `activation_state`：按最近一次带 `product_id` 的准入事务派生。事务已 verify/reconcile 且 `product_loaded=True`（产品会话真的认识这个包）才记 `enabled`；rolled_back、failed 或 `product_loaded=False` 记 `disabled`；没有带 product_id 的事务、事务尚未 verify、或产品探测不可用（无 CLI/超时/缺凭据，`product_loaded=None`）一律记 `unknown`。目录里有文件不算激活，探测不可用不冒充已启用。客户端提交该字段返回 400。
+
+列表的 `installation_state` / `runtime_state` / `activation_state` 筛选都按派生值匹配，且不与 `host_id` 组合时悄悄忽略：资产在该主机没有副本即整体出局。`activation_state=enabled/disabled` 需要真实产品加载证据，没有这类证据时是空结果而不是全量——参数不被悄悄忽略，否则界面会把"没有已启用的资产"显示成"全部资产"。
+
+关联方式必须在响应里可见：列表和追踪视图都带 `links`，时间线带 `section_links`，逐段说明 finding 是分析员显式登记、policy_decision 按 subject_id 字符串匹配、admission 按 `admissions.asset_instance_id` 匹配（P1 遗留自由文本，无外键）。executions/admissions 里的存量 `asset_instance_id` 不回溯校验：查得到就呈现，查不到按未登记处理。
+
+时间线 `sections_supported` 现为 intent/runtime_event/attribution/finding/policy_decision/admission，`sections_pending` 为空。
