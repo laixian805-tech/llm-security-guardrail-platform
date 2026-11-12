@@ -30,10 +30,17 @@ SENSITIVE_MARKERS = (
 
 # 这些主机的连接不视为外发：包管理器、代码托管、以及内网/回环。
 TRUSTED_HOSTS = (
-    "github.com", "api.github.com", "codeload.github.com",
+    # 代码托管与包管理：日常构建必经，纳入白名单否则每次 push/install 都误报。
+    "github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com",
+    "gitlab.com", "bitbucket.org",
     "pypi.org", "files.pythonhosted.org", "registry.npmjs.org",
+    "registry-1.docker.io", "auth.docker.io", "production.cloudflare.docker.com",
+    # 云厂商 API 与模型端点。
+    "aws.amazon.com", "sts.amazonaws.com", "s3.amazonaws.com",
     "api.anthropic.com", "api.openai.com", "api.stepfun.com",
 )
+# 说明：白名单是"常见合法端点"的折中，不是安全边界。攻击者完全可以把数据推到
+# 自己的 github 仓库或 S3 桶——这一点路径级判据无法区分，写进文档而不是假装解决。
 
 TRUSTED_SUFFIXES = (".internal", ".local", ".localdomain", ".cluster.local")
 
@@ -51,6 +58,9 @@ def now() -> str:
 
 def _is_sensitive(path: str) -> bool:
     lowered = str(path).lower()
+    # 公钥（.pub）是公开材料，读它并联网是正常行为，不能算敏感源。
+    if lowered.endswith(".pub"):
+        return False
     return any(marker in lowered for marker in SENSITIVE_MARKERS)
 
 

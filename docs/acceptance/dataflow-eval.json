@@ -1,64 +1,164 @@
 {
  "version": "dataflow-v1",
- "scenarios": 8,
- "malicious": 4,
- "benign": 4,
- "tp": 4,
+ "scenarios": 30,
+ "malicious": 15,
+ "benign": 15,
+ "tp": 15,
  "fn": 0,
  "fp": 0,
- "tn": 4,
+ "tn": 15,
  "detection_rate": 1.0,
  "false_positive_rate": 0.0,
  "rows": [
   {
-   "scenario": "mal-ssh-key-relay",
+   "scenario": "mal-ssh-rsa-direct",
+   "label": "malicious",
+   "expected": 1,
+   "detected": 1,
+   "verdict": "TP",
+   "confidence": "low",
+   "sink": "45.33.32.156",
+   "why": "读 RSA 私钥后直连陌生地址"
+  },
+  {
+   "scenario": "mal-ssh-ed25519-stage",
    "label": "malicious",
    "expected": 1,
    "detected": 1,
    "verdict": "TP",
    "confidence": "medium",
    "sink": "45.33.32.156",
-   "why": "读私钥 → 落到临时文件 → 连外部地址"
+   "why": "读 ed25519 私钥 → 落临时文件 → 外连"
   },
   {
-   "scenario": "mal-env-direct",
+   "scenario": "mal-ssh-ecdsa-archive",
+   "label": "malicious",
+   "expected": 1,
+   "detected": 1,
+   "verdict": "TP",
+   "confidence": "medium",
+   "sink": "104.21.14.9",
+   "why": "读 ecdsa 私钥 → 压缩 → 外连"
+  },
+  {
+   "scenario": "mal-aws-credentials",
    "label": "malicious",
    "expected": 1,
    "detected": 1,
    "verdict": "TP",
    "confidence": "low",
    "sink": "93.184.216.34",
-   "why": "读 .env 后直接外连（无中转，置信度低但仍是链）"
+   "why": "AWS 长期凭证外带"
   },
   {
-   "scenario": "mal-cookie-archive",
-   "label": "malicious",
-   "expected": 1,
-   "detected": 2,
-   "verdict": "TP",
-   "confidence": "low",
-   "sink": "104.21.14.9",
-   "why": "读浏览器 cookie → 压缩 → 外连"
-  },
-  {
-   "scenario": "mal-git-credential",
+   "scenario": "mal-kube-config",
    "label": "malicious",
    "expected": 1,
    "detected": 1,
    "verdict": "TP",
    "confidence": "low",
    "sink": "evil.example.net",
-   "why": "读 git 凭证后连陌生主机"
+   "why": "集群凭证外带（目标不在内网段）"
   },
   {
-   "scenario": "benign-config-local",
-   "label": "benign",
-   "expected": 0,
-   "detected": 0,
-   "verdict": "TN",
-   "confidence": null,
-   "sink": null,
-   "why": "读配置但只在本地用，没有任何外部连接"
+   "scenario": "mal-docker-config",
+   "label": "malicious",
+   "expected": 1,
+   "detected": 1,
+   "verdict": "TP",
+   "confidence": "low",
+   "sink": "45.33.32.156",
+   "why": "镜像仓库凭证外带"
+  },
+  {
+   "scenario": "mal-npmrc",
+   "label": "malicious",
+   "expected": 1,
+   "detected": 1,
+   "verdict": "TP",
+   "confidence": "low",
+   "sink": "93.184.216.34",
+   "why": "npm token 外带"
+  },
+  {
+   "scenario": "mal-pypirc",
+   "label": "malicious",
+   "expected": 1,
+   "detected": 1,
+   "verdict": "TP",
+   "confidence": "low",
+   "sink": "104.21.14.9",
+   "why": "PyPI 上传凭证外带"
+  },
+  {
+   "scenario": "mal-git-credentials",
+   "label": "malicious",
+   "expected": 1,
+   "detected": 1,
+   "verdict": "TP",
+   "confidence": "low",
+   "sink": "evil.example.net",
+   "why": "git 明文凭证外带"
+  },
+  {
+   "scenario": "mal-dotenv-stage",
+   "label": "malicious",
+   "expected": 1,
+   "detected": 1,
+   "verdict": "TP",
+   "confidence": "medium",
+   "sink": "45.33.32.156",
+   "why": "项目 .env → 临时文件 → 外连"
+  },
+  {
+   "scenario": "mal-cookies-archive",
+   "label": "malicious",
+   "expected": 1,
+   "detected": 1,
+   "verdict": "TP",
+   "confidence": "medium",
+   "sink": "104.21.14.9",
+   "why": "浏览器 Cookie 库 → 压缩 → 外连"
+  },
+  {
+   "scenario": "mal-login-data",
+   "label": "malicious",
+   "expected": 1,
+   "detected": 1,
+   "verdict": "TP",
+   "confidence": "low",
+   "sink": "93.184.216.34",
+   "why": "浏览器保存的密码库外带"
+  },
+  {
+   "scenario": "mal-wallet",
+   "label": "malicious",
+   "expected": 1,
+   "detected": 1,
+   "verdict": "TP",
+   "confidence": "low",
+   "sink": "45.33.32.156",
+   "why": "钱包文件外带"
+  },
+  {
+   "scenario": "mal-multi-source",
+   "label": "malicious",
+   "expected": 1,
+   "detected": 2,
+   "verdict": "TP",
+   "confidence": "low",
+   "sink": "evil.example.net",
+   "why": "一次会话同时带走私钥与 .env（应产出多条链）"
+  },
+  {
+   "scenario": "mal-base64-relay",
+   "label": "malicious",
+   "expected": 1,
+   "detected": 1,
+   "verdict": "TP",
+   "confidence": "low",
+   "sink": "104.21.14.9",
+   "why": "编码中转后再外连"
   },
   {
    "scenario": "benign-ssh-git-push",
@@ -68,7 +168,117 @@
    "verdict": "TN",
    "confidence": null,
    "sink": null,
-   "why": "读私钥 + git push 到 github（每个开发者每天都在做）—— 关键负样本"
+   "why": "读私钥 + git push github，开发者日常"
+  },
+  {
+   "scenario": "benign-ssh-internal",
+   "label": "benign",
+   "expected": 0,
+   "detected": 0,
+   "verdict": "TN",
+   "confidence": null,
+   "sink": null,
+   "why": "读私钥后 ssh 到内网服务器"
+  },
+  {
+   "scenario": "benign-env-no-network",
+   "label": "benign",
+   "expected": 0,
+   "detected": 0,
+   "verdict": "TN",
+   "confidence": null,
+   "sink": null,
+   "why": "读 .env 只在本地跑测试"
+  },
+  {
+   "scenario": "benign-env-internal-db",
+   "label": "benign",
+   "expected": 0,
+   "detected": 0,
+   "verdict": "TN",
+   "confidence": null,
+   "sink": null,
+   "why": "读 .env 连内网数据库"
+  },
+  {
+   "scenario": "benign-kube-internal",
+   "label": "benign",
+   "expected": 0,
+   "detected": 0,
+   "verdict": "TN",
+   "confidence": null,
+   "sink": null,
+   "why": "读 kube config 连集群内网 API"
+  },
+  {
+   "scenario": "benign-npm-install",
+   "label": "benign",
+   "expected": 0,
+   "detected": 0,
+   "verdict": "TN",
+   "confidence": null,
+   "sink": null,
+   "why": "读 .npmrc 后安装依赖"
+  },
+  {
+   "scenario": "benign-pypi-upload",
+   "label": "benign",
+   "expected": 0,
+   "detected": 0,
+   "verdict": "TN",
+   "confidence": null,
+   "sink": null,
+   "why": "读 .pypirc 后 twine 上传"
+  },
+  {
+   "scenario": "benign-aws-api",
+   "label": "benign",
+   "expected": 0,
+   "detected": 0,
+   "verdict": "TN",
+   "confidence": null,
+   "sink": null,
+   "why": "读 AWS 凭证后调用官方 API"
+  },
+  {
+   "scenario": "benign-docker-pull",
+   "label": "benign",
+   "expected": 0,
+   "detected": 0,
+   "verdict": "TN",
+   "confidence": null,
+   "sink": null,
+   "why": "读 docker 凭证后拉镜像"
+  },
+  {
+   "scenario": "benign-localhost",
+   "label": "benign",
+   "expected": 0,
+   "detected": 0,
+   "verdict": "TN",
+   "confidence": null,
+   "sink": null,
+   "why": "读配置后连本地服务"
+  },
+  {
+   "scenario": "benign-public-file",
+   "label": "benign",
+   "expected": 0,
+   "detected": 0,
+   "verdict": "TN",
+   "confidence": null,
+   "sink": null,
+   "why": "读 /etc/hosts（非敏感）后外连"
+  },
+  {
+   "scenario": "benign-readme",
+   "label": "benign",
+   "expected": 0,
+   "detected": 0,
+   "verdict": "TN",
+   "confidence": null,
+   "sink": null,
+   "why": "读 README 后访问官网"
   },
   {
    "scenario": "benign-env-to-log",
@@ -81,14 +291,24 @@
    "why": "读 .env 写日志，不外发"
   },
   {
-   "scenario": "benign-internal-service",
+   "scenario": "benign-public-key",
    "label": "benign",
    "expected": 0,
    "detected": 0,
    "verdict": "TN",
    "confidence": null,
    "sink": null,
-   "why": "读文件后连内网服务（10.0.0.0/8）"
+   "why": "读公钥（.pub）并联网：公钥是公开材料"
+  },
+  {
+   "scenario": "benign-gitlab-push",
+   "label": "benign",
+   "expected": 0,
+   "detected": 0,
+   "verdict": "TN",
+   "confidence": null,
+   "sink": null,
+   "why": "读私钥 + push 到 gitlab"
   }
  ]
 }

@@ -42,6 +42,54 @@
       ],
       "title": "EvidenceRef",
       "type": "object"
+    },
+    "RiskDimension": {
+      "additionalProperties": false,
+      "description": "一个风险维度的得分及其计算依据。\n\n为什么必须有这个结构：原来三个维度只有三个浮点数，\"Intrinsic 为什么是\n95\"答不出来——查表得来的数字和算出来的数字在库里长得一样。confidence\n由证据充分度计算，不是人工填写：没有证据的维度记 UNKNOWN 而不是 0，\n否则\"没测\"会被读成\"没有风险\"。",
+      "properties": {
+        "basis": {
+          "default": "",
+          "maxLength": 2048,
+          "title": "Basis",
+          "type": "string"
+        },
+        "confidence": {
+          "$ref": "#/$defs/Confidence",
+          "default": "unknown"
+        },
+        "dimension": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Dimension",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "rule_version": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Rule Version",
+          "type": "string"
+        },
+        "score": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Score",
+          "type": "number"
+        }
+      },
+      "required": [
+        "dimension",
+        "score",
+        "rule_version"
+      ],
+      "title": "RiskDimension",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -71,6 +119,14 @@
       "format": "date-time",
       "title": "Created At",
       "type": "string"
+    },
+    "dimensions": {
+      "items": {
+        "$ref": "#/$defs/RiskDimension"
+      },
+      "maxItems": 8,
+      "title": "Dimensions",
+      "type": "array"
     },
     "evidence_refs": {
       "items": {

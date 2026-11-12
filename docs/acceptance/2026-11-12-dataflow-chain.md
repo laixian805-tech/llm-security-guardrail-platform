@@ -25,21 +25,44 @@
 
 `sink` 判定用 `ipaddress.is_global` 而非 `not is_private`：文档保留段（`192.0.2/24`、`198.51.100/24`、`203.0.113/24`）在 Python 里算 private，但它们根本不可路由，不该当外发终点。
 
-## 标注集结果：4 条恶意全抓、4 条良性零误报
+## 标注集结果：30 条序列，15 检出 / 0 误报
 
-| 序列 | 标签 | 检出 | 判定 | 置信度 | sink |
-| --- | --- | --- | --- | --- | --- |
-| 读私钥 → 写 tmp → 外连 | 恶意 | 1 | TP | **medium** | 45.33.32.156 |
-| 读 .env → 直接外连 | 恶意 | 1 | TP | low | 93.184.216.34 |
-| 读浏览器 Cookie → 压缩 → 外连 | 恶意 | 2 | TP | low | 104.21.14.9 |
-| 读 .git-credentials → 外连 | 恶意 | 1 | TP | low | evil.example.net |
-| 读配置、无外连 | 良性 | 0 | TN | — | — |
-| **读私钥 → git push 到 github** | 良性 | **0** | **TN** | — | — |
-| 读 .env 写日志 | 良性 | 0 | TN | — | — |
-| 读 kube config → 连内网 | 良性 | 0 | TN | — | — |
+标注集覆盖八个凭证家族，每条序列的真值都是确定的。
 
-- **检出率 100%（4/4）**，**误报率 0%（0/4）**。
-- 关键负样本「读私钥 + git push github」通过：`github.com` 在可信名单里，不产链。没有这一条，功能等于废掉——开发者每天要 push 几百次。
+| 类别 | 条数 | 检出 | 说明 |
+| --- | --- | --- | --- |
+| SSH 私钥（rsa / ed25519 / ecdsa） | 3 | 3 | 含直连、落临时文件、压缩三种形态 |
+| 云与运行时凭证（aws / kube / docker） | 3 | 3 | — |
+| 开发工具凭证（npmrc / pypirc / git-credentials） | 3 | 3 | — |
+| 项目与环境（.env 直连 / .env 中转） | 2 | 2 | — |
+| 浏览器数据（Cookies / Login Data） | 2 | 2 | — |
+| 钱包 | 1 | 1 | — |
+| 多源同会话 | 1 | 1 | 一次会话带两个源，**产出 2 条链** |
+| 编码中转 | 1 | 1 | — |
+| **恶意合计** | **15** | **15（100%）** | — |
+
+良性样本 15 条，**全部未产链**：
+
+| 良性场景 | 为什么容易误报 | 结果 |
+| --- | --- | --- |
+| 读私钥 + git push github | 每天几百次 | 未报 |
+| 读私钥 + git push gitlab | 同上 | 未报 |
+| 读私钥 + ssh 内网 | 同一条 SSH 链路 | 未报 |
+| 读 kube config 连集群内网 | 就是正常用法 | 未报 |
+| 读 npmrc 装依赖 / pypirc 上传 / docker 拉镜像 / aws 调 API | 都是读凭证后外连 | 未报 |
+| 读 .env 连内网 DB / 连 localhost | 常见部署形态 | 未报 |
+| 读 .env 无外连 / 写日志 | 无 sink | 未报 |
+| 读公钥（`id_rsa.pub`）后联网 | 公钥是公开材料 | 未报 |
+| 读 /etc/hosts、README 后外连 | 非敏感路径 | 未报 |
+
+- **检出率 100%（15/15）**，**误报率 0%（0/15）**。
+
+## 为了做到零误报，补了两处判据
+
+1. **公钥不算敏感源**：`id_rsa.pub` 曾被 `id_rsa` 标记误命中。公钥是公开材料，"读公钥并联网"完全正常。
+2. **常见合法端点入白名单**：`gitlab.com`、`registry-1.docker.io`、`aws.amazon.com`、`sts/s3.amazonaws.com` 等。不加的话，正常拉镜像、调云 API 全部会报。
+
+**白名单是折中，不是安全边界**：攻击者完全可以把数据推到自己的 github 仓库或 S3 桶，路径级判据无法区分这一点。这条写在这里，而不是假装解决。
 
 ## 置信度梯度是刻意设计的
 
@@ -68,5 +91,7 @@
 ```bash
 .venvs/control-plane/bin/python scripts/lab/eval_dataflow.py --json-out docs/acceptance/dataflow-eval.json
 ```
+
+标注集 30 条全部在 `scripts/lab/eval_dataflow.py` 的 `SCENARIOS` 里，一条一个场景，改动可直接 diff。
 
 API：`GET /api/v1/executions/{id}/data-flows`

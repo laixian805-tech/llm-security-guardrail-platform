@@ -28,8 +28,11 @@ from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-CODE_DIRS = ("backend", "endpoint", "scripts")
+# 生产代码。scripts/ 下的实验室脚本会构造 fixture（如 detector_version），
+# 那是被测数据不是真值来源，扫进来只会制造噪音。
+CODE_DIRS = ("backend", "endpoint")
 TEST_DIRS = ("tests",)
+LAB_DIRS = ("scripts",)
 
 CONSTANT = re.compile(r'^([A-Z][A-Z0-9_]*(?:VERSION|_VERSION))\s*=\s*["\']([^"\']+)["\']')
 VERSION_LITERAL = re.compile(r'["\'](\d+\.\d+(?:\.\d+)?)["\']')
