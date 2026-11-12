@@ -75,6 +75,39 @@ class PolicyService:
                                         model.status.value, "active", actor_id, "activate")
         return self.get(policy_version)
 
+    def rollback(self, policy_version: str, actor_id: str, reason: str | None) -> PolicyRuleSet:
+        """回滚到某个历史版本（含 retired）。
+
+        ``activate`` 只允许 draft → active，是"启用新版本"的语义；把 retired
+        版本也放进去会让"废弃"失去意义。但线上误激活一个激进版本时必须有退路，
+        所以单开一条：允许 retired → active，代价是**必须写清回滚原因**，并在
+        迁移记录里用 ``rollback`` 与普通 ``activate`` 区分开，事后能查到是谁、
+        为什么退回去。
+        """
+        model = self.get(policy_version)
+        if not model:
+            raise IngestError("unknown_policy_version", 404)
+        if not isinstance(reason, str) or not reason.strip():
+            raise IngestError("rollback_reason_required", 400)
+        if model.status is PolicyStatus.ACTIVE:
+            # 已经是活跃版本：幂等返回，不重复写迁移记录。
+            return model
+        stamp = NOW().isoformat()
+        with self.storage._lock, self.storage.connection() as c:
+            current = c.execute("SELECT policy_version FROM policy_versions WHERE status='active'").fetchone()
+            if current and current["policy_version"] != policy_version:
+                c.execute("UPDATE policy_versions SET status='retired', retired_at=? WHERE policy_version=?",
+                          (stamp, current["policy_version"]))
+                self.repo.record_transition(c, "policy_versions", current["policy_version"],
+                                            "active", "retired", actor_id, "rollback_other")
+            # retired_at 必须清掉，否则会出现 active 且 retired_at 非空的矛盾状态。
+            c.execute("UPDATE policy_versions SET status='active', activated_at=?, retired_at=NULL"
+                      " WHERE policy_version=?", (stamp, policy_version))
+            self.repo.record_transition(c, "policy_versions", policy_version,
+                                        model.status.value, "active", actor_id, "rollback",
+                                        {"reason": reason.strip()})
+        return self.get(policy_version)
+
     def evaluate(self, assessment, subject_kind: str, subject_id: str) -> PolicyDecision:
         version = self.active()
         if version is None:

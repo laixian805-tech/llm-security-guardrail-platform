@@ -50,10 +50,15 @@ class GovernanceRepository:
             c.execute(f'INSERT INTO {table} ({",".join(data)}) VALUES ({",".join("?" for _ in data)})',list(data.values()))
         return model
 
-    def record_transition(self, conn, entity_kind, entity_id, from_state, to_state, actor_id, action):
-        """在同一连接内追加状态日志；调用方负责它所属的 UPDATE。"""
-        conn.execute('INSERT INTO governance_transitions (entity_kind,entity_id,from_state,to_state,actor_id,action,occurred_at) VALUES (?,?,?,?,?,?,?)',
-            (entity_kind,entity_id,from_state,to_state,actor_id,action,datetime.now(timezone.utc).isoformat()))
+    def record_transition(self, conn, entity_kind, entity_id, from_state, to_state, actor_id, action, detail=None):
+        """在同一连接内追加状态日志；调用方负责它所属的 UPDATE。
+
+        detail 用于记录"为什么"（回滚原因、驳回理由）。只记 from/to 的审计
+        在复盘时回答不了动机，而回滚恰恰是最需要解释的动作。
+        """
+        conn.execute('INSERT INTO governance_transitions (entity_kind,entity_id,from_state,to_state,actor_id,action,occurred_at,detail) VALUES (?,?,?,?,?,?,?,?)',
+            (entity_kind,entity_id,from_state,to_state,actor_id,action,datetime.now(timezone.utc).isoformat(),
+             json.dumps(detail, ensure_ascii=False) if detail else None))
 
     def transition(self, model, *, previous, actor_id, action):
         cls=type(model);table=TABLES[cls];key=KEYS[cls];identifier=getattr(model,key)

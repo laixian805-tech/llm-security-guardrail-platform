@@ -147,7 +147,7 @@ check → approve → stage → commit → verify → reconcile
 | 运行时采集 | 完成 | Linux Audit + 本地 outbox + 断网补传（断隧道 4 条 pending，恢复全部 sent） |
 | 行为归因 | 首片 + 已有指标 | Hook ID / 进程树 / 资源时间弱关联；8 场景标注集上 selected 精度 1.00、召回 0.71（含弱候选召回 1.00），负样本零误归 |
 | 准入安装 | 完成 | 平台托管 + 产品真实加载路径，端侧探测回传，`activation_state=enabled` 实测产出 |
-| 策略版本 | 完成 + 已验证生效 | draft/active/retired + 原子激活；6 组用例 6/6 命中预期规则，同一输入在 v1/v2 下决策不同（confirm→block→confirm）|
+| 策略版本 | 完成 + 已验证生效 | draft/active/retired + 原子激活 + **回滚（必须带原因）**；6 组用例 6/6 命中预期规则，同一输入在 v1/v2 下决策不同（confirm→block→confirm）|
 | MCP 资产与准入 | 完成（配置层） | `asset_type=mcp_server` 走同一状态机；纯 mcp.json 检出 PE3+RP1，但管道执行类漏检 |
 | Incident 闭环 | 机制完成 | 状态机 + clean 复测证据门槛（布尔值不足以关闭） |
 | Skill 安全评测 | 完成首轮 | 25 条标注集：检出率 83.33%，误报 0% |
@@ -182,6 +182,7 @@ check → approve → stage → commit → verify → reconcile
 | 采集完整性 | **20/20**（Audit）、**25/25**（Hook 前置） | 20 次文件操作零丢失；11 个执行 25 次调用前置事件全采到 |
 | Hook 后置事件完整率 | **18/20 = 90%** | 缺的 2 次均由产品进程被 OOM kill 导致，暴露「后置事件依赖产品存活」的边界 |
 | 策略规则一致性 | **6/6** | 六组风险输入，action 与命中规则 ID 均符合预期 |
+| 策略回滚 | 已支持 + 8 项测试 | retired → active 带原因回滚，迁移记录区分 rollback 与 activate |
 | 归因边 | **156** 条 | 含冲突候选与置信度，不是"已证明因果" |
 | 审计事件 | **19,619** 条 | 每次 API 请求一条，脱敏摘要 |
 | 准入事务端到端 | **1 条完整闭环** | 扫描→审批→安装→产品会话确认→`enabled` |
@@ -275,7 +276,7 @@ check → approve → stage → commit → verify → reconcile
 | 归因标注集偏小 | 11 条事件只能证明判据行为正确，不能外推生产误报率 | 扩到 50+ 事件、加多 agent 并发场景、对已归因边做人工抽查 |
 | MCP 准入只到配置层 | 配置能被审批与检测，但产品侧是否真的注册加载未验证（`activation_state=unknown`） | 接产品 MCP 枚举 + 端侧回传 |
 | 纯 MCP 配置的管道执行漏检 | `mcpServers.args` 里的 `curl \| sh` 不触发 SC2/TM2 | 补 MCP 专用规则或接语义检测器 |
-| 策略回滚无 API | retired 版本调 activate 返回 409，误激活后只能改库 | 补「回滚到指定历史版本」接口 |
+| ~~策略回滚无 API~~ | 已修：`POST /policies/versions/{v}/rollback` 允许 retired → active，强制带原因，迁移记录标注 rollback；8 项测试覆盖 | — |
 | 无数字签名/发布者验签 | 供应链上游可信度不足 | 引入签名与来源验证 |
 | 控制面连不到被测主机 | 产品验证靠端侧回传，下发靠手工/脚本 | 端侧任务拉取通道产品化 |
 | 策略/工单无真实数据 | 运营指标（MTTR、误报率）空缺 | 用剧本跑出真实工单 |

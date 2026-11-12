@@ -24,6 +24,12 @@ def route(handler,method,parsed,governance,approval):
         handler._send(200,{'items':[r.model_dump(mode='json') for r in governance.policy.list()]});return True
     elif path.startswith('/api/v1/policies/versions/') and path.endswith('/activate') and method=='POST':
         result=governance.policy.activate(path.split('/')[5],handler._actor().user_id)
+    elif path.startswith('/api/v1/policies/versions/') and path.endswith('/rollback') and method=='POST':
+        # 回滚是"出事时的退路"，与"启用新版本"是两件事：允许 retired 版本回来，
+        # 但必须写原因，迁移记录里也单独标 rollback。
+        body=handler._body()
+        result=governance.policy.rollback(path.split('/')[5],handler._actor().user_id,
+                                          body.get('reason') if isinstance(body,dict) else None)
     elif path=='/api/v1/policies/active' and method=='GET':
         active=governance.policy.active()
         handler._send(200,{'active':active.model_dump(mode='json') if active else None});return True

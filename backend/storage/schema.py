@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 DDL = """
 CREATE TABLE IF NOT EXISTS detector_runs (
@@ -363,7 +363,9 @@ CREATE TABLE IF NOT EXISTS governance_transitions (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
     entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL,
     from_state TEXT NOT NULL, to_state TEXT NOT NULL,
-    actor_id TEXT NOT NULL, action TEXT NOT NULL, occurred_at TEXT NOT NULL
+    actor_id TEXT NOT NULL, action TEXT NOT NULL, occurred_at TEXT NOT NULL,
+    -- 迁移原因：回滚、驳回这类动作必须能解释"为什么"，否则审计只能看到发生了什么。
+    detail TEXT
 );
 
 CREATE TABLE IF NOT EXISTS approval_requests (
@@ -591,6 +593,17 @@ def _migrate_v8(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE admissions ADD COLUMN product_verification TEXT")
 
 
+def _migrate_v9(conn: sqlite3.Connection) -> None:
+    """v8 → v9：状态迁移记录可携带原因。
+
+    策略回滚是"出事时的退路"，只记 from/to 和 actor 不足以复盘——必须能说明
+    为什么退。历史记录保持 NULL，不回溯补造原因。
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(governance_transitions)")}
+    if "detail" not in columns:
+        conn.execute("ALTER TABLE governance_transitions ADD COLUMN detail TEXT")
+
+
 def _ensure_attribution_foreign_keys(conn: sqlite3.Connection) -> None:
     """升级早期 v6 试运行表，让保留策略删除源证据时同时删除归因边。"""
     if conn.execute('PRAGMA foreign_key_list(event_attributions)').fetchall():
@@ -647,6 +660,7 @@ def migrate(conn: sqlite3.Connection) -> None:
     # v7 的步骤自带幂等判断（列存在性、是否已有活跃版本），新旧库都可执行。
     _migrate_v7(conn)
     _migrate_v8(conn)
+    _migrate_v9(conn)
 
     # v8 只新增表（assets/asset_instances/asset_releases/execution_findings），
     # DDL 的 IF NOT EXISTS 对新旧库都生效；executions/admissions 里的
