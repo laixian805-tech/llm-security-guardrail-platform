@@ -1,0 +1,26 @@
+{
+  "captured_at": "2026-11-12T13:24:00+08:00",
+  "host": "116.62.28.177",
+  "user": "agentsec-lab",
+  "product": "claude-code",
+  "product_version": "2.1.152",
+  "install": {
+    "target": "/home/agentsec-lab/.claude/skills/asgp-admission-demo",
+    "owner": "agentsec-lab:agentsec-lab",
+    "observed_hash": "0a9678ee79fef4b4b8278d39a03eabce65ef62d48f5fdf3ff9662c363740858b",
+    "rollback_ref": "first_install"
+  },
+  "verify": {
+    "level": "product_session",
+    "loaded": true,
+    "probe_command": ["claude", "-p", "/asgp-admission-demo", "--output-format", "text"],
+    "exit_code": 0,
+    "output_head": "ASGP_ADMISSION_E2E_OK\n"
+  },
+  "remove": {"outcome": "removed", "target_exists_after": false},
+  "negative_control": {
+    "command": "claude -p /asgp-admission-demo --output-format text",
+    "output": "Unknown command: /asgp-admission-demo",
+    "denied": true
+  }
+}

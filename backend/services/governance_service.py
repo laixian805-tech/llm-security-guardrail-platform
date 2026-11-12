@@ -7,6 +7,7 @@ from domain import Admission, Incident, IncidentEvidence, PolicyDecision, RiskAs
 from domain.enums import AdmissionState, Confidence, IncidentStatus, Severity
 from domain.evidence import EvidenceRef
 from services.managed_installer import InstallerError, ManagedInstaller, component
+from services.product_installer import ProductInstaller
 from services.policy_service import PolicyService
 from storage.governance_repositories import GovernanceRepository,StateConflict
 from services.ingestion_service import IngestError,reject_secrets
@@ -25,10 +26,12 @@ def _installer_call(operation,*args):
 
 
 class GovernanceService:
-    def __init__(self,storage,installer:ManagedInstaller|None=None,policy:PolicyService|None=None):
+    def __init__(self,storage,installer:ManagedInstaller|None=None,policy:PolicyService|None=None,
+                 products:ProductInstaller|None=None):
         self.repo=GovernanceRepository(storage)
         self.storage=storage
         self.installer=installer
+        self.products=products
         self.policy=policy or PolicyService(storage,self.repo)
 
     def risk(self,body):
@@ -74,13 +77,21 @@ class GovernanceService:
 
     def check_admission(self,body):
         reject_secrets(body)
-        allowed={'asset_instance_id','content_hash','transaction_id'}
-        if set(body)!=allowed:raise IngestError('invalid_admission_input')
+        allowed={'asset_instance_id','content_hash','transaction_id','product_id'}
+        required={'asset_instance_id','content_hash','transaction_id'}
+        if set(body)-allowed or not required<=set(body):raise IngestError('invalid_admission_input')
         digest=body['content_hash']
         if not isinstance(digest,str) or len(digest)!=64 or any(x not in '0123456789abcdef' for x in digest):raise IngestError('invalid_content_hash')
         # 两个标识符都会被安装器用作目录名，先在边界上拒绝路径分量。
         _installer_call(component,body['transaction_id'],'transaction_id')
         _installer_call(component,body['asset_instance_id'],'asset_instance_id')
+        product_id=body.get('product_id')
+        if product_id is not None:
+            if not isinstance(product_id,str) or not product_id:raise IngestError('invalid_admission_input')
+            # 两种模式：本机配了产品绑定就按白名单校验；没配表示产品在端侧，
+            # 由端侧探测回传证据（控制面连不到被测主机）。
+            if self.products is not None and product_id not in self.products.products():
+                raise IngestError('unknown_product',400)
         with self.storage.connection() as c:
             row=c.execute('SELECT admission_id,asset_instance_id,content_hash FROM admissions WHERE transaction_id=?',(body['transaction_id'],)).fetchone()
             if row:
@@ -97,6 +108,11 @@ class GovernanceService:
         if self.installer is None:
             raise IngestError('installer_required: not_configured',503)
         return self.installer
+
+    def _require_products(self):
+        if self.products is None:
+            raise IngestError('product_targets_not_configured',503)
+        return self.products
 
     def _finish(self,old,state,actor_id,action,**updates):
         model=old.model_copy(update={'state':state,'updated_at':NOW(),**updates})
@@ -127,7 +143,28 @@ class GovernanceService:
         except IngestError as exc:
             if exc.code!='content_drift':raise
             return self._fail(old,'content_drift: staged content changed after approval',actor_id,'commit')
-        return self._finish(old,AdmissionState.COMMITTED,actor_id,'commit',observed_content_hash=observed,rollback_ref=rollback_ref,failure_reason=None)
+        # 平台存储落地后，还要把同一份内容放进产品真正的技能目录。产品侧失败
+        # 必须回滚平台提交，否则会留下"平台说已装、产品里没有"的半成品。
+        # 源取 installed 而不是 staging：commit 已把 staging 原子替换成 installed。
+        product_target=product_rollback=None
+        verification=None
+        if old.product_id and self.products is not None:
+            products=self.products
+            try:
+                result=_installer_call(products.install,old.product_id,old.asset_instance_id,
+                    installer.root/'installed'/old.asset_instance_id,old.content_hash)
+            except IngestError as exc:
+                _installer_call(installer.rollback,old.asset_instance_id,rollback_ref)
+                return self._fail(old,f'product_install_failed: {exc.code}',actor_id,'commit')
+            product_target,product_rollback=result['target'],result['rollback_ref']
+        elif old.product_id:
+            # 产品在端侧：控制面只落平台托管，产品安装与探测由端侧执行并回传。
+            # 在回传之前，activation 必须保持"未验证"，不能因为"平台已提交"就说已启用。
+            verification='pending_endpoint'
+        return self._finish(old,AdmissionState.COMMITTED,actor_id,'commit',
+            observed_content_hash=observed,rollback_ref=rollback_ref,
+            product_target=product_target,product_rollback_ref=product_rollback,
+            product_verification=verification,failure_reason=None)
 
     def _admission_verify(self,old,body,actor_id):
         # verify: committed → verified；reconcile: verified → reconciled。
@@ -137,12 +174,36 @@ class GovernanceService:
         source=AdmissionState.COMMITTED if target is AdmissionState.VERIFIED else AdmissionState.VERIFIED
         if old.state is not source:raise IngestError('invalid_admission_transition',409)
         if body:raise IngestError('invalid_admission_input')
+        action='verify' if target is AdmissionState.VERIFIED else 'reconcile'
         installer=self._require_installer()
         observed=_installer_call(installer.verify,old.asset_instance_id)
         if observed!=old.content_hash:
-            return self._fail(old,'installed_content_mismatch: on-disk hash does not match approved content_hash',actor_id,'verify')
-        action='verify' if target is AdmissionState.VERIFIED else 'reconcile'
-        return self._finish(old,target,actor_id,action,observed_content_hash=observed,failure_reason=None)
+            return self._fail(old,'installed_content_mismatch: on-disk hash does not match approved content_hash',actor_id,action)
+        # 有目标产品时，平台哈希通过还不够：要确认产品真的会加载它。
+        loaded=verification=None
+        if old.product_id and self.products is not None:
+            products=self.products
+            try:
+                result=products.verify(old.product_id,old.asset_instance_id,old.content_hash,probe=True)
+            except InstallerError as exc:
+                raise IngestError(exc.code,exc.status)
+            if result['level']=='product_session':
+                loaded=result['loaded'];verification='product_session'
+                if loaded is False:
+                    return self._fail(old,'product_skill_not_loaded: product session does not recognize this skill',actor_id,action)
+                if loaded is None:
+                    # 会话跑通但结论不确定（缺凭据/超时/模型报错）：不判失败，
+                    # 也绝不记成已加载，等级里写明原因。
+                    verification=f"product_session:{result['probe'].get('outcome')}"
+            else:
+                # 探测不可用：文件级通过，但加载未验证。标注等级，不冒充已生效。
+                loaded=None;verification=f"{result['level']}:{result['probe']}"
+        elif old.product_id:
+            # 产品在端侧：沿用端侧已回传的证据。没回传就是未验证，不能自己补一个。
+            loaded=old.product_loaded
+            verification=old.product_verification or 'pending_endpoint'
+        return self._finish(old,target,actor_id,action,observed_content_hash=observed,
+            product_loaded=loaded,product_verification=verification,failure_reason=None)
 
     def _admission_rollback(self,old,body,actor_id):
         if old.state is AdmissionState.ROLLED_BACK:return old
@@ -150,7 +211,12 @@ class GovernanceService:
         if body:raise IngestError('invalid_admission_input')
         installer=self._require_installer()
         outcome=_installer_call(installer.rollback,old.asset_instance_id,old.rollback_ref)
-        return self._finish(old,AdmissionState.ROLLED_BACK,actor_id,'rollback',failure_reason=f'rolled_back: {outcome}')
+        product_outcome='noop'
+        if old.product_id and old.product_rollback_ref:
+            products=self._require_products()
+            product_outcome=_installer_call(products.remove,old.product_id,old.asset_instance_id,old.product_rollback_ref)
+        return self._finish(old,AdmissionState.ROLLED_BACK,actor_id,'rollback',
+            product_loaded=False,failure_reason=f'rolled_back: {outcome}; product: {product_outcome}')
 
     def admission_transition(self,identifier,action,body,actor_id):
         reject_secrets(body)
@@ -167,6 +233,48 @@ class GovernanceService:
         handlers={'stage':self._admission_stage,'commit':self._admission_commit,
             'verify':self._admission_verify,'reconcile':self._admission_verify,'rollback':self._admission_rollback}
         return handlers[action](old,body,actor_id)
+
+    def record_product_verification(self,identifier,body):
+        """端侧探测回传：把产品侧真实证据写进准入记录。
+
+        边界很明确——这里只记录"端侧测到了什么"，不改安装状态机、不接受客户端
+        自己声明"我已加载"。``loaded`` 三态必须保留：True 是产品会话确认，
+        False 是产品否认，None 是探测没给出结论；把 None 折成 False 或 True
+        都会让激活状态说谎。
+        """
+        reject_secrets(body)
+        allowed={'product_id','observed_hash','level','loaded','target','probe_outcome'}
+        if set(body)-allowed or 'product_id' not in body or 'level' not in body:
+            raise IngestError('invalid_product_verification')
+        old=self.repo.get(Admission,identifier)
+        if not old:raise IngestError('unknown_admission',404)
+        if old.product_id != body['product_id']:
+            raise IngestError('product_mismatch',409)
+        level=body['level']
+        if level not in ('product_session','filesystem'):
+            raise IngestError('invalid_verification_level')
+        loaded=body.get('loaded')
+        if loaded is not None and not isinstance(loaded,bool):
+            raise IngestError('invalid_loaded_flag')
+        observed=body.get('observed_hash')
+        if observed is not None and observed != old.content_hash:
+            # 端侧落盘内容和审批声明不一致：证据不可用，不写入"已加载"。
+            raise IngestError('product_content_mismatch',409)
+        target=body.get('target')
+        if target is not None and (not isinstance(target,str) or len(target)>500):
+            raise IngestError('invalid_product_target')
+        verdict=('product_session' if level=='product_session'
+            else f"filesystem:{body.get('probe_outcome') or 'unknown'}")
+        stamp=NOW().isoformat()
+        with self.storage._lock,self.storage.connection() as c:
+            c.execute('UPDATE admissions SET product_target=?,product_loaded=?,product_verification=?,updated_at=?'
+                ' WHERE admission_id=?',(target,None if loaded is None else int(loaded),verdict,stamp,identifier))
+            # 同状态转换也留痕：时间线要能看到"谁在什么时候给出了产品侧证据"。
+            c.execute('INSERT INTO governance_transitions (entity_kind,entity_id,from_state,to_state,actor_id,action,occurred_at)'
+                ' VALUES (?,?,?,?,?,?,?)',('admissions',identifier,old.state.value,old.state.value,
+                'endpoint','product_verification',stamp))
+        # 直接回给 HTTP 层，必须是可序列化字典——返回 Pydantic 模型会让 _send 抛 TypeError。
+        return self.repo.get(Admission,identifier).model_dump(mode='json')
 
     def create_incident(self,body):
         reject_secrets(body)

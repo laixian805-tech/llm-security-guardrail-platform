@@ -39,10 +39,12 @@ from services.provider_probe import ProviderProbeService
 from services.scan_service import ScanService
 from services.ingestion_service import IngestionService, IngestError
 from services.timeline_service import TimelineService
-from api.v1 import is_device_route, route as route_v1
+from services.asset_service import AssetService
+from api.v1 import PRODUCT_VERIFICATION, is_device_route, route as route_v1
 from api.governance import route as route_governance
 from services.governance_service import GovernanceService
 from services.managed_installer import ManagedInstaller
+from services.product_installer import ProductInstaller, parse_bindings
 from services.approval_service import ApprovalService
 from services.attribution_service import AttributionService
 from pydantic import ValidationError
@@ -83,7 +85,19 @@ scan_service = ScanService(storage=storage, catalog=catalog)
 product_catalog = ProductCatalog()
 ingestion_service = IngestionService(storage)
 timeline_service = TimelineService(storage)
-governance_service = GovernanceService(storage, installer=ManagedInstaller(MANAGED_ROOT))
+asset_service = AssetService(storage)
+_product_bindings = parse_bindings(os.environ.get("ASGP_PRODUCT_BINDINGS"))
+governance_service = GovernanceService(
+    storage,
+    installer=ManagedInstaller(MANAGED_ROOT),
+    # 产品加载路径来自配置白名单；未配置时不构造，准入记录带 product_id 会
+    # 被拒绝而不是静默退化成"只进平台存储"。
+    products=(
+        ProductInstaller(_product_bindings, backup_root=Path(MANAGED_ROOT) / "backup")
+        if _product_bindings
+        else None
+    ),
+)
 approval_service = ApprovalService(storage)
 attribution_service = AttributionService(storage)
 
@@ -120,8 +134,15 @@ def _required_permission(method: str, path: str) -> Permission | None:
     if path == "/api/v1/products":
         return Permission.READ
     if path.startswith(('/api/v1/approvals','/api/v1/risk-assessments','/api/v1/policies/',
-                        '/api/v1/policy-decisions','/api/v1/admissions','/api/v1/incidents')):
+                        '/api/v1/policy-decisions','/api/v1/admissions','/api/v1/incidents',
+                        '/api/v1/asset-instances','/api/v1/asset-releases')):
         return Permission.READ if method == 'GET' else Permission.GOVERN
+    # 资产台账：登记是 govern，列表与追踪视图按 read 开放。安装/启用/运行三态
+    # 由服务端按准入事务和执行记录现算，所以读接口不需要更高权限。
+    if path == '/api/v1/assets' or path.startswith('/api/v1/assets/'):
+        return Permission.READ if method == 'GET' else Permission.GOVERN
+    if path.startswith('/api/v1/executions/') and path.endswith('/findings'):
+        return Permission.GOVERN
     if path.endswith('/correlate'):
         return Permission.GOVERN
     if path == "/api/users" or path.startswith("/api/users/"):
@@ -313,12 +334,17 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith('/api/v1/executions/') and path.endswith('/correlate') and method == 'POST':
                 execution_id = path.split('/')[4]
                 self._send(200, attribution_service.correlate(execution_id))
+            elif PRODUCT_VERIFICATION.fullmatch(path) and method == 'POST':
+                # 端侧在自己主机上确认产品是否真的加载，回传证据；控制面只记录。
+                self._send(200, governance_service.record_product_verification(
+                    PRODUCT_VERIFICATION.fullmatch(path).group(1), self._body()))
             elif path.startswith('/api/v1/executions/') and path.endswith('/attributions') and method == 'GET':
                 execution_id = path.split('/')[4]
                 self._send(200, {'attributions': attribution_service.list(execution_id)})
             elif route_governance(self, method, parsed, governance_service, approval_service):
                 pass
-            elif route_v1(self, method, parsed, ingestion_service, timeline_service):
+            elif route_v1(self, method, parsed, ingestion_service, timeline_service,
+                          asset_service):
                 pass
             elif method == "GET":
                 self._route_get(parsed)

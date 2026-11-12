@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 DDL = """
 CREATE TABLE IF NOT EXISTS detector_runs (
@@ -149,7 +149,8 @@ CREATE TABLE IF NOT EXISTS executions (
     product TEXT NOT NULL,
     product_version TEXT NOT NULL,
     session_id TEXT NOT NULL,
-    -- P1 无资产注册表：只存端点上报的引用，不做存在性校验。
+    -- P1 无资产注册表：只存端点上报的引用，不做存在性校验。v8 建了
+    -- assets/asset_instances 台账，但存量自由文本引用不回溯校验。
     asset_instance_id TEXT,
     started_at TEXT NOT NULL,
     ended_at TEXT,
@@ -258,6 +259,12 @@ CREATE TABLE IF NOT EXISTS admissions (
     admission_id TEXT PRIMARY KEY,
     asset_instance_id TEXT NOT NULL,
     content_hash TEXT NOT NULL,
+    -- 目标产品：决定 commit 落到哪个真实技能目录。NULL 表示只进平台托管存储。
+    product_id TEXT,
+    product_target TEXT,
+    product_rollback_ref TEXT,
+    product_loaded INTEGER,
+    product_verification TEXT,
     state TEXT NOT NULL,
     approved_by TEXT,
     observed_content_hash TEXT,
@@ -267,6 +274,57 @@ CREATE TABLE IF NOT EXISTS admissions (
     transaction_id TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+);
+
+-- 资产台账（v8）。Asset 是逻辑治理对象，AssetInstance 是某主机/产品/作用域
+-- 中的具体副本，AssetRelease 是可验证内容版本。三者分开：同一个 Skill 在
+-- Claude Code 和 Codex 下共享 logical asset，但是不同 instance；instance
+-- 相同也不保证当前内容与上次扫描一致。
+CREATE TABLE IF NOT EXISTS assets (
+    asset_id TEXT PRIMARY KEY,
+    asset_type TEXT NOT NULL,
+    canonical_name TEXT NOT NULL,
+    product TEXT,
+    publisher TEXT,
+    namespace TEXT,
+    provenance TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS asset_instances (
+    instance_id TEXT PRIMARY KEY,
+    asset_id TEXT NOT NULL REFERENCES assets(asset_id) ON DELETE CASCADE,
+    host_id TEXT NOT NULL,
+    product_scope TEXT NOT NULL,
+    install_path TEXT,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    -- 同一资产在同一主机同一产品作用域只有一条实例记录。
+    UNIQUE (asset_id, host_id, product_scope)
+);
+
+CREATE TABLE IF NOT EXISTS asset_releases (
+    release_id TEXT PRIMARY KEY,
+    asset_id TEXT NOT NULL REFERENCES assets(asset_id) ON DELETE CASCADE,
+    version TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    source_uri TEXT,
+    -- 签名核验结果由登记方提供证据，平台不代为声称。
+    signature_verified INTEGER NOT NULL DEFAULT 0,
+    published_at TEXT,
+    UNIQUE (asset_id, version, content_hash)
+);
+
+-- 分析员显式建立的 执行 ↔ 发现项 关联。这不是自动归因：时间线里按
+-- analyst_linked 标注，避免被误读成采集器证明的因果。
+CREATE TABLE IF NOT EXISTS execution_findings (
+    execution_id TEXT NOT NULL REFERENCES executions(execution_id) ON DELETE CASCADE,
+    finding_id TEXT NOT NULL REFERENCES findings(finding_id) ON DELETE CASCADE,
+    actor_id TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (execution_id, finding_id)
 );
 
 -- 策略版本：evaluate 必须记录实际生效的版本，规则依序首个命中者胜出。
@@ -361,6 +419,12 @@ CREATE INDEX IF NOT EXISTS attributions_intent ON event_attributions(intent_id);
 CREATE INDEX IF NOT EXISTS risk_assessments_subject ON risk_assessments(asset_id, execution_id);
 CREATE INDEX IF NOT EXISTS policy_decisions_subject ON policy_decisions(subject_kind, subject_id, created_at);
 CREATE INDEX IF NOT EXISTS admissions_asset ON admissions(asset_instance_id, updated_at);
+CREATE INDEX IF NOT EXISTS assets_type ON assets(asset_type, updated_at);
+CREATE INDEX IF NOT EXISTS assets_name ON assets(canonical_name);
+CREATE INDEX IF NOT EXISTS asset_instances_asset ON asset_instances(asset_id, last_seen_at);
+CREATE INDEX IF NOT EXISTS asset_instances_host ON asset_instances(host_id, last_seen_at);
+CREATE INDEX IF NOT EXISTS asset_releases_asset ON asset_releases(asset_id, published_at);
+CREATE INDEX IF NOT EXISTS execution_findings_finding ON execution_findings(finding_id);
 CREATE INDEX IF NOT EXISTS incidents_status ON incidents(status, updated_at);
 """
 
@@ -508,6 +572,25 @@ def _migrate_v7(conn: sqlite3.Connection) -> None:
         )
 
 
+def _migrate_v8(conn: sqlite3.Connection) -> None:
+    """v7 → v8：准入记录声明目标产品。
+
+    product_id 让 commit 有确定的产品加载目录（~/.claude/skills 等）。历史
+    记录保持 NULL，表示当时只进平台托管存储；不回溯改写既有验收结论。
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(admissions)")}
+    if "product_id" not in columns:
+        conn.execute("ALTER TABLE admissions ADD COLUMN product_id TEXT")
+    if "product_target" not in columns:
+        conn.execute("ALTER TABLE admissions ADD COLUMN product_target TEXT")
+    if "product_rollback_ref" not in columns:
+        conn.execute("ALTER TABLE admissions ADD COLUMN product_rollback_ref TEXT")
+    if "product_loaded" not in columns:
+        conn.execute("ALTER TABLE admissions ADD COLUMN product_loaded INTEGER")
+    if "product_verification" not in columns:
+        conn.execute("ALTER TABLE admissions ADD COLUMN product_verification TEXT")
+
+
 def _ensure_attribution_foreign_keys(conn: sqlite3.Connection) -> None:
     """升级早期 v6 试运行表，让保留策略删除源证据时同时删除归因边。"""
     if conn.execute('PRAGMA foreign_key_list(event_attributions)').fetchall():
@@ -563,7 +646,12 @@ def migrate(conn: sqlite3.Connection) -> None:
 
     # v7 的步骤自带幂等判断（列存在性、是否已有活跃版本），新旧库都可执行。
     _migrate_v7(conn)
+    _migrate_v8(conn)
 
+    # v8 只新增表（assets/asset_instances/asset_releases/execution_findings），
+    # DDL 的 IF NOT EXISTS 对新旧库都生效；executions/admissions 里的
+    # asset_instance_id 仍是自由文本引用，不回溯加外键，否则要重建两张有存量
+    # 数据的表。台账对存量引用的态度是"不校验、不猜测"，见 AssetService。
     _ensure_attribution_foreign_keys(conn)
     conn.executescript(INDEX_DDL)
     conn.execute(

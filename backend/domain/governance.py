@@ -46,6 +46,16 @@ class Admission(StrictModel):
     admission_id: str = Field(min_length=1)
     asset_instance_id: str = Field(min_length=1)
     content_hash: str = Field(min_length=1)
+    # 目标产品决定落到哪个真实加载目录；None 表示只进平台托管存储，
+    # 此时不得声称产品已加载该包。
+    product_id: str | None = None
+    # 产品侧安装结果：实际目录、回滚凭据与会话级加载结论。
+    # product_loaded 为 None 表示"未验证"（探测不可用），False 表示产品
+    # 不认识这个技能；三者都不等于已生效。product_verification 记录判定等级。
+    product_target: str | None = None
+    product_rollback_ref: str | None = None
+    product_loaded: bool | None = None
+    product_verification: str | None = None
     state: AdmissionState = AdmissionState.CHECK
     approved_by: str | None = None
     observed_content_hash: str | None = None

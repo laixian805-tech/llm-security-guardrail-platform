@@ -15,7 +15,7 @@ import pytest
 from adapters.detectors import RawOutput
 from domain import RunStatus
 from storage.repositories import DetectorRunRepository, Storage
-from storage.schema import DDL, migrate, table_names
+from storage.schema import DDL, SCHEMA_VERSION, migrate, table_names
 
 LEGACY_DDL = """
 CREATE TABLE scans (
@@ -252,9 +252,10 @@ class TestV5Migration:
         assert device["credential_rotated_at"] is None
         assert device["label"] == "工作站", "迁移不得改写存量数据"
 
+        # 版本号跟常量对齐：写死字面量会让每次升版都要改测试。
         assert conn.execute(
             "SELECT value FROM schema_meta WHERE key='schema_version'"
-        ).fetchone()[0] == "7"
+        ).fetchone()[0] == str(SCHEMA_VERSION)
         # v7 迁移播种默认策略版本，并给准入记录补上回滚凭据列。
         assert conn.execute("SELECT status FROM policy_versions WHERE policy_version='policy-v1'").fetchone()[0] == "active"
         assert "rollback_ref" in {row[1] for row in conn.execute("PRAGMA table_info(admissions)")}
