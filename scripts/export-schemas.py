@@ -34,7 +34,7 @@ from domain import (  # noqa: E402
 from domain.timeline import TimelineEntry, TimelineResponse
 from domain.attribution import EventAttribution
 from domain.approval import ApprovalRequest
-from domain.governance import Admission,Incident,IncidentEvidence,PolicyDecision,RiskAssessment
+from domain.governance import Admission,Incident,IncidentEvidence,PolicyDecision,PolicyRuleSet,RiskAssessment
 
 SCHEMAS = {
     "event-attribution": EventAttribution,
@@ -43,6 +43,7 @@ SCHEMAS = {
     "incident": Incident,
     "incident-evidence": IncidentEvidence,
     "policy-decision": PolicyDecision,
+    "policy-version": PolicyRuleSet,
     "risk-assessment": RiskAssessment,
     "timeline-entry": TimelineEntry,
     "timeline-response": TimelineResponse,

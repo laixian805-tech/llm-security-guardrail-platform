@@ -39,6 +39,7 @@ def api(tmp_path, monkeypatch):
     (workspace / "sample.py").write_text("import os\n", encoding="utf-8")
     monkeypatch.setenv("FUSION_DB_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("FUSION_SCAN_ROOT", str(workspace))
+    monkeypatch.setenv("FUSION_MANAGED_ROOT", str(tmp_path / "managed"))
     monkeypatch.setenv("FUSION_BIND", "127.0.0.1")
     monkeypatch.setenv("ASGP_MODEL_PROVIDER", "stepfun")
 
@@ -54,6 +55,7 @@ def api(tmp_path, monkeypatch):
             base=f"http://127.0.0.1:{server.server_port}",
             db_path=tmp_path / "test.db",
             workspace=workspace,
+            managed=tmp_path / "managed",
         )
     finally:
         server.shutdown()

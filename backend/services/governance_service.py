@@ -2,21 +2,34 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime,timezone,timedelta
+from datetime import datetime,timezone
 from domain import Admission, Incident, IncidentEvidence, PolicyDecision, RiskAssessment
-from domain.enums import AdmissionState, Confidence, IncidentStatus, PolicyAction, Severity
+from domain.enums import AdmissionState, Confidence, IncidentStatus, Severity
 from domain.evidence import EvidenceRef
+from services.managed_installer import InstallerError, ManagedInstaller, component
+from services.policy_service import PolicyService
 from storage.governance_repositories import GovernanceRepository,StateConflict
 from services.ingestion_service import IngestError,reject_secrets
 
 NOW=lambda:datetime.now(timezone.utc)
 LEVEL={'unknown':0,'info':5,'low':20,'medium':45,'high':75,'critical':95}
+# 安装器真正落过盘的状态：回滚要有确定目标，未提交的事务不能动已安装内容。
+INSTALLED_STATES=frozenset({AdmissionState.STAGED,AdmissionState.COMMITTED,AdmissionState.VERIFIED,AdmissionState.RECONCILED,AdmissionState.FAILED})
+
+
+def _installer_call(operation,*args):
+    try:
+        return operation(*args)
+    except InstallerError as exc:
+        raise IngestError(exc.code,exc.status)
 
 
 class GovernanceService:
-    def __init__(self,storage):
+    def __init__(self,storage,installer:ManagedInstaller|None=None,policy:PolicyService|None=None):
         self.repo=GovernanceRepository(storage)
         self.storage=storage
+        self.installer=installer
+        self.policy=policy or PolicyService(storage,self.repo)
 
     def risk(self,body):
         reject_secrets(body)
@@ -55,10 +68,9 @@ class GovernanceService:
         if not all(isinstance(body.get(k),str) and 0<len(body[k])<=160 for k in ('assessment_id','subject_kind','subject_id')):raise IngestError('invalid_policy_input')
         risk=self.repo.get(RiskAssessment,body['assessment_id'])
         if not risk:raise IngestError('unknown_assessment',404)
-        action=PolicyAction.BLOCK if risk.intrinsic_risk>=90 else PolicyAction.CONFIRM if risk.intrinsic_risk>=70 or risk.exposure_risk>=80 else PolicyAction.AUDIT if max(risk.intrinsic_risk,risk.runtime_risk,risk.exposure_risk)>0 else PolicyAction.ALLOW
-        model=PolicyDecision(decision_id='decision_'+uuid.uuid4().hex,action=action,policy_version='policy-v1',subject_kind=body['subject_kind'],subject_id=body['subject_id'],
-            reason='deterministic per-dimension policy; no enforcement asserted',evidence_refs=[EvidenceRef(kind='risk_assessment',uri=risk.assessment_id)],created_at=NOW(),expires_at=NOW()+timedelta(minutes=10))
-        return self.repo.create(model)
+        # 求值与落库都按当前活跃策略版本；版本号来自版本记录，不写死。
+        decision=self.policy.evaluate(risk,body['subject_kind'],body['subject_id'])
+        return self.repo.create(decision)
 
     def check_admission(self,body):
         reject_secrets(body)
@@ -66,27 +78,95 @@ class GovernanceService:
         if set(body)!=allowed:raise IngestError('invalid_admission_input')
         digest=body['content_hash']
         if not isinstance(digest,str) or len(digest)!=64 or any(x not in '0123456789abcdef' for x in digest):raise IngestError('invalid_content_hash')
+        # 两个标识符都会被安装器用作目录名，先在边界上拒绝路径分量。
+        _installer_call(component,body['transaction_id'],'transaction_id')
+        _installer_call(component,body['asset_instance_id'],'asset_instance_id')
         with self.storage.connection() as c:
             row=c.execute('SELECT admission_id,asset_instance_id,content_hash FROM admissions WHERE transaction_id=?',(body['transaction_id'],)).fetchone()
-        if row:
-            if row['content_hash']!=digest or row['asset_instance_id']!=body['asset_instance_id']:raise IngestError('transaction_id_conflict',409)
-            return self.repo.get(Admission,row['admission_id'])
+            if row:
+                if row['content_hash']!=digest or row['asset_instance_id']!=body['asset_instance_id']:raise IngestError('transaction_id_conflict',409)
+                return self.repo.get(Admission,row['admission_id'])
+            # 安装中的状态互斥：同一实例同时只允许一个进行中的事务，否则回滚
+            # 恢复哪个版本不确定。已验证/已失败/已回滚的实例允许下一轮升级。
+            active=c.execute("SELECT admission_id FROM admissions WHERE asset_instance_id=?"
+                " AND state IN ('check','approved','staged','committed')",(body['asset_instance_id'],)).fetchone()
+            if active:raise IngestError('instance_has_active_admission',409)
         return self.repo.create(Admission(admission_id='admission_'+uuid.uuid4().hex,**body,created_at=NOW(),updated_at=NOW()))
+
+    def _require_installer(self):
+        if self.installer is None:
+            raise IngestError('installer_required: not_configured',503)
+        return self.installer
+
+    def _finish(self,old,state,actor_id,action,**updates):
+        model=old.model_copy(update={'state':state,'updated_at':NOW(),**updates})
+        return self.repo.transition(model,previous=old.state.value,actor_id=actor_id,action=action)
+
+    def _fail(self,old,reason,actor_id,action):
+        return self._finish(old,AdmissionState.FAILED,actor_id,action,failure_reason=reason)
+
+    def _admission_stage(self,old,body,actor_id):
+        if old.state is AdmissionState.STAGED:return old
+        if old.state is not AdmissionState.APPROVED:raise IngestError('invalid_admission_transition',409)
+        if set(body)!={'source_path'}:raise IngestError('invalid_admission_input')
+        installer=self._require_installer()
+        observed=_installer_call(installer.stage,old.transaction_id,body['source_path'])
+        if observed!=old.content_hash:
+            # 暂存内容与审批声明不一致：尚未做任何安装动作即判失败。
+            _installer_call(installer.discard_staging,old.transaction_id)
+            return self._fail(old,'content_drift: staged hash does not match approved content_hash',actor_id,'stage')
+        return self._finish(old,AdmissionState.STAGED,actor_id,'stage',observed_content_hash=observed,failure_reason=None)
+
+    def _admission_commit(self,old,body,actor_id):
+        if old.state is AdmissionState.COMMITTED:return old
+        if old.state is not AdmissionState.STAGED:raise IngestError('invalid_admission_transition',409)
+        if body:raise IngestError('invalid_admission_input')
+        installer=self._require_installer()
+        try:
+            observed,rollback_ref=_installer_call(installer.commit,old.transaction_id,old.asset_instance_id,old.content_hash)
+        except IngestError as exc:
+            if exc.code!='content_drift':raise
+            return self._fail(old,'content_drift: staged content changed after approval',actor_id,'commit')
+        return self._finish(old,AdmissionState.COMMITTED,actor_id,'commit',observed_content_hash=observed,rollback_ref=rollback_ref,failure_reason=None)
+
+    def _admission_verify(self,old,body,actor_id):
+        # verify: committed → verified；reconcile: verified → reconciled。
+        # 两者都重算落盘哈希，目标态由当前状态决定，重复调用不改变状态。
+        target=AdmissionState.VERIFIED if old.state is AdmissionState.COMMITTED else AdmissionState.RECONCILED
+        if old.state is target:return old
+        source=AdmissionState.COMMITTED if target is AdmissionState.VERIFIED else AdmissionState.VERIFIED
+        if old.state is not source:raise IngestError('invalid_admission_transition',409)
+        if body:raise IngestError('invalid_admission_input')
+        installer=self._require_installer()
+        observed=_installer_call(installer.verify,old.asset_instance_id)
+        if observed!=old.content_hash:
+            return self._fail(old,'installed_content_mismatch: on-disk hash does not match approved content_hash',actor_id,'verify')
+        action='verify' if target is AdmissionState.VERIFIED else 'reconcile'
+        return self._finish(old,target,actor_id,action,observed_content_hash=observed,failure_reason=None)
+
+    def _admission_rollback(self,old,body,actor_id):
+        if old.state is AdmissionState.ROLLED_BACK:return old
+        if old.state not in INSTALLED_STATES:raise IngestError('invalid_admission_transition',409)
+        if body:raise IngestError('invalid_admission_input')
+        installer=self._require_installer()
+        outcome=_installer_call(installer.rollback,old.asset_instance_id,old.rollback_ref)
+        return self._finish(old,AdmissionState.ROLLED_BACK,actor_id,'rollback',failure_reason=f'rolled_back: {outcome}')
 
     def admission_transition(self,identifier,action,body,actor_id):
         reject_secrets(body)
         old=self.repo.get(Admission,identifier)
         if not old:raise IngestError('unknown_admission',404)
-        targets={'approve':AdmissionState.APPROVED,'stage':AdmissionState.STAGED,'commit':AdmissionState.COMMITTED,'verify':AdmissionState.VERIFIED,'reconcile':AdmissionState.RECONCILED,'rollback':AdmissionState.ROLLED_BACK}
-        expected={'approve':AdmissionState.CHECK,'stage':AdmissionState.APPROVED,'commit':AdmissionState.STAGED,'verify':AdmissionState.COMMITTED,'reconcile':AdmissionState.VERIFIED}
-        if action not in targets:raise IngestError('invalid_admission_action')
-        # Stage/commit/verify require an actual installer; no body boolean can assert it.
-        if action in {'stage','commit','verify','reconcile','rollback'}:
-            raise IngestError('installer_required: state_only_transition_forbidden',409)
-        if old.state==targets[action]:return old
-        if old.state!=expected[action]:raise IngestError('invalid_admission_transition',409)
-        model=old.model_copy(update={'state':targets[action],'approved_by':actor_id,'updated_at':NOW()})
-        return self.repo.transition(model,previous=old.state.value,actor_id=actor_id,action=action)
+        if action=='approve':
+            if old.state is AdmissionState.APPROVED:return old
+            if old.state is not AdmissionState.CHECK:raise IngestError('invalid_admission_transition',409)
+            if body:raise IngestError('invalid_admission_input')
+            return self._finish(old,AdmissionState.APPROVED,actor_id,'approve',approved_by=actor_id,failure_reason=None)
+        if action not in {'stage','commit','verify','reconcile','rollback'}:raise IngestError('invalid_admission_action')
+        # stage/commit/verify/reconcile/rollback 每次转移都伴随真实文件系统后果，
+        # 没有任何 body 布尔值可以代替安装证据。
+        handlers={'stage':self._admission_stage,'commit':self._admission_commit,
+            'verify':self._admission_verify,'reconcile':self._admission_verify,'rollback':self._admission_rollback}
+        return handlers[action](old,body,actor_id)
 
     def create_incident(self,body):
         reject_secrets(body)

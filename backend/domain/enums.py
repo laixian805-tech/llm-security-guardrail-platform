@@ -197,6 +197,12 @@ class AdmissionState(StrEnum):
     FAILED = "failed"
 
 
+class PolicyStatus(StrEnum):
+    DRAFT = "draft"
+    ACTIVE = "active"
+    RETIRED = "retired"
+
+
 class IncidentStatus(StrEnum):
     OPEN = "open"
     INVESTIGATING = "investigating"

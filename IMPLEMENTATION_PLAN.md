@@ -98,6 +98,15 @@ P2 第一片已实现 Audit 采集、持久游标/队列、候选归因、主机
 
 验收证据与未完成项见 [本轮实施记录](docs/acceptance/2026-11-11-p23-start.md)，接续计划见 [P2/P3 实施计划](docs/plans/p2-p3-execution.md)。**P2/P3 不标全量完成，历史 P1 原生确认缺口不因更改文案而豁免。**
 
+## P3 第二片：受管安装器与策略版本（2026-11-12）
+
+- `backend/services/managed_installer.py`：受限托管目录（inbound/staging/installed/backup）内的真实 stage/commit/verify/rollback。目录树哈希包含相对路径、文件 sha256 与权限位；符号链接、setuid/setgid 与非普通文件拒绝入装；来源路径封闭在 inbound 下，标识符只允许单个安全分量。
+- 准入状态机改为安装器驱动：stage 实测暂存哈希，与审批声明不一致直接 failed（content_drift）；commit 前复核并先快照旧版本再原子替换，重复 commit 幂等；verify/reconcile 重算落盘哈希，不一致记 failed；rollback 按 admission.rollback_ref 恢复快照或移除首次安装，未提交事务只丢弃暂存。安装中的实例拒绝新事务。
+- 策略版本管理：`PolicyRuleSet`（draft/active/retired）+ 原子激活（旧版本停用与新版本生效同一事务），迁移播种默认 `policy-v1`；evaluate 按活跃版本规则依序求值并记录实际 policy_version，无活跃版本返回 500 不静默回退。
+- schema v7：admissions 增 rollback_ref，新增 policy_versions 表；契约新增 policy-version.schema.json。
+
+**仍未验收：** 策略版本的管理界面与规则影响评估、托管目录的磁盘配额与清理、真实 Skill/MCP 安装器（当前安装目标是平台托管目录，不是产品加载路径）、多中心工作台、真实 ASR/Utility/MTTR 指标。
+
 ## 后续阶段：跨平台与规模扩展
 
 在 Linux 主链路数据可信之后，再增加 Windows/macOS Collector、评估 OPA、按实际写入量迁移 PostgreSQL、拆分 Collector/Worker。Kafka、Redis、图数据库和 eBPF 都以测得的瓶颈或能力缺口为前提，不作为 V1 默认依赖。

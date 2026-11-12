@@ -148,15 +148,18 @@
 
 ## 5. 决策与治理
 
-- `POST /api/v1/policies/evaluate`：输入明确的 intent/event/asset 上下文，返回 `allow | audit | confirm | block` 和 rule version。
+- `POST /api/v1/policies/evaluate`：输入明确的 intent/event/asset 上下文，按当前活跃策略版本返回 `allow | audit | confirm | block` 和实际生效的 policy_version。
+- `GET/POST /api/v1/policies/versions`、`POST /api/v1/policies/versions/{id}/activate`：策略版本管理；draft 创建、原子激活，同一时刻只有一个 active 版本。
 - `POST /api/v1/admissions/check`：安装/启用前检查，不产生副作用。
 - `POST /api/v1/admissions/{id}/approve`：记录有权限的人工审批。
-- `POST /api/v1/admissions/{id}/commit`：执行带幂等键的实际安装/启用写入。
-- `POST /api/v1/admissions/{id}/verify`：检查内容哈希、产品引用及产品反馈。
+- `POST /api/v1/admissions/{id}/stage`：受管安装器把 inbound 包复制进暂存区并实测哈希；与审批声明不一致直接 failed。
+- `POST /api/v1/admissions/{id}/commit`：受管安装器复核哈希后原子替换已安装内容，旧版本先快照；重复 commit 幂等。
+- `POST /api/v1/admissions/{id}/verify` `/reconcile`：重算已安装内容哈希，不一致记 failed。
+- `POST /api/v1/admissions/{id}/rollback`：恢复本次提交前快照，或移除首次安装；未提交事务只丢弃暂存。
 - `POST /api/v1/incidents` / `PATCH /api/v1/incidents/{id}`：创建/更新研判、定级、处置、复测和关闭记录。
 - `GET /api/v1/incidents`：按 owner、severity、status、host 和时间筛选。
 
-`PolicyDecision` 不等于执行成功；阻断成功必须另有 `EnforcementEvidence`。
+`PolicyDecision` 不等于执行成功；阻断成功必须另有 `EnforcementEvidence`。准入状态机由受管安装器驱动文件系统后果，body 布尔值不能代替安装证据；托管目录是平台自己的包管理存储，不代表 Agent 产品已加载该包。
 
 ## 6. 身份边界
 
@@ -233,11 +236,19 @@ Timeline 永久显式列出 sections_pending 中的 attribution/finding/policy_d
 | POST | `/api/v1/executions/{id}/correlate` | govern；建立可冲突候选边，不改写原始事件 |
 | GET | `/api/v1/executions/{id}/attributions` | 查询 method/confidence/score/selected/evidence_refs/rule_version |
 | POST/GET | `/api/v1/risk-assessments` | 根据 finding_ids、event_ids 完整复合标识及声明 exposure 分维度评估/查询 |
-| POST | `/api/v1/policies/evaluate` | assessment_id + subject_kind/id，返回独立 PolicyDecision，无生效宣称 |
+| POST | `/api/v1/policies/evaluate` | assessment_id + subject_kind/id，按当前活跃策略版本求值，记录实际 policy_version |
 | GET | `/api/v1/policy-decisions` | 查询策略决定 |
-| POST | `/api/v1/admissions/check` | asset_instance_id/content_hash/transaction_id，幂等检查 |
+| GET | `/api/v1/policies/active` | 当前活跃策略版本；无活跃版本时求值返回 500 no_active_policy |
+| GET | `/api/v1/policies/versions` | 查询策略版本（draft/active/retired） |
+| POST | `/api/v1/policies/versions` | govern；创建 draft 版本，规则依序首个命中者胜出 |
+| POST | `/api/v1/policies/versions/{id}/activate` | govern；原子激活：旧版本停用与新版本生效同一事务，已停用版本不能再次激活 |
+| POST | `/api/v1/admissions/check` | asset_instance_id/content_hash/transaction_id，幂等检查；安装中的实例拒绝新事务 |
 | POST | `/api/v1/admissions/{id}/approve` | 记录实际授权操作者 |
-| POST | `/api/v1/admissions/{id}/{stage,commit,verify,reconcile,rollback}` | 安装器未实现，409 installer_required；不能用状态写入冒充安装 |
+| POST | `/api/v1/admissions/{id}/stage` | govern；source_path 须在托管 inbound 目录下；暂存哈希与审批不一致直接 failed |
+| POST | `/api/v1/admissions/{id}/commit` | govern；受管安装器落盘并快照旧版本；重复 commit 幂等 |
+| POST | `/api/v1/admissions/{id}/verify` | govern；重算已安装内容哈希，不一致记 failed |
+| POST | `/api/v1/admissions/{id}/reconcile` | govern；verified 后再次核对落盘内容 |
+| POST | `/api/v1/admissions/{id}/rollback` | govern；恢复本次提交前快照或移除首次安装，未提交事务只丢弃暂存 |
 | GET | `/api/v1/admissions` | 查询当前准入检查/批准记录 |
 | POST/GET | `/api/v1/incidents` | 创建/查询工单 |
 | PATCH | `/api/v1/incidents/{id}` | 校验状态机；真实风险关闭需匹配检测器/目标且工单开启后的 clean 复测证据 |

@@ -42,6 +42,7 @@ from services.timeline_service import TimelineService
 from api.v1 import is_device_route, route as route_v1
 from api.governance import route as route_governance
 from services.governance_service import GovernanceService
+from services.managed_installer import ManagedInstaller
 from services.approval_service import ApprovalService
 from services.attribution_service import AttributionService
 from pydantic import ValidationError
@@ -51,7 +52,8 @@ ROOT = Path(__file__).resolve().parents[1]
 WEB_ROOT = ROOT / "web"
 DATA_ROOT = ROOT / "data"
 SCAN_ROOT = Path(os.environ.get("FUSION_SCAN_ROOT", str(ROOT / "workspace"))).resolve()
-DB_PATH = Path(os.environ.get("FUSION_DB_PATH", str(DATA_ROOT / "fusion.db")))
+DB_PATH = Path(os.environ.get("FUSION_DB_PATH", str(DATA_ROOT / "fusion.db"))).resolve()
+MANAGED_ROOT = Path(os.environ.get("FUSION_MANAGED_ROOT", str(DATA_ROOT / "managed"))).resolve()
 BIND_HOST = os.environ.get("FUSION_BIND", "127.0.0.1")
 MAX_BODY_BYTES = 8 * 1024 * 1024
 SCAN_TIMEOUT_SECONDS = int(os.environ.get("FUSION_SCAN_TIMEOUT", "300"))
@@ -81,7 +83,7 @@ scan_service = ScanService(storage=storage, catalog=catalog)
 product_catalog = ProductCatalog()
 ingestion_service = IngestionService(storage)
 timeline_service = TimelineService(storage)
-governance_service = GovernanceService(storage)
+governance_service = GovernanceService(storage, installer=ManagedInstaller(MANAGED_ROOT))
 approval_service = ApprovalService(storage)
 attribution_service = AttributionService(storage)
 

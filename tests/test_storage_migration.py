@@ -254,7 +254,10 @@ class TestV5Migration:
 
         assert conn.execute(
             "SELECT value FROM schema_meta WHERE key='schema_version'"
-        ).fetchone()[0] == "6"
+        ).fetchone()[0] == "7"
+        # v7 迁移播种默认策略版本，并给准入记录补上回滚凭据列。
+        assert conn.execute("SELECT status FROM policy_versions WHERE policy_version='policy-v1'").fetchone()[0] == "active"
+        assert "rollback_ref" in {row[1] for row in conn.execute("PRAGMA table_info(admissions)")}
         conn.close()
 
     def test_v5_migration_is_idempotent(self, tmp_path):

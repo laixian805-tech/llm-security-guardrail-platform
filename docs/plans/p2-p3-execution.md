@@ -10,3 +10,13 @@
 6. 全部 schema 同步导出；每片运行有关测试和完整回归。部署前备份 SQLite，测试端保留安装前原始配置，默认 observe。
 
 本计划记录实施顺序，不代表 P2/P3 已全量验收。最终结果与剩余工作写入本轮实测记录。
+
+## 2026-11-12 进度
+
+第 5 条的前两项已落地，完整回归 304 项全绿：
+
+- 受管安装器 `backend/services/managed_installer.py` 与准入状态机改造（详见 IMPLEMENTATION_PLAN「P3 第二片」）。stage/commit/verify/reconcile/rollback 全部有真实文件系统后果；content_drift、installed_content_mismatch、installer_not_staged、实例互斥等失败路径均有测试覆盖。
+- 策略版本管理：`PolicyRuleSet` + 原子激活 + 默认版本播种；evaluate 记录实际 policy_version，无活跃版本返回 500 不静默回退。
+- schema v7（admissions.rollback_ref、policy_versions）、contracts/policy-version.schema.json、API_CONTRACT.md 已同步。
+
+仍未完成：完整 Asset/Detection/Incident/Policy 工作台前端、策略版本管理界面、托管目录磁盘配额与清理、真实产品安装器（当前安装目标是平台托管目录，不是产品加载路径）、真实 ASR/Utility/MTTR 指标。

@@ -10,9 +10,10 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 DDL = """
 CREATE TABLE IF NOT EXISTS detector_runs (
@@ -260,10 +261,23 @@ CREATE TABLE IF NOT EXISTS admissions (
     state TEXT NOT NULL,
     approved_by TEXT,
     observed_content_hash TEXT,
+    -- 安装器回滚凭据：NULL 表示从未提交；否则是提交前快照名或 first_install。
+    rollback_ref TEXT,
     failure_reason TEXT,
     transaction_id TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+);
+
+-- 策略版本：evaluate 必须记录实际生效的版本，规则依序首个命中者胜出。
+CREATE TABLE IF NOT EXISTS policy_versions (
+    policy_version TEXT PRIMARY KEY,
+    rules TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    activated_at TEXT,
+    retired_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS incidents (
@@ -473,6 +487,27 @@ def _migrate_v5(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE device_identities ADD COLUMN credential_rotated_at TEXT")
 
 
+def _migrate_v7(conn: sqlite3.Connection) -> None:
+    """v6 → v7：准入记录带安装器回滚凭据，并建立策略版本表。
+
+    rollback_ref 让回滚有确定目标（恢复哪个快照、还是移除首次安装）；
+    策略版本表由默认活跃版本播种，evaluate 不再写死 policy-v1。
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(admissions)")}
+    if "rollback_ref" not in columns:
+        conn.execute("ALTER TABLE admissions ADD COLUMN rollback_ref TEXT")
+    from domain.governance import default_rule_set
+
+    if not conn.execute("SELECT 1 FROM policy_versions WHERE status='active'").fetchone():
+        model = default_rule_set()
+        conn.execute(
+            "INSERT INTO policy_versions (policy_version, rules, status, created_by, created_at, activated_at)"
+            " VALUES (?,?,?,?,?,?)",
+            (model.policy_version, json.dumps([rule.model_dump(mode="json") for rule in model.rules]),
+             model.status.value, model.created_by, model.created_at.isoformat(), model.activated_at.isoformat()),
+        )
+
+
 def _ensure_attribution_foreign_keys(conn: sqlite3.Connection) -> None:
     """升级早期 v6 试运行表，让保留策略删除源证据时同时删除归因边。"""
     if conn.execute('PRAGMA foreign_key_list(event_attributions)').fetchall():
@@ -525,6 +560,9 @@ def migrate(conn: sqlite3.Connection) -> None:
 
     if has_v4 and not has_v5:
         _migrate_v5(conn)
+
+    # v7 的步骤自带幂等判断（列存在性、是否已有活跃版本），新旧库都可执行。
+    _migrate_v7(conn)
 
     _ensure_attribution_foreign_keys(conn)
     conn.executescript(INDEX_DDL)

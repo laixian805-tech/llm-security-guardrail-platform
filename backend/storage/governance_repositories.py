@@ -5,11 +5,11 @@ import json
 from datetime import datetime, timezone
 from pydantic import BaseModel
 from storage.repositories import Storage
-from domain.governance import Admission, Incident, PolicyDecision, RiskAssessment
+from domain.governance import Admission, Incident, PolicyDecision, PolicyRuleSet, RiskAssessment
 
-TABLES = {Admission:'admissions', Incident:'incidents', PolicyDecision:'policy_decisions', RiskAssessment:'risk_assessments'}
-KEYS = {Admission:'admission_id', Incident:'incident_id', PolicyDecision:'decision_id', RiskAssessment:'assessment_id'}
-JSON_FIELDS = {'reasons', 'evidence_refs'}
+TABLES = {Admission:'admissions', Incident:'incidents', PolicyDecision:'policy_decisions', PolicyRuleSet:'policy_versions', RiskAssessment:'risk_assessments'}
+KEYS = {Admission:'admission_id', Incident:'incident_id', PolicyDecision:'decision_id', PolicyRuleSet:'policy_version', RiskAssessment:'assessment_id'}
+JSON_FIELDS = {'reasons', 'evidence_refs', 'rules'}
 
 
 class StateConflict(ValueError):
@@ -34,7 +34,10 @@ class GovernanceRepository:
 
     def get(self, model, identifier):
         with self.storage.connection() as c:
-            return decode(model,c.execute(f'SELECT * FROM {TABLES[model]} WHERE {KEYS[model]}=?',(identifier,)).fetchone())
+            return self.decode(model,c.execute(f'SELECT * FROM {TABLES[model]} WHERE {KEYS[model]}=?',(identifier,)).fetchone())
+
+    def decode(self, model, row):
+        return decode(model,row)
 
     def list(self, model, limit=100):
         with self.storage.connection() as c:
@@ -46,6 +49,11 @@ class GovernanceRepository:
         with self.storage._lock,self.storage.connection() as c:
             c.execute(f'INSERT INTO {table} ({",".join(data)}) VALUES ({",".join("?" for _ in data)})',list(data.values()))
         return model
+
+    def record_transition(self, conn, entity_kind, entity_id, from_state, to_state, actor_id, action):
+        """在同一连接内追加状态日志；调用方负责它所属的 UPDATE。"""
+        conn.execute('INSERT INTO governance_transitions (entity_kind,entity_id,from_state,to_state,actor_id,action,occurred_at) VALUES (?,?,?,?,?,?,?)',
+            (entity_kind,entity_id,from_state,to_state,actor_id,action,datetime.now(timezone.utc).isoformat()))
 
     def transition(self, model, *, previous, actor_id, action):
         cls=type(model);table=TABLES[cls];key=KEYS[cls];identifier=getattr(model,key)

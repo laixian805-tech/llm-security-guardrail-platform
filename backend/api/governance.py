@@ -18,6 +18,15 @@ def route(handler,method,parsed,governance,approval):
         result=governance.risk(handler._body())
     elif path=='/api/v1/policies/evaluate' and method=='POST':
         result=governance.evaluate(handler._body())
+    elif path=='/api/v1/policies/versions' and method=='POST':
+        result=governance.policy.create(handler._body(),handler._actor().user_id)
+    elif path=='/api/v1/policies/versions' and method=='GET':
+        handler._send(200,{'items':[r.model_dump(mode='json') for r in governance.policy.list()]});return True
+    elif path.startswith('/api/v1/policies/versions/') and path.endswith('/activate') and method=='POST':
+        result=governance.policy.activate(path.split('/')[5],handler._actor().user_id)
+    elif path=='/api/v1/policies/active' and method=='GET':
+        active=governance.policy.active()
+        handler._send(200,{'active':active.model_dump(mode='json') if active else None});return True
     elif path=='/api/v1/admissions/check' and method=='POST':
         result=governance.check_admission(handler._body())
     elif path.startswith('/api/v1/admissions/') and method=='POST':

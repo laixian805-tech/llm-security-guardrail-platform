@@ -1,0 +1,188 @@
+{
+  "$defs": {
+    "PolicyAction": {
+      "enum": [
+        "allow",
+        "audit",
+        "confirm",
+        "block"
+      ],
+      "title": "PolicyAction",
+      "type": "string"
+    },
+    "PolicyRule": {
+      "additionalProperties": false,
+      "description": "一条确定性策略规则。\n\n规则按列表顺序首个命中者胜出；所有给出的条件都满足才算命中。不同量纲\n的风险分数在规则里各自比较，不在代码里相加。条件字段为 None 表示该\n维度不参与判断，因此不带任何条件的规则是无条件兜底规则。",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/PolicyAction"
+        },
+        "any_dimension_above": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Any Dimension Above"
+        },
+        "exposure_risk_min": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exposure Risk Min"
+        },
+        "intrinsic_risk_min": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intrinsic Risk Min"
+        },
+        "peak_at_most": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Peak At Most"
+        },
+        "reason": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "rule_id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "runtime_risk_min": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runtime Risk Min"
+        }
+      },
+      "required": [
+        "rule_id",
+        "action",
+        "reason"
+      ],
+      "title": "PolicyRule",
+      "type": "object"
+    },
+    "PolicyStatus": {
+      "enum": [
+        "draft",
+        "active",
+        "retired"
+      ],
+      "title": "PolicyStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "一个策略版本；同一时刻只有一个 active 版本参与求值。",
+  "properties": {
+    "activated_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Activated At"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "created_by": {
+      "minLength": 1,
+      "title": "Created By",
+      "type": "string"
+    },
+    "policy_version": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Policy Version",
+      "type": "string"
+    },
+    "retired_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Retired At"
+    },
+    "rules": {
+      "items": {
+        "$ref": "#/$defs/PolicyRule"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "title": "Rules",
+      "type": "array"
+    },
+    "status": {
+      "$ref": "#/$defs/PolicyStatus",
+      "default": "draft"
+    }
+  },
+  "required": [
+    "policy_version",
+    "rules",
+    "created_by",
+    "created_at"
+  ],
+  "title": "PolicyRuleSet",
+  "type": "object"
+}
