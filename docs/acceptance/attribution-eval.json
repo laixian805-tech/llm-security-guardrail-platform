@@ -1,0 +1,49 @@
+{
+  "scenarios": 8,
+  "events_total": 11,
+  "should_attribute": 7,
+  "selected": {
+    "edges": 5,
+    "correct_edges": 5,
+    "precision": 1.0,
+    "recall": 0.7143,
+    "covered_events": 5,
+    "should_attribute": 7
+  },
+  "any_edge": {
+    "edges": 8,
+    "correct_edges": 8,
+    "precision": 1.0,
+    "recall": 1.0,
+    "covered_events": 7,
+    "should_attribute": 7
+  },
+  "by_method": {
+    "hook_id": {
+      "edges": 2,
+      "correct": 2,
+      "precision": 1.0
+    },
+    "process_tree": {
+      "edges": 5,
+      "correct": 5,
+      "precision": 1.0
+    },
+    "temporal_feature": {
+      "edges": 1,
+      "correct": 1,
+      "precision": 1.0
+    }
+  },
+  "missed_events": [
+    "e_weak_1",
+    "e_conf_1"
+  ],
+  "incorrect_edges": [],
+  "unattributed_events": [
+    "e_late_1",
+    "e_orphan_1",
+    "e_reuse_1",
+    "e_weak2_1"
+  ]
+}
