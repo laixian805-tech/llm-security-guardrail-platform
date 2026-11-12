@@ -434,9 +434,11 @@ class TestMigration:
             "SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"assets", "asset_instances", "asset_releases",
                 "execution_findings"} <= names
+        # 版本号跟常量对齐：写死字面量会让每次升版都要改这条断言。
+        from storage.schema import SCHEMA_VERSION
         assert conn.execute(
             "SELECT value FROM schema_meta WHERE key='schema_version'"
-        ).fetchone()[0] == "8"
+        ).fetchone()[0] == str(SCHEMA_VERSION)
         columns = {row[1] for row in conn.execute("PRAGMA table_info(asset_instances)")}
         assert {"installation_state", "activation_state", "runtime_state"}.isdisjoint(columns), \
             "三态是按证据现算的派生值，不落库"
