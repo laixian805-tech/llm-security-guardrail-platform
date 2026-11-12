@@ -5,12 +5,13 @@
 
 from __future__ import annotations
 
-from adapters.products import ClaudeCodeAdapter, CodexAdapter
+from adapters.products import ClaudeCodeAdapter, CodexAdapter, QwenCodeAdapter
 from adapters.products.base import AgentProductAdapter
 
 ADAPTER_TYPES = {
     "claude-code": ClaudeCodeAdapter,
     "codex": CodexAdapter,
+    "qwen-code": QwenCodeAdapter,
 }
 
 

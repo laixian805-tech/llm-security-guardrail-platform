@@ -9,6 +9,7 @@ from pydantic import AwareDatetime, Field, ValidationError
 
 from domain import ExecutionOutcome, Intent, RuntimeEvent
 from domain.asset import StrictModel
+from products.registry import ProductCatalog
 from storage.execution_repositories import (
     ExecutionConflict, ExecutionRepository, IntentRepository, RuntimeEventRepository,
 )
@@ -79,7 +80,10 @@ class IngestionService:
     def execution(self, device_id: str, body: dict) -> dict:
         reject_secrets(body)
         data = ExecutionInput.model_validate(body)
-        if data.product not in ("codex", "claude-code"):
+        # 产品白名单只认注册表：这里曾经硬编码 ("codex", "claude-code")，
+        # 于是新增产品时改了 registry、控制面却仍然 400 拒收——"增删产品只改
+        # 注册表"这句承诺必须由代码兑现，不能靠记得同步两处。
+        if data.product not in ProductCatalog().ids():
             raise IngestError("unsupported_product")
         terminal = data.outcome in (ExecutionOutcome.COMPLETED, ExecutionOutcome.ABORTED, ExecutionOutcome.FAILED)
         if (data.outcome == ExecutionOutcome.RUNNING and data.ended_at is not None) or (terminal and data.ended_at is None):

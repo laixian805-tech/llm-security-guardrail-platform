@@ -9,11 +9,13 @@ from adapters.products.base import (
 )
 from adapters.products.claude_code import ClaudeCodeAdapter
 from adapters.products.codex import CodexAdapter
+from adapters.products.qwen_code import QwenCodeAdapter
 
 __all__ = [
     "AgentProductAdapter",
     "ClaudeCodeAdapter",
     "CodexAdapter",
+    "QwenCodeAdapter",
     "HookDirective",
     "HookEvent",
     "HookResponse",

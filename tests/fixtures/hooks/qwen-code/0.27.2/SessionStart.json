@@ -1,0 +1,10 @@
+{
+ "session_id": "5deb57b1-e29f-491e-a04b-aa34acd38338",
+ "transcript_path": "/tmp/qwen-spike/home/.qwen/projects/-tmp-qwen-spike-work/chats/5deb57b1-e29f-491e-a04b-aa34acd38338.jsonl",
+ "cwd": "/tmp/qwen-spike/work",
+ "hook_event_name": "SessionStart",
+ "timestamp": "2026-11-12T02:45:49.979Z",
+ "permission_mode": "yolo",
+ "source": "startup",
+ "model": "mock-model"
+}

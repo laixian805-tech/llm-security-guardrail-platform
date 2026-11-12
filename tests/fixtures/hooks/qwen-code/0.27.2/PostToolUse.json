@@ -1,0 +1,21 @@
+{
+ "session_id": "5deb57b1-e29f-491e-a04b-aa34acd38338",
+ "transcript_path": "/tmp/qwen-spike/home/.qwen/projects/-tmp-qwen-spike-work/chats/5deb57b1-e29f-491e-a04b-aa34acd38338.jsonl",
+ "cwd": "/tmp/qwen-spike/work",
+ "hook_event_name": "PostToolUse",
+ "timestamp": "2026-11-12T02:45:50.769Z",
+ "permission_mode": "yolo",
+ "prompt_id": "5deb57b1-e29f-491e-a04b-aa34acd38338########0",
+ "tool_name": "run_shell_command",
+ "tool_input": {
+  "command": "echo allow-me",
+  "description": "spike round 2"
+ },
+ "tool_response": {
+  "llmContent": "Command: echo allow-me\nDirectory: (root)\nOutput: allow-me\nError: (none)\nExit Code: 0\nSignal: (none)\nProcess Group PGID: (none)",
+  "returnDisplay": "allow-me"
+ },
+ "tool_use_id": "toolu_1794451550599_n2m2w1cuy",
+ "tool_call_id": "call_mock_2",
+ "duration_ms": 17
+}

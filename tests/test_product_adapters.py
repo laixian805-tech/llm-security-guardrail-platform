@@ -362,8 +362,8 @@ class TestCatalog:
 
     def test_descriptors_cover_registered_products(self):
         catalog = ProductCatalog()
-        assert catalog.ids() == ["claude-code", "codex"]
-        assert {d.product_id for d in catalog.descriptors()} == {"claude-code", "codex"}
+        assert catalog.ids() == ["claude-code", "codex", "qwen-code"]
+        assert {d.product_id for d in catalog.descriptors()} == {"claude-code", "codex", "qwen-code"}
 
 
 class TestProductsEndpoint:
@@ -379,7 +379,7 @@ class TestProductsEndpoint:
         response = self._call(api.base, token=login(api))
         assert response.status_code == 200
         products = {entry["product_id"]: entry for entry in response.json()["products"]}
-        assert set(products) == {"claude-code", "codex"}
+        assert set(products) == {"claude-code", "codex", "qwen-code"}
 
         claude = products["claude-code"]
         # 验证状态必须透传给调用方，控制面不做加工。
