@@ -66,7 +66,11 @@ TRACE_LINKS = {
     "instance": "登记时声明的主机/产品作用域副本",
     "admission": "按 admissions.asset_instance_id 字符串匹配（P1 遗留自由文本，无外键）",
     "execution": "按 executions.asset_instance_id 字符串匹配（P1 遗留自由文本，无外键）",
-    "finding": "分析员显式关联（execution_findings）或 findings.asset_id 指向本资产",
+    # findings.asset_id 一列存在，但没有任何写入方（record_success 的 INSERT 不含它，
+    # 留存清理只置空 detector_run_id）。在这里提它等于虚报一条走不到的通道，而本字段
+    # 的职责恰恰是如实披露关联强度。将来要接，先在 record_success 落列并定清
+    # (detector_id, fingerprint) 跨资产去重时的归属，再把话加回来。
+    "finding": "分析员显式关联（execution_findings），不是自动归因",
     "policy_decision": "按 subject_id 匹配资产/实例/发现项/执行/准入标识",
     "incident": "按 incident_evidence 关联到上述发现项或执行",
     "activation_state": "按最近一次带 product_id 的准入事务派生：只有产品会话真的确认加载才记 enabled；"

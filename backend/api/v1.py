@@ -91,12 +91,15 @@ def route(handler, method, parsed, ingestion, timeline, assets):
 ASSET_FILTERS = ("asset_type", "product", "host_id", "installation_state",
                  "runtime_state", "activation_state", "provenance", "query")
 
-# 状态类过滤参数必须落在枚举内。以前 activation_state 恒为 unknown，任何取值
-# 都只会静默返回全量或空集；现在它有真实取值，非法值必须报错，否则调用方会
-# 把"拼错的状态名"读成"没有这类资产"。
+# 状态类过滤参数必须落在"平台真能判定"的取值内。以前 activation_state 恒为
+# unknown，任何取值都只会静默返回全量或空集；现在它有真实取值，非法值必须报错，
+# 否则调用方会把"拼错的状态名"读成"没有这类资产"。
+# 同理，不能只做白名单校验：broken/idle 虽然写在了 domain 枚举里，但三态推导
+# 永远不会产出它们，放进白名单等于给调用方一个永远空结果的合法筛选项——那比
+# 报错更糟，因为它读起来像"查过了，没有这类资产"。
 STATE_FILTERS = {
-    "installation_state": ("unknown", "absent", "installed", "broken"),
-    "runtime_state": ("unknown", "idle", "running", "stopped"),
+    "installation_state": ("unknown", "absent", "installed"),
+    "runtime_state": ("unknown", "running", "stopped"),
     "activation_state": ("unknown", "disabled", "enabled"),
 }
 
