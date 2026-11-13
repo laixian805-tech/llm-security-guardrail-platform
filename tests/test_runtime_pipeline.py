@@ -67,7 +67,11 @@ def test_labeled_attribution_exact_tree_weak_and_unattributed(tmp_path):
        {'event_id':'background','event_type':'process_start','occurred_at':stamp,'process':{'pid':900,'ppid':1}}]
     ingest.batch(did,{'collector_id':'test','events':items})
     service=AttributionService(storage);summary=service.correlate('exec');edges=service.list('exec')
-    assert summary['candidate_count']==4 and summary['selected_count']==3 and summary['unattributed_count']==1
+    # hook_anchor 是绑定元数据，不是被归因对象，所以受评事件是 4 个而不是 5 个。
+    assert summary['subject_count']==4 and summary['candidate_count']==4 and summary['selected_count']==3
+    # "连不上"和"不敢连"必须分开：background 无任何候选，weak 有候选但不够强。
+    assert summary['no_candidate_count']==1 and summary['ambiguous_count']==1
+    assert summary['unattributed_count']==2
     selected={e['event_id']:e['intent_id'] for e in edges if e['selected']}
     truth={'anchor':'i1','process':'i1','network':'i1'}
     tp=sum(selected.get(k)==v for k,v in truth.items());fp=sum(k not in truth or truth[k]!=v for k,v in selected.items())
@@ -125,7 +129,13 @@ def test_new_conflicting_evidence_demotes_previously_selected_edge(tmp_path):
     assert len(edges)==2 and all(not e['selected'] for e in edges)
 
 
-def test_audit_rotation_drains_original_inode_before_new_file(tmp_path):
+def test_audit_rotation_loses_nothing_across_polls(tmp_path):
+    """轮转后两个文件的事件都要采到，但顺序改为"主文件优先"。
+
+    原断言要求"一次采集先把旧文件尾巴读掉"，实测这样会让当前事件滞后十几小时
+    （旧文件积压 8MB，每次只读 1MB，主文件要等很多轮）。改为实时优先后：
+    第一次读主文件，第二次补旧文件尾巴，总数不变——不丢数据这条保证仍然成立。
+    """
     source=tmp_path/'audit.log';first=TRACE.split('type=SYSCALL msg=audit(1794398400.124:11)')[0]
     source.write_text(first)
     cfg={'state_dir':str(tmp_path/'state'),'audit_log':str(source),'audit_uid':1000,'audit_keys':['asgp_p2_exec','asgp_p2_net','asgp_p2_file']}
@@ -133,8 +143,10 @@ def test_audit_rotation_drains_original_inode_before_new_file(tmp_path):
     with source.open('a') as f:f.write(TRACE[len(first):])
     source.rename(tmp_path/'audit.log.1')
     source.write_text(first.replace(':10)',':20)'))
-    assert collect_once(cfg,settled=True)['events']==2
+    # 实时优先：这一轮先读主文件里的新事件（1 条）
     assert collect_once(cfg,settled=True)['events']==1
+    # 主文件读完，回去补旧文件未读的尾巴（这里是 2 条）
+    assert collect_once(cfg,settled=True)['events']==2
     assert collect_once(cfg,settled=True)['events']==0
     box=Outbox(cfg['state_dir'])
     assert box.db.execute('SELECT count(*) FROM outbox').fetchone()[0]==4
