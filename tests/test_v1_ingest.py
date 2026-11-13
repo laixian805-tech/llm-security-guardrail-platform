@@ -85,3 +85,38 @@ def test_codex_cannot_claim_unsupported_confirmation(api,admin_token):
         'decision':'ask','decision_reason':'test','occurred_at':data['started_at']}
     r=call(api.base,'POST','/api/v1/executions/exec_1/intents',token=dev['token'],body=intent)
     assert r.status_code==400 and 'unsupported_decision' in r.text
+
+
+def test_forged_product_version_cannot_carry_a_decision(api,admin_token):
+    """设备自称低版本换不来一次被采信的 allow/deny。
+
+    执行照收入库（版本漂移不该让遥测整段消失），但声明来源记为
+    device_claim，任何携带决策的 Intent 都被拒。
+    """
+    dev=setup_device(api,admin_token)
+    forged=execution('exec_forged');forged['product_version']='0.26.8'
+    call(api.base,'POST','/api/v1/executions',token=dev['token'],body=forged).raise_for_status()
+    rows=call(api.base,'GET','/api/v1/executions',token=admin_token).json()['executions']
+    stored=next(r for r in rows if r['execution_id']=='exec_forged')
+    assert stored['product_version']=='0.26.8' and stored['product_version_source']=='device_claim'
+    intent={'intent_id':'forged1','tool_name':'Bash','tool_call_id':'c1','hook_event_type':'pre_tool_use',
+        'decision':'allow','decision_reason':'forged','occurred_at':forged['started_at']}
+    r=call(api.base,'POST','/api/v1/executions/exec_forged/intents',token=dev['token'],body=intent)
+    assert r.status_code==400 and 'unverified_product_version' in r.text
+    # 无决策语义的观测不受影响：observe 遥测仍然可用。
+    observe=dict(intent,intent_id='forged2',decision='not_applicable',decision_reason=None)
+    assert call(api.base,'POST','/api/v1/executions/exec_forged/intents',token=dev['token'],
+        body=observe).status_code==200
+
+
+def test_registry_version_is_recorded_as_authoritative(api,admin_token):
+    dev=setup_device(api,admin_token)
+    data=execution('exec_ok')
+    call(api.base,'POST','/api/v1/executions',token=dev['token'],body=data).raise_for_status()
+    rows=call(api.base,'GET','/api/v1/executions',token=admin_token).json()['executions']
+    stored=next(r for r in rows if r['execution_id']=='exec_ok')
+    assert stored['product_version_source']=='registry'
+    intent={'intent_id':'ok1','tool_name':'Bash','tool_call_id':'c1','hook_event_type':'pre_tool_use',
+        'decision':'deny','decision_reason':'policy','occurred_at':data['started_at']}
+    assert call(api.base,'POST','/api/v1/executions/exec_ok/intents',token=dev['token'],
+        body=intent).status_code==200

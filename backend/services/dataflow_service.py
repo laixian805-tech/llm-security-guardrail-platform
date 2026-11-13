@@ -10,40 +10,21 @@
 """
 from __future__ import annotations
 
-import ipaddress
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
 
+from services.evidence_rules import (
+    SENSITIVE_MARKERS,
+    TRUSTED_HOSTS,
+    TRUSTED_SUFFIXES,
+    is_external_host,
+    is_sensitive_path,
+)
 from services.ingestion_service import IngestError
 
 VERSION = "dataflow-v1"
-
-# 命中即视为"值得关注的数据源"。顺序无关，命中任意一个就算。
-SENSITIVE_MARKERS = (
-    # 目录级路径（~/.ssh）也要算：列一遍目录同样能看出有哪些密钥。
-    ".ssh", "id_rsa", "id_ed25519", "id_ecdsa",
-    ".aws/credentials", ".git-credentials", ".npmrc", ".pypirc",
-    ".kube/config", ".docker/config.json", "keychain", "login data",
-    ".env", "credentials", "cookies", "cookie.sqlite", "wallet.dat",
-)
-
-# 这些主机的连接不视为外发：包管理器、代码托管、以及内网/回环。
-TRUSTED_HOSTS = (
-    # 代码托管与包管理：日常构建必经，纳入白名单否则每次 push/install 都误报。
-    "github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com",
-    "gitlab.com", "bitbucket.org",
-    "pypi.org", "files.pythonhosted.org", "registry.npmjs.org",
-    "registry-1.docker.io", "auth.docker.io", "production.cloudflare.docker.com",
-    # 云厂商 API 与模型端点。
-    "aws.amazon.com", "sts.amazonaws.com", "s3.amazonaws.com",
-    "api.anthropic.com", "api.openai.com", "api.stepfun.com",
-)
-# 说明：白名单是"常见合法端点"的折中，不是安全边界。攻击者完全可以把数据推到
-# 自己的 github 仓库或 S3 桶——这一点路径级判据无法区分，写进文档而不是假装解决。
-
-TRUSTED_SUFFIXES = (".internal", ".local", ".localdomain", ".cluster.local")
 
 # 这些工具是"往外发东西"的典型形态，用来给链路提高置信度。
 EXFIL_COMMANDS = ("curl", "wget", "nc", "ncat", "scp", "sftp", "rsync", "httpie", "http ", "socat")
@@ -57,33 +38,8 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _is_sensitive(path: str) -> bool:
-    lowered = str(path).lower()
-    # 公钥（.pub）是公开材料，读它并联网是正常行为，不能算敏感源。
-    if lowered.endswith(".pub"):
-        return False
-    return any(marker in lowered for marker in SENSITIVE_MARKERS)
-
-
-def _is_external(host: str | None) -> bool:
-    """判断连接目标是否在"外部"。宁可把内网判成外部也不要反过来。"""
-    if not host:
-        return False
-    value = str(host).strip().lower()
-    if value in ("localhost", "::1") or value.startswith("127."):
-        return False
-    if any(value.endswith(suffix) for suffix in TRUSTED_SUFFIXES):
-        return False
-    if value in TRUSTED_HOSTS:
-        return False
-    try:
-        address = ipaddress.ip_address(value)
-    except ValueError:
-        # 域名：不在信任名单里就算外部（企业域名应显式加入 TRUSTED_HOSTS）。
-        return True
-    # is_global 而不是 not is_private：文档保留段（192.0.2/198.51.100/203.0.113）
-    # 在 Python 里算 private，但它们根本不可路由，不该当成外发终点。
-    return address.is_global
+_is_sensitive = is_sensitive_path
+_is_external = is_external_host
 
 
 def _basename(path: str) -> str:

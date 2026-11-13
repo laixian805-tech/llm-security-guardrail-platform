@@ -22,6 +22,19 @@
       ],
       "title": "IntentDecision",
       "type": "string"
+    },
+    "SourceKind": {
+      "description": "触发工具调用的指令来源类别，用于区分高信任任务指令与外部低信任内容。",
+      "enum": [
+        "user_task",
+        "workspace_config",
+        "installed_skill",
+        "mcp_server",
+        "tool_output",
+        "unknown"
+      ],
+      "title": "SourceKind",
+      "type": "string"
     }
   },
   "additionalProperties": false,
@@ -126,6 +139,30 @@
       "default": false,
       "title": "Redaction Applied",
       "type": "boolean"
+    },
+    "source_kind": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SourceKind"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "source_ref": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Ref"
     },
     "tool_call_id": {
       "anyOf": [

@@ -22,6 +22,7 @@ from domain.enums import (
     ExecutionOutcome,
     HookEventType,
     IntentDecision,
+    SourceKind,
 )
 
 # 参数摘要长度上限。端侧脱敏后仍是任意结构，超出即截断，完整内容以
@@ -94,6 +95,9 @@ class Intent(StrictModel):
     ended_at: datetime | None = None
     # 产品侧结果的脱敏短摘要，不是完整输出。
     product_result: str | None = Field(default=None, max_length=MAX_PRODUCT_RESULT)
+    # 指令来源谱系（可选）：区分用户原始任务与外部 Skill/MCP/工具输出诱导。
+    source_kind: SourceKind | None = None
+    source_ref: str | None = Field(default=None, max_length=200)
     created_at: datetime
 
     @model_validator(mode="after")

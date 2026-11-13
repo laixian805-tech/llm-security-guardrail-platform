@@ -1,28 +1,28 @@
 {
-  "scenarios": 8,
-  "events_total": 11,
-  "should_attribute": 7,
+  "scenarios": 10,
+  "events_total": 13,
+  "should_attribute": 8,
   "selected": {
-    "edges": 5,
+    "edges": 6,
     "correct_edges": 5,
-    "precision": 1.0,
-    "recall": 0.7143,
+    "precision": 0.8333,
+    "recall": 0.625,
     "covered_events": 5,
-    "should_attribute": 7
+    "should_attribute": 8
   },
   "any_edge": {
-    "edges": 8,
+    "edges": 9,
     "correct_edges": 8,
-    "precision": 1.0,
-    "recall": 1.0,
+    "precision": 0.8889,
+    "recall": 0.875,
     "covered_events": 7,
-    "should_attribute": 7
+    "should_attribute": 8
   },
   "by_method": {
     "hook_id": {
-      "edges": 2,
+      "edges": 3,
       "correct": 2,
-      "precision": 1.0
+      "precision": 0.6667
     },
     "process_tree": {
       "edges": 5,
@@ -35,15 +35,299 @@
       "precision": 1.0
     }
   },
-  "missed_events": [
-    "e_weak_1",
-    "e_conf_1"
+  "focus": {
+    "unattributed_rate": 0.25,
+    "no_attribution_rate": 0.5385,
+    "multi_candidate_rate": 0.0769,
+    "false_strong_rate": 0.125,
+    "conflict_recall": 1.0,
+    "conflict_false_positive_rate": 0.0,
+    "counts": {
+      "subjects": 13,
+      "should_attribute": 8,
+      "unattributed_events": 2,
+      "no_attribution_events": 7,
+      "multi_candidate_events": 1,
+      "strong_edges": 8,
+      "wrong_strong_edges": 1,
+      "conflicting_truth_events": 1,
+      "conflict_kept": 1,
+      "conflict_false_positive_events": 0
+    },
+    "wrong_strong_detail": [
+      {
+        "event_id": "e_hint_1",
+        "intent_id": "i_hint_a",
+        "method": "hook_id",
+        "score": 0.99
+      }
+    ]
+  },
+  "by_trace_kind": {
+    "one_to_many": {
+      "events": 4,
+      "correct": 3,
+      "correct_negative": 0,
+      "wrong": 0,
+      "missed": 0,
+      "partial_or_ambiguous": 1
+    },
+    "one_to_one": {
+      "events": 4,
+      "correct": 2,
+      "correct_negative": 0,
+      "wrong": 1,
+      "missed": 0,
+      "partial_or_ambiguous": 1
+    },
+    "unresolved": {
+      "events": 5,
+      "correct": 0,
+      "correct_negative": 5,
+      "wrong": 0,
+      "missed": 0,
+      "partial_or_ambiguous": 0
+    }
+  },
+  "traces": [
+    {
+      "trace_id": "trace_001",
+      "kind": "one_to_one",
+      "scenario": "exact_hook_id",
+      "event_id": "e_exact_1",
+      "expected": [
+        "i_exact"
+      ],
+      "attributed": [
+        "i_exact"
+      ],
+      "selected": [
+        "i_exact"
+      ],
+      "methods": [
+        "hook_id"
+      ],
+      "max_score": 0.99,
+      "verdict": "correct"
+    },
+    {
+      "trace_id": "trace_002",
+      "kind": "one_to_one",
+      "scenario": "exact_hook_id",
+      "event_id": "e_exact_2",
+      "expected": [
+        "i_exact"
+      ],
+      "attributed": [
+        "i_exact"
+      ],
+      "selected": [
+        "i_exact"
+      ],
+      "methods": [
+        "hook_id"
+      ],
+      "max_score": 0.99,
+      "verdict": "correct"
+    },
+    {
+      "trace_id": "trace_003",
+      "kind": "one_to_many",
+      "scenario": "process_tree_in_window",
+      "event_id": "e_tree_1",
+      "expected": [
+        "i_tree"
+      ],
+      "attributed": [
+        "i_tree"
+      ],
+      "selected": [
+        "i_tree"
+      ],
+      "methods": [
+        "process_tree"
+      ],
+      "max_score": 0.85,
+      "verdict": "correct"
+    },
+    {
+      "trace_id": "trace_004",
+      "kind": "one_to_many",
+      "scenario": "process_tree_in_window",
+      "event_id": "e_tree_2",
+      "expected": [
+        "i_tree"
+      ],
+      "attributed": [
+        "i_tree"
+      ],
+      "selected": [
+        "i_tree"
+      ],
+      "methods": [
+        "process_tree"
+      ],
+      "max_score": 0.85,
+      "verdict": "correct"
+    },
+    {
+      "trace_id": "trace_005",
+      "kind": "one_to_many",
+      "scenario": "process_tree_in_window",
+      "event_id": "e_tree_3",
+      "expected": [
+        "i_tree"
+      ],
+      "attributed": [
+        "i_tree"
+      ],
+      "selected": [
+        "i_tree"
+      ],
+      "methods": [
+        "process_tree"
+      ],
+      "max_score": 0.85,
+      "verdict": "correct"
+    },
+    {
+      "trace_id": "trace_006",
+      "kind": "unresolved",
+      "scenario": "process_tree_out_of_window",
+      "event_id": "e_late_1",
+      "expected": [],
+      "attributed": [],
+      "selected": [],
+      "methods": [],
+      "max_score": null,
+      "verdict": "correct_negative"
+    },
+    {
+      "trace_id": "trace_007",
+      "kind": "unresolved",
+      "scenario": "orphan_process",
+      "event_id": "e_orphan_1",
+      "expected": [],
+      "attributed": [],
+      "selected": [],
+      "methods": [],
+      "max_score": null,
+      "verdict": "correct_negative"
+    },
+    {
+      "trace_id": "trace_008",
+      "kind": "unresolved",
+      "scenario": "pid_reuse_before_anchor",
+      "event_id": "e_reuse_1",
+      "expected": [],
+      "attributed": [],
+      "selected": [],
+      "methods": [],
+      "max_score": null,
+      "verdict": "correct_negative"
+    },
+    {
+      "trace_id": "trace_009",
+      "kind": "one_to_one",
+      "scenario": "weak_resource_hint",
+      "event_id": "e_weak_1",
+      "expected": [
+        "i_weak"
+      ],
+      "attributed": [
+        "i_weak"
+      ],
+      "selected": [],
+      "methods": [
+        "temporal_feature"
+      ],
+      "max_score": 0.35,
+      "verdict": "partial_or_ambiguous"
+    },
+    {
+      "trace_id": "trace_010",
+      "kind": "unresolved",
+      "scenario": "weak_resource_out_of_time",
+      "event_id": "e_weak2_1",
+      "expected": [],
+      "attributed": [],
+      "selected": [],
+      "methods": [],
+      "max_score": null,
+      "verdict": "correct_negative"
+    },
+    {
+      "trace_id": "trace_011",
+      "kind": "one_to_many",
+      "scenario": "conflict_two_intents_same_anchor",
+      "event_id": "e_conf_1",
+      "expected": [
+        "i_conf_a",
+        "i_conf_b"
+      ],
+      "attributed": [
+        "i_conf_a",
+        "i_conf_b"
+      ],
+      "selected": [],
+      "methods": [
+        "process_tree"
+      ],
+      "max_score": 0.85,
+      "verdict": "partial_or_ambiguous"
+    },
+    {
+      "trace_id": "trace_012",
+      "kind": "one_to_one",
+      "scenario": "collector_hint_points_at_wrong_intent",
+      "event_id": "e_hint_1",
+      "expected": [
+        "i_hint_b"
+      ],
+      "attributed": [
+        "i_hint_a"
+      ],
+      "selected": [
+        "i_hint_a"
+      ],
+      "methods": [
+        "hook_id"
+      ],
+      "max_score": 0.99,
+      "verdict": "wrong"
+    },
+    {
+      "trace_id": "trace_013",
+      "kind": "unresolved",
+      "scenario": "unlinked_event_from_other_session",
+      "event_id": "e_other_1",
+      "expected": [],
+      "attributed": [],
+      "selected": [],
+      "methods": [],
+      "max_score": null,
+      "verdict": "correct_negative"
+    }
   ],
-  "incorrect_edges": [],
+  "missed_events": [
+    "e_conf_1",
+    "e_weak_1"
+  ],
+  "incorrect_edges": [
+    {
+      "event_id": "e_hint_1",
+      "intent_id": "i_hint_a",
+      "method": "hook_id",
+      "score": 0.99
+    }
+  ],
   "unattributed_events": [
+    "e_conf_1",
     "e_late_1",
     "e_orphan_1",
+    "e_other_1",
     "e_reuse_1",
-    "e_weak2_1"
+    "e_weak2_1",
+    "e_weak_1"
   ]
 }

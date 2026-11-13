@@ -14,24 +14,26 @@
         <div class="brand"><span class="brandMark">AS</span><span>ASGP<br /><b>安全治理平台</b></span></div>
         <div class="workspaceLabel">工作区</div>
         <nav aria-label="主导航">
+          <div class="navGroupLabel">核心证据链</div>
           <a class="navItem active" href="#overview">概览</a>
-          <a class="navItem" href="#assets">资产中心</a>
+          <a class="navItem" href="#runtime">运行时间线 & 差分</a>
+          <a class="navItem" href="#assets">资产与验签</a>
           <a class="navItem" href="#detections">检测中心</a>
-          <a class="navItem" href="#scan">新建扫描</a>
-          <a class="navItem" href="#engines">扫描引擎</a>
-          <a class="navItem" href="#runtime">运行时间线</a>
           <a class="navItem" href="#hostRuntime">主机运行事件</a>
+          <div class="navGroupLabel">治理与配置</div>
           <a class="navItem" href="#approvals">调用审批</a>
           <a class="navItem" href="#policy">风险与策略</a>
           <a class="navItem" href="#admissions">准入安装</a>
           <a class="navItem" href="#incidents">Incident 中心</a>
+          <a class="navItem" href="#scan">新建扫描</a>
+          <a class="navItem" href="#engines">引擎与模型</a>
         </nav>
         <div class="sidebarFoot">
           <div id="sessionChip" class="sessionChip" hidden>
             <span id="sessionUser" class="sessionUser"></span>
             <button id="logoutButton" class="textButton" type="button">退出登录</button>
           </div>
-          <div class="portLine"><span class="localDot"></span> 扫描服务 · 端口 8000</div>
+          <div class="portLine"><span class="localDot"></span> HTTPS 控制面 · TLS 443</div>
         </div>
       </aside>
 
@@ -165,11 +167,30 @@
                   <input id="assetVersion" placeholder="1.0.0" />
                   <input id="assetHash" placeholder="sha256（64 位小写十六进制）" />
                 </div>
+                <label for="assetPublisherId">Ed25519 验签凭据（可选，由服务端验签）</label>
+                <div class="inputPair">
+                  <input id="assetPublisherId" placeholder="pub_..." />
+                  <input id="assetSignature" placeholder="Ed25519 签名（hex 或 base64）" />
+                </div>
               </div>
             </div>
             <button id="assetRegisterSubmit" class="primaryButton" type="submit">登记</button>
-            <p class="fieldHint">同名同类型同产品的逻辑资产只登记一次，重复登记返回原记录；副本按（资产，主机，产品作用域）去重。三态不在表单里：平台只记录自己持有的证据。</p>
+            <p class="fieldHint">同名同类型同产品的逻辑资产只登记一次，重复登记返回原记录；副本按（资产，主机，产品作用域）去重。<code>signature_verified</code> 只能由服务端基于发布方公钥对 <code>content_hash</code> 验签写入，不接受客户端自报布尔值。</p>
           </form>
+          <div class="panel nestedPanel">
+            <div class="sectionHeading"><h3>发布方公钥（Ed25519）</h3><span id="publisherCount" class="subtleText"></span></div>
+            <form id="publisherForm" class="filterRow">
+              <div><label for="publisherName">发布方名称</label><input id="publisherName" placeholder="acme-signer" required /></div>
+              <div><label for="publisherKey">Ed25519 公钥（32 字节 hex 或 base64）</label><input id="publisherKey" placeholder="64 位 hex 或 base64 公钥" required /></div>
+              <div class="filterActions"><button id="publisherSubmit" class="secondaryButton" type="submit">登记公钥</button></div>
+            </form>
+            <div class="tableWrap">
+              <table>
+                <thead><tr><th>发布方</th><th>算法</th><th>公钥指纹</th><th>状态</th><th>登记时间</th><th>操作</th></tr></thead>
+                <tbody id="publisherRows"></tbody>
+              </table>
+            </div>
+          </div>
           <div id="assetTrace" class="recordList"></div>
         </section>
 
@@ -192,12 +213,26 @@
         </section>
 
         <section id="runtime" class="panel" data-view="runtime">
-          <div class="sectionHeading"><div><p class="eyebrow">执行观测</p><h2>运行时间线</h2></div><button id="runtimeRefresh" type="button" class="textButton">刷新执行记录</button></div>
+          <div class="sectionHeading">
+            <div><p class="eyebrow">执行观测 &amp; 单点突破</p><h2>运行时间线与副作用差分</h2></div>
+            <div class="quickActions">
+              <button id="runtimeCorrelateBtn" type="button" class="secondaryButton">运行归因与差分分析</button>
+              <button id="runtimeRefresh" type="button" class="textButton">刷新执行记录</button>
+            </div>
+          </div>
           <div id="runtimeProducts" class="fieldHint"></div>
           <label for="runtimeExecution">产品、测试设备与会话</label>
           <select id="runtimeExecution"></select>
           <p id="runtimeEmpty" class="fieldHint">暂无上报执行。请在已登记的测试设备运行 Agent 后刷新。</p>
-          <p id="runtimeBoundary" class="fieldHint">展示 Hook 观测；行为归因和治理闭环尚未接入。</p>
+          <p id="runtimeBoundary" class="fieldHint">仅基于可验证证据做归因与来源副作用差分；无 OS 证据事件保持未归因。</p>
+          <div id="effectDiffSummary" class="diffSummaryStrip" hidden></div>
+          <div class="laneWrap">
+            <div class="laneHead">
+              <span class="laneTitle">指令来源谱系 × 预期/真实 OS 副作用差分</span>
+              <span class="hint" id="effectDiffHint">对比模型声明边界与 OS 实际事件</span>
+            </div>
+            <div id="effectDiffList" class="recordList"></div>
+          </div>
           <p id="runtimeSectionLinks" class="fieldHint"></p>
           <div class="laneWrap">
             <div class="laneHead">

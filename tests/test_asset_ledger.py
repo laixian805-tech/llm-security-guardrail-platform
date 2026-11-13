@@ -443,3 +443,139 @@ class TestMigration:
         assert {"installation_state", "activation_state", "runtime_state"}.isdisjoint(columns), \
             "三态是按证据现算的派生值，不落库"
         conn.close()
+
+
+# 测试专用 Ed25519 签名工具（控制面生产代码绝不持有或生成私钥）。
+def _test_ed25519_keypair(seed: bytes):
+    import hashlib
+    from services.ed25519 import _B, _L, _P, _point_mul
+
+    def encode_point(pt):
+        z_inv = pow(pt[2], -1, _P)
+        x = (pt[0] * z_inv) % _P
+        y = (pt[1] * z_inv) % _P
+        encoded = bytearray(y.to_bytes(32, "little"))
+        encoded[31] |= (x & 1) << 7
+        return bytes(encoded)
+
+    h = hashlib.sha512(seed).digest()
+    a = int.from_bytes(h[:32], "little")
+    a &= (1 << 254) - 8
+    a |= 1 << 254
+    pub = encode_point(_point_mul(a, _B))
+    prefix = h[32:]
+
+    def sign(msg: bytes) -> bytes:
+        r = int.from_bytes(hashlib.sha512(prefix + msg).digest(), "little") % _L
+        r_bytes = encode_point(_point_mul(r, _B))
+        k = int.from_bytes(hashlib.sha512(r_bytes + pub + msg).digest(), "little") % _L
+        s = (r + k * a) % _L
+        return r_bytes + s.to_bytes(32, "little")
+
+    return pub.hex(), sign
+
+
+class TestEd25519ReleaseVerification:
+    def test_rfc8032_vectors_and_server_signing_round_trip(self, api, admin_token):
+        from services.ed25519 import verify_ed25519
+
+        pk_vec = bytes.fromhex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
+        sig_vec = bytes.fromhex(
+            "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e06522490155"
+            "5fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"
+        )
+        assert verify_ed25519(pk_vec, b"", sig_vec)
+        assert not verify_ed25519(pk_vec, b"tampered", sig_vec)
+
+        pub_hex, sign = _test_ed25519_keypair(b"\x07" * 32)
+        pub_resp = call(api.base, "POST", "/api/v1/publishers", token=admin_token,
+                        body={"name": "acme-signer", "public_key": pub_hex})
+        assert pub_resp.status_code == 200, pub_resp.text
+        publisher = pub_resp.json()["publisher"]
+        assert publisher["algorithm"] == "ed25519"
+        assert publisher["status"] == "active"
+
+        # 重复登记同一发布方同名同公钥幂等，换公钥则 409 冲突。
+        dup = call(api.base, "POST", "/api/v1/publishers", token=admin_token,
+                   body={"name": "acme-signer", "public_key": pub_hex})
+        assert dup.status_code == 200 and dup.json()["duplicate"] is True
+        other_pub_hex, _ = _test_ed25519_keypair(b"\x08" * 32)
+        conflict = call(api.base, "POST", "/api/v1/publishers", token=admin_token,
+                        body={"name": "acme-signer", "public_key": other_pub_hex})
+        assert conflict.status_code == 409
+
+        asset = _register(api, admin_token, publisher="acme-signer")["asset"]
+        sig_hex = sign(CONTENT_HASH.encode("ascii")).hex()
+
+        # 绝不信任客户端自报 signature_verified。
+        forged_flag = call(api.base, "POST", "/api/v1/asset-releases", token=admin_token,
+                           body={"asset_id": asset["asset_id"], "version": "1.0.0",
+                                 "content_hash": CONTENT_HASH, "signature_verified": True})
+        assert forged_flag.status_code == 400
+        assert forged_flag.json()["error"]["code"] == "client_signature_verified_forbidden"
+
+        # 篡改 content_hash 或签名必须被拒。
+        bad_hash = "b" * 64
+        tampered = call(api.base, "POST", "/api/v1/asset-releases", token=admin_token,
+                        body={"asset_id": asset["asset_id"], "version": "1.0.0",
+                              "content_hash": bad_hash,
+                              "publisher_id": publisher["publisher_id"],
+                              "signature": sig_hex})
+        assert tampered.status_code == 400
+        assert tampered.json()["error"]["code"] == "signature_verification_failed"
+
+        # 合法 Ed25519 签名：服务端算得 signature_verified=True 与 verified_at。
+        verified = call(api.base, "POST", "/api/v1/asset-releases", token=admin_token,
+                        body={"asset_id": asset["asset_id"], "version": "1.0.0",
+                              "content_hash": CONTENT_HASH,
+                              "publisher_id": publisher["publisher_id"],
+                              "signature": sig_hex})
+        assert verified.status_code == 200, verified.text
+        rel = verified.json()["release"]
+        assert rel["signature_verified"] is True
+        assert rel["publisher_id"] == publisher["publisher_id"]
+        assert rel["verified_at"] is not None
+
+        # 吊销发布方后不得再验签通过。
+        revoked = call(api.base, "POST", f"/api/v1/publishers/{publisher['publisher_id']}/revoke",
+                       token=admin_token)
+        assert revoked.status_code == 200
+        assert revoked.json()["publisher"]["status"] == "revoked"
+        after_revoke = call(api.base, "POST", "/api/v1/asset-releases", token=admin_token,
+                            body={"asset_id": asset["asset_id"], "version": "1.0.1",
+                                  "content_hash": CONTENT_HASH,
+                                  "publisher_id": publisher["publisher_id"],
+                                  "signature": sig_hex})
+        assert after_revoke.status_code == 400
+        assert after_revoke.json()["error"]["code"] == "publisher_revoked"
+
+    def test_v11_migration_clears_unverified_legacy_boolean_claims(self, tmp_path):
+        import sqlite3
+        from storage.repositories import Storage
+        from storage.schema import SCHEMA_VERSION
+
+        db = tmp_path / "legacy_v10.db"
+        Storage(db)
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "INSERT INTO assets VALUES ('a1','skill','demo','claude-code',NULL,NULL,NULL,'2026-11-01T00:00:00+00:00','2026-11-01T00:00:00+00:00')"
+        )
+        conn.execute(
+            "INSERT INTO asset_releases (release_id, asset_id, version, content_hash, source_uri, signature_verified, published_at)"
+            " VALUES ('r1','a1','1.0.0',?,'https://example.com',1,NULL)",
+            (CONTENT_HASH,),
+        )
+        conn.commit()
+        conn.close()
+
+        # 重新运行迁移应清除无签名作证的客户端自报标记。
+        Storage(db)
+        conn = sqlite3.connect(db)
+        row = conn.execute(
+            "SELECT signature_verified, verified_at FROM asset_releases WHERE release_id='r1'"
+        ).fetchone()
+        assert row == (0, None)
+        assert conn.execute(
+            "SELECT value FROM schema_meta WHERE key='schema_version'"
+        ).fetchone()[0] == str(SCHEMA_VERSION)
+        conn.close()

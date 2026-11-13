@@ -42,6 +42,7 @@ from services.coverage_service import CoverageService
 from services.timeline_service import TimelineService
 from services.asset_service import AssetService
 from services.dataflow_service import DataFlowService
+from services.effect_diff_service import EffectDiffService
 from api.v1 import PRODUCT_VERIFICATION, is_device_route, route as route_v1
 from api.governance import route as route_governance
 from services.governance_service import GovernanceService
@@ -90,6 +91,7 @@ coverage_service = CoverageService(storage)
 timeline_service = TimelineService(storage)
 asset_service = AssetService(storage)
 dataflow_service = DataFlowService(storage)
+effect_diff_service = EffectDiffService(storage)
 _product_bindings = parse_bindings(os.environ.get("ASGP_PRODUCT_BINDINGS"))
 governance_service = GovernanceService(
     storage,
@@ -139,7 +141,7 @@ def _required_permission(method: str, path: str) -> Permission | None:
         return Permission.READ
     if path.startswith(('/api/v1/approvals','/api/v1/risk-assessments','/api/v1/policies/',
                         '/api/v1/policy-decisions','/api/v1/admissions','/api/v1/incidents',
-                        '/api/v1/asset-instances','/api/v1/asset-releases')):
+                        '/api/v1/asset-instances','/api/v1/asset-releases','/api/v1/publishers')) or path.startswith('/api/v1/publishers/'):
         return Permission.READ if method == 'GET' else Permission.GOVERN
     # 资产台账：登记是 govern，列表与追踪视图按 read 开放。安装/启用/运行三态
     # 由服务端按准入事务和执行记录现算，所以读接口不需要更高权限。
@@ -176,7 +178,7 @@ def attribution_graph(storage, execution_id: str) -> dict[str, Any]:
         if not execution:
             raise IngestError("unknown_execution", 404)
         intents = [dict(row) for row in conn.execute(
-            "SELECT intent_id,tool_name,occurred_at,decision FROM intents"
+            "SELECT intent_id,tool_name,occurred_at,decision,source_kind,source_ref FROM intents"
             " WHERE execution_id=? ORDER BY occurred_at", (execution_id,))]
         intent_ids = [row["intent_id"] for row in intents]
         edges = []
@@ -234,10 +236,38 @@ def overview_stats(storage) -> dict[str, Any]:
         "policy_decisions": decisions,
         "admissions": admissions,
         "findings_by_severity": findings_by_severity,
-        # 标注集结果：这是离线评测，不是线上统计，前端会明确标"评测"。
-        "evaluation": {"dataflow_detected": 15, "dataflow_false_positive": 0,
-                       "dataflow_sequences": 30, "attribution_precision": 1.0,
-                       "attribution_recall": 0.71},
+        # 标注集结果从 docs/acceptance/*.json 动态读取；缺失字段返回 null，不造假。
+        "evaluation": _load_evaluation_summary(),
+    }
+
+
+def _read_json_if_exists(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _load_evaluation_summary() -> dict[str, Any]:
+    acc = ROOT / "docs" / "acceptance"
+    attr = _read_json_if_exists(acc / "attribution-eval.json") or {}
+    df = _read_json_if_exists(acc / "dataflow-eval.json") or {}
+    ed = _read_json_if_exists(acc / "effect-diff-eval.json") or {}
+    selected = attr.get("selected") if isinstance(attr.get("selected"), dict) else {}
+    return {
+        "dataflow_detected": df.get("tp"),
+        "dataflow_false_positive": df.get("fp"),
+        "dataflow_sequences": df.get("scenarios"),
+        "attribution_precision": selected.get("precision"),
+        "attribution_recall": selected.get("recall"),
+        "effect_diff_scenarios": ed.get("scenarios"),
+        "effect_diff_undeclared_tp": ed.get("tp"),
+        "effect_diff_false_positive": ed.get("fp"),
+        "effect_diff_baseline_capture_rate": ed.get("baseline_rule_only_rate"),
+        "effect_diff_asgp_capture_rate": ed.get("asgp_capture_rate"),
     }
 
 
@@ -428,6 +458,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path.startswith('/api/v1/executions/') and path.endswith('/data-flows') and method == 'GET':
                 # 按会话现场重建数据外发候选链；不落库，避免为启发式结果造历史表。
                 self._send(200, dataflow_service.trace(path.split('/')[4]))
+            elif path.startswith('/api/v1/executions/') and path.endswith('/effect-diff') and method == 'GET':
+                # 按会话现场计算来源谱系与 OS 副作用差分；不猜测未归因事件。
+                self._send(200, effect_diff_service.analyze(path.split('/')[4]))
             elif PRODUCT_VERIFICATION.fullmatch(path) and method == 'POST':
                 # 端侧在自己主机上确认产品是否真的加载，回传证据；控制面只记录。
                 self._send(200, governance_service.record_product_verification(

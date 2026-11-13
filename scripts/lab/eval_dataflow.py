@@ -219,19 +219,20 @@ def seed(db_path: Path) -> None:
             "INSERT INTO device_identities (device_id,label,credential_hash,status,enrolled_at,host_id)"
             " VALUES (?,?,?,?,?,?)",
             ("dev_dataflow_eval", "dataflow-eval", "0" * 64, "active", at(0), "test-agentsec-01"))
-        for scene in SCENARIOS:
+        for scene_idx, scene in enumerate(SCENARIOS):
+            slot = scene_idx * 600
             eid = "exec_" + scene["id"].replace("-", "_")
             conn.execute(
                 "INSERT INTO executions (execution_id,host_id,device_id,product,product_version,"
                 "session_id,started_at,outcome,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (eid, "test-agentsec-01", "dev_dataflow_eval", "qwen-code", PRODUCT_VERSIONS["qwen-code"],
-                 "s-" + scene["id"], at(0), "completed", at(0), at(0)))
+                 "s-" + scene["id"], at(slot), "completed", at(slot), at(slot)))
             for index, item in enumerate(scene["intents"]):
-                row = intent(eid, index, **item)
+                row = intent(eid, index, **dict(item, offset=item["offset"] + slot))
                 conn.execute(f"INSERT INTO intents ({','.join(row)}) VALUES ({','.join('?' * len(row))})",
                              list(row.values()))
             for index, item in enumerate(scene["nets"]):
-                row = net_event(eid, index, **item)
+                row = net_event(eid, index, **dict(item, offset=item["offset"] + slot))
                 conn.execute(f"INSERT INTO runtime_events ({','.join(row)}) VALUES ({','.join('?' * len(row))})",
                              list(row.values()))
         conn.commit()

@@ -337,3 +337,46 @@ td code { font-size: 11px; }
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--fs-xs);
   color: #8b9a96;
 }
+
+.navGroupLabel {
+  color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .06em;
+  margin: 14px 10px 4px; text-transform: uppercase;
+}
+.quickActions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.diffSummaryStrip {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;
+  margin: 12px 0 14px;
+}
+.diffStat {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-md);
+  padding: 10px 12px;
+}
+.diffStat span { display: block; font-size: var(--fs-xs); color: #8b9a96; }
+.diffStat strong { display: block; margin-top: 4px; font-size: 18px; font-variant-numeric: tabular-nums; }
+.diffStat strong.danger { color: var(--state-block); }
+.diffStat strong.ok { color: var(--state-allow); }
+.diffStat strong.warn { color: var(--state-confirm); }
+
+.diffCard {
+  background: rgba(255, 255, 255, .02); border: 1px solid var(--line);
+  border-left: 3px solid var(--state-unknown); border-radius: var(--radius-md);
+  padding: 12px 14px; display: grid; gap: 8px;
+}
+.diffCard.verdict-undeclared_side_effect {
+  border-left-color: var(--state-block); background: rgba(248, 113, 113, .05);
+}
+.diffCard.verdict-within_expected { border-left-color: var(--state-allow); }
+.diffCardHead { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.diffCols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; font-size: var(--fs-xs); color: #b7c6c7; }
+.diffCols > div { background: rgba(0, 0, 0, .18); border-radius: 6px; padding: 8px 10px; }
+.diffBadge {
+  display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; background: rgba(148, 163, 184, .14); color: #cbd5e1;
+}
+.diffBadge.danger { background: rgba(248, 113, 113, .16); color: #f87171; }
+.diffBadge.ok { background: rgba(52, 211, 153, .16); color: #34d399; }
+.diffBadge.warn { background: rgba(251, 146, 60, .16); color: #fb923c; }
+
+@media (max-width: 820px) {
+  .diffSummaryStrip, .diffCols { grid-template-columns: 1fr; }
+}

@@ -28,8 +28,33 @@ from domain.product import DECISION_NONE
 ADAPTER_VERSION = "1.1.0"
 
 # 各产品的验证版本。版本门控要求它与设备上报值相等，所以这里就是"声明版本"
-# 的唯一来源；改版本只动这一处。
+# 的唯一来源；改版本只动这一处。上报值不相同时见 version_source()：执行仍然
+# 入库（遥测不能因为版本漂移就整段丢失），但不允许携带决策。
 PRODUCT_VERSIONS = {"claude-code": "2.1.152", "codex": "0.166.0", "qwen-code": "0.26.8"}
+
+# 端点在二进制指纹变化时上报的占位值。它不是版本号，而是"这份二进制与登记时
+# 不一致"的信号；控制面据此拒绝任何携带决策的 Intent，而不是把它当成一个
+# 可用的低版本来放行。
+BINARY_CHANGED_VERSION = "unverified-changed"
+
+VERSION_SOURCES = ("registry", "binary_changed", "device_claim")
+
+
+def version_source(product: str, claimed: str) -> str:
+    """判定一次版本声明的证据等级。
+
+    registry：与 PRODUCT_VERSIONS 相等，平台唯一权威源。
+    binary_changed：端点自报二进制已变，声明不可信。
+    device_claim：其它一切声明，包含产品已升级而注册表尚未更新的情况。
+
+    版本门控原先只比对"设备上一条消息里自报的版本"，等于让设备自己证明自己。
+    现在每条执行都记录声明来源，门控只认 registry。
+    """
+    if claimed == BINARY_CHANGED_VERSION:
+        return "binary_changed"
+    if claimed == PRODUCT_VERSIONS.get(product):
+        return "registry"
+    return "device_claim"
 
 # Claude Code payload 里已知但不外传的字段：transcript_path 指向本地会话
 # 记录（可能含 prompt 正文），cwd 与 permission_mode 是本机执行上下文。

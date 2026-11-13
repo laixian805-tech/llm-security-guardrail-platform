@@ -19,6 +19,7 @@ from domain import (  # noqa: E402
     Asset,
     AssetInstance,
     AssetRelease,
+    Publisher,
     DetectorDescriptor,
     DetectorRun,
     EvidenceRef,
@@ -33,10 +34,13 @@ from domain import (  # noqa: E402
 )
 from domain.timeline import TimelineEntry, TimelineResponse
 from domain.attribution import EventAttribution
+from domain.effect_diff import EffectDiffItem, ExecutionEffectDiff
 from domain.approval import ApprovalRequest
 from domain.governance import Admission,Incident,IncidentEvidence,PolicyDecision,PolicyRuleSet,RiskAssessment
 
 SCHEMAS = {
+    "effect-diff-item": EffectDiffItem,
+    "execution-effect-diff": ExecutionEffectDiff,
     "event-attribution": EventAttribution,
     "approval-request": ApprovalRequest,
     "admission": Admission,
@@ -51,6 +55,7 @@ SCHEMAS = {
     "asset": Asset,
     "asset-instance": AssetInstance,
     "asset-release": AssetRelease,
+    "publisher": Publisher,
     "detector-descriptor": DetectorDescriptor,
     "detector-run": DetectorRun,
     "evidence-ref": EvidenceRef,

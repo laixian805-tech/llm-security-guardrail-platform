@@ -1,0 +1,163 @@
+{
+  "$defs": {
+    "AttributionMethod": {
+      "enum": [
+        "hook_id",
+        "process_tree",
+        "temporal_feature"
+      ],
+      "title": "AttributionMethod",
+      "type": "string"
+    },
+    "Confidence": {
+      "enum": [
+        "unknown",
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "Confidence",
+      "type": "string"
+    },
+    "EffectDiffVerdict": {
+      "description": "模型预期副作用边界与 OS 实测事件之间的差分结论。",
+      "enum": [
+        "within_expected",
+        "undeclared_side_effect",
+        "no_observed_effect",
+        "unverified"
+      ],
+      "title": "EffectDiffVerdict",
+      "type": "string"
+    },
+    "SourceKind": {
+      "description": "触发工具调用的指令来源类别，用于区分高信任任务指令与外部低信任内容。",
+      "enum": [
+        "user_task",
+        "workspace_config",
+        "installed_skill",
+        "mcp_server",
+        "tool_output",
+        "unknown"
+      ],
+      "title": "SourceKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "单条模型调用与其归因 OS 副作用的差分条目。",
+  "properties": {
+    "attribution_confidence": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Confidence"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "attribution_method": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AttributionMethod"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "event_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Event Id"
+    },
+    "event_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Event Type"
+    },
+    "expected_scope": {
+      "minLength": 1,
+      "title": "Expected Scope",
+      "type": "string"
+    },
+    "intent_id": {
+      "minLength": 1,
+      "title": "Intent Id",
+      "type": "string"
+    },
+    "observed_target": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Observed Target"
+    },
+    "reason": {
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    },
+    "source_kind": {
+      "$ref": "#/$defs/SourceKind",
+      "default": "unknown"
+    },
+    "source_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Ref"
+    },
+    "tool_name": {
+      "minLength": 1,
+      "title": "Tool Name",
+      "type": "string"
+    },
+    "trust_tier": {
+      "minLength": 1,
+      "title": "Trust Tier",
+      "type": "string"
+    },
+    "verdict": {
+      "$ref": "#/$defs/EffectDiffVerdict"
+    }
+  },
+  "required": [
+    "intent_id",
+    "tool_name",
+    "trust_tier",
+    "expected_scope",
+    "verdict",
+    "reason"
+  ],
+  "title": "EffectDiffItem",
+  "type": "object"
+}

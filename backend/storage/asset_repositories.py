@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from domain import Asset, AssetInstance, AssetRelease
+from domain import Asset, AssetInstance, AssetRelease, Publisher
 from storage.repositories import Storage, now_iso
 
 
@@ -50,6 +50,18 @@ def asset_instance_from_row(row: dict[str, Any]) -> AssetInstance:
     )
 
 
+def publisher_from_row(row: dict[str, Any]) -> Publisher:
+    return Publisher(
+        publisher_id=row["publisher_id"],
+        name=row["name"],
+        public_key=row["public_key"],
+        algorithm=row["algorithm"],
+        status=row["status"],
+        created_at=datetime.fromisoformat(row["created_at"]),
+        revoked_at=_parse_iso(row["revoked_at"]),
+    )
+
+
 def asset_release_from_row(row: dict[str, Any]) -> AssetRelease:
     return AssetRelease(
         release_id=row["release_id"],
@@ -57,7 +69,10 @@ def asset_release_from_row(row: dict[str, Any]) -> AssetRelease:
         version=row["version"],
         content_hash=row["content_hash"],
         source_uri=row["source_uri"],
+        publisher_id=row.get("publisher_id"),
+        signature=row.get("signature"),
         signature_verified=bool(row["signature_verified"]),
+        verified_at=_parse_iso(row.get("verified_at")),
         published_at=_parse_iso(row["published_at"]),
     )
 
@@ -188,15 +203,58 @@ class AssetRepository:
             conn.execute("UPDATE asset_instances SET last_seen_at = ? WHERE instance_id = ?",
                          (now_iso(), instance_id))
 
+    # ---------- Publisher ----------
+
+    def create_publisher(self, model: Publisher) -> Publisher:
+        with self._storage._lock, self._storage.connection() as conn:
+            conn.execute(
+                "INSERT INTO publishers (publisher_id, name, public_key, algorithm,"
+                " status, created_at, revoked_at) VALUES (?,?,?,?,?,?,?)",
+                (model.publisher_id, model.name, model.public_key, model.algorithm,
+                 model.status, model.created_at.isoformat(),
+                 model.revoked_at.isoformat() if model.revoked_at else None),
+            )
+        return model
+
+    def get_publisher(self, publisher_id: str) -> dict[str, Any] | None:
+        with self._storage.connection() as conn:
+            row = conn.execute("SELECT * FROM publishers WHERE publisher_id = ?", (publisher_id,)).fetchone()
+        return dict(row) if row else None
+
+    def find_publisher_by_name(self, name: str) -> dict[str, Any] | None:
+        with self._storage.connection() as conn:
+            row = conn.execute("SELECT * FROM publishers WHERE name = ?", (name,)).fetchone()
+        return dict(row) if row else None
+
+    def list_publishers(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        with self._storage.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM publishers ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def revoke_publisher(self, publisher_id: str) -> dict[str, Any] | None:
+        with self._storage._lock, self._storage.connection() as conn:
+            conn.execute(
+                "UPDATE publishers SET status = 'revoked', revoked_at = COALESCE(revoked_at, ?)"
+                " WHERE publisher_id = ?",
+                (now_iso(), publisher_id),
+            )
+            row = conn.execute("SELECT * FROM publishers WHERE publisher_id = ?", (publisher_id,)).fetchone()
+        return dict(row) if row else None
+
     # ---------- AssetRelease ----------
 
     def create_release(self, model: AssetRelease) -> AssetRelease:
         with self._storage._lock, self._storage.connection() as conn:
             conn.execute(
                 "INSERT INTO asset_releases (release_id, asset_id, version, content_hash,"
-                " source_uri, signature_verified, published_at) VALUES (?,?,?,?,?,?,?)",
+                " source_uri, publisher_id, signature, signature_verified, verified_at,"
+                " published_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (model.release_id, model.asset_id, model.version, model.content_hash,
-                 model.source_uri, 1 if model.signature_verified else 0,
+                 model.source_uri, model.publisher_id, model.signature,
+                 1 if model.signature_verified else 0,
+                 model.verified_at.isoformat() if model.verified_at else None,
                  model.published_at.isoformat() if model.published_at else None),
             )
         return model
@@ -265,3 +323,7 @@ def new_instance_id() -> str:
 
 def new_release_id() -> str:
     return f"rel_{uuid.uuid4().hex[:16]}"
+
+
+def new_publisher_id() -> str:
+    return f"pub_{uuid.uuid4().hex[:16]}"

@@ -20,7 +20,7 @@ https://43.139.77.64/
 # 跑全量测试（必须先跑通这个，再看别的）
 ssh root@43.139.77.64
 cd /root/agent-security-fusion-platform && ./scripts/test.sh
-# 期望：446 passed，且扫描器"未发现硬编码/重复真值问题"
+# 期望：457 passed，且扫描器"未发现硬编码/重复真值问题"
 ```
 
 ## 3. 系统拓扑
@@ -54,7 +54,9 @@ nginx 配置在 `/etc/nginx/conf.d/asgp.conf`，归档副本 `deploy/nginx-asgp.
 | 行为归因 | 完成 | 标注集 8 场景 11 事件：精度 **1.00** / 召回 **0.71**（selected）；含弱候选时召回 1.00；负样本零误归 |
 | 数据外发链 | 完成 | 30 条标注序列：**检出 15/15、误报 0/15**；关键负样本「读私钥 + git push github」不报 |
 | 采集完整性 | 完成 | Audit 层 20 次操作零丢失；Hook 前置事件 25/25；后置 18/20（缺的 2 次由产品进程 OOM kill 导致） |
-| 控制台 | 完成 | 11 视图 + 归因泳道图 + 数据流链图；概览四卡（归因 156/21634、决策分布、治理状态、离线评测） |
+| 控制台 | 完成（聚焦改版） | 证据链与治理分组导航 + 发布者 Ed25519 验签 + EffectDiff 反事实差分面板 + 概览实时评测四卡（归因 156/22508） |
+| 发布者验签（P0） | 完成（Schema v11） | `ed25519.py` 纯标准库 RFC 8032 验签 + `publishers` 表 + 吊销接口，拒收客户端自报布尔 |
+| 副作用差分（核心突破） | 完成（Schema v12） | 来源谱系 `SourceKind` × 预期/OS 差分 `effect-diff-v1`；16 组 A/B 捕获 8/8（基线 0/8）、误报 0/8 |
 
 ## 5. 关键代码地图
 
@@ -67,11 +69,14 @@ backend/
     ingestion_service.py     摄入（鉴权、幂等、校验）
     attribution_service.py   归因：hook_id / process_tree / temporal_feature
     dataflow_service.py      数据外发链：source → hop → sink
+    effect_diff_service.py   来源谱系 × 预期/OS 副作用差分（effect-diff-v1）
+    evidence_rules.py        共享敏感路径 / 可信域名 / 路径归一规则
+    ed25519.py               纯标准库 RFC 8032 Ed25519 服务端验签
     policy_service.py        策略版本：create / activate / rollback / evaluate
     managed_installer.py     准入落地、tree_hash、产品侧安装
     product_installer.py     写到产品 skills 目录
     asset_service.py         资产台账
-  storage/schema.py          SQLite DDL + 迁移链（当前 SCHEMA_VERSION = 9）
+  storage/schema.py          SQLite DDL + 迁移链（当前 SCHEMA_VERSION = 12）
 endpoint/                    端侧（部署在 b 的 ~/.asgp/source）
   audit.py                   Linux auditd 采集（游标按 inode 分文件）
   redaction.py               参数脱敏 + resource_hints 路径提取
@@ -91,7 +96,7 @@ deploy/                      nginx 配置与说明
 
 | 优先级 | 缺口 | 具体表现 | 建议 |
 | --- | --- | --- | --- |
-| **P0** | `asset_releases.signature_verified` 是**客户端自报的布尔** | `body.get("signature_verified", False)`，等于"我说我验过了"。这是全项目唯一一处假装有证据的地方 | 实现 ed25519 验签：签 content_hash，publishers 表存公钥，验签结果由服务端算 |
+| ~~P0（已修）~~ | `asset_releases.signature_verified` 服务端 Ed25519 验签 | 已合入（Schema v11）：`publishers` 公钥台账 + RFC 8032 服务端验签，客户端传 `signature_verified` 返回 400 | 保持不变；如需增强可接外部 PKI |
 | **P1** | 纯 MCP 配置漏检管道执行 | `mcpServers.args` 里的 `curl \| sh` 不触发 SC2/TM2（写在 SKILL.md 里才触发） | 补 MCP 专用规则或接语义检测器 |
 | **P1** | MCP 准入无产品侧加载验证 | `activation_state=unknown`，配置审批过但不知道产品是否真的注册了 | 接产品 MCP 枚举 + 端侧回传 |
 | P2 | 数据流链只到路径级 | 证明"先读后发"，不证明字节流向；跨会话接力不覆盖 | 内容级需要端侧拦读写，量级不同，当前明确不做 |
@@ -151,6 +156,6 @@ ssh root@43.139.77.64 'cd /root/agent-security-fusion-platform && \
 
 ## 10. 接手建议
 
-先跑 `./scripts/test.sh` 确认 446 passed，再打开控制台看概览四个数字是否与第 4 节一致。数字对不上说明环境有问题，先查环境再改代码。
+先跑 `./scripts/test.sh` 确认 **457 passed** 且硬编码扫描器 0 问题，再打开控制台 `https://43.139.77.64/` 看概览评测对比卡片是否正常。
 
-然后按第 6 节的 P0 开始：`signature_verified` 那个假字段是当前最该修的——它让"签名验证"在界面上显示为已通过，而实际只是客户端自己说的。
+若继续在主机 `b`（`116.62.28.177`）跑真机 `qwen-code`：需先在阿里云控制台重启主机 `b`（该机在 1.7 GiB RAM + 临时 `/swapfile` 跑完整 Node `qwen` 时出现 SSH banner 超时），重启后删除 `/swapfile` 再通过轻量场景或单步采集执行。

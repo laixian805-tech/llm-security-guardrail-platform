@@ -1,0 +1,57 @@
+{
+  "additionalProperties": false,
+  "description": "受信任的资产发布方公钥登记。",
+  "properties": {
+    "algorithm": {
+      "default": "ed25519",
+      "title": "Algorithm",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "name": {
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "public_key": {
+      "minLength": 1,
+      "title": "Public Key",
+      "type": "string"
+    },
+    "publisher_id": {
+      "minLength": 1,
+      "title": "Publisher Id",
+      "type": "string"
+    },
+    "revoked_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Revoked At"
+    },
+    "status": {
+      "default": "active",
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "publisher_id",
+    "name",
+    "public_key",
+    "created_at"
+  ],
+  "title": "Publisher",
+  "type": "object"
+}

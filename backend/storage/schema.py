@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 12
 
 DDL = """
 CREATE TABLE IF NOT EXISTS detector_runs (
@@ -148,6 +148,10 @@ CREATE TABLE IF NOT EXISTS executions (
     device_id TEXT NOT NULL REFERENCES device_identities(device_id),
     product TEXT NOT NULL,
     product_version TEXT NOT NULL,
+    -- 版本声明的证据等级：registry / binary_changed / device_claim。
+    -- 与 product_version 分开存，因为"报了什么"和"这个值可不可信"是两个
+    -- 事实；只存版本号就无法区分"权威核过"与"设备自称"。
+    product_version_source TEXT NOT NULL DEFAULT 'device_claim',
     session_id TEXT NOT NULL,
     -- P1 无资产注册表：只存端点上报的引用，不做存在性校验。v8 建了
     -- assets/asset_instances 台账，但存量自由文本引用不回溯校验。
@@ -181,6 +185,8 @@ CREATE TABLE IF NOT EXISTS intents (
     occurred_at TEXT NOT NULL,
     ended_at TEXT,
     product_result TEXT,
+    source_kind TEXT,
+    source_ref TEXT,
     created_at TEXT NOT NULL,
     UNIQUE (execution_id, tool_call_id)
 );
@@ -236,11 +242,36 @@ CREATE TABLE IF NOT EXISTS risk_assessments (
     exposure_risk REAL NOT NULL,
     confidence TEXT NOT NULL,
     reasons TEXT NOT NULL DEFAULT '[]',
+    -- 逐维度计算依据（score/confidence/rule_version/basis/evidence_refs）。
+    -- 没有这一列，"Intrinsic 为什么是 95"只能靠翻代码回答。
+    dimensions TEXT NOT NULL DEFAULT '[]',
     evidence_refs TEXT NOT NULL DEFAULT '[]',
     rule_version TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+-- 端侧上报的覆盖度对账。没有这张表，"Hook 丢失率"和"Audit 丢失率"永远
+-- 只是说法而不是数字：丢数据发生在端侧 outbox 容量封顶的那一刻，服务端
+-- 只看到"没有事件"，分不清"没发生"和"丢了"。
+CREATE TABLE IF NOT EXISTS coverage_reports (
+    report_id TEXT PRIMARY KEY,
+    host_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    collector_id TEXT NOT NULL,
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    delivered INTEGER NOT NULL DEFAULT 0,
+    dead INTEGER NOT NULL DEFAULT 0,
+    dropped TEXT NOT NULL DEFAULT '{}',
+    dropped_records INTEGER NOT NULL DEFAULT 0,
+    unbounded_gaps TEXT NOT NULL DEFAULT '[]',
+    backlog INTEGER NOT NULL DEFAULT 0,
+    high_water_seq INTEGER NOT NULL DEFAULT 0,
+    received_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS coverage_reports_host ON coverage_reports(host_id, received_at);
 
 CREATE TABLE IF NOT EXISTS policy_decisions (
     decision_id TEXT PRIMARY KEY,
@@ -304,14 +335,27 @@ CREATE TABLE IF NOT EXISTS asset_instances (
     UNIQUE (asset_id, host_id, product_scope)
 );
 
+CREATE TABLE IF NOT EXISTS publishers (
+    publisher_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    public_key TEXT NOT NULL,
+    algorithm TEXT NOT NULL DEFAULT 'ed25519',
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    revoked_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS asset_releases (
     release_id TEXT PRIMARY KEY,
     asset_id TEXT NOT NULL REFERENCES assets(asset_id) ON DELETE CASCADE,
     version TEXT NOT NULL,
     content_hash TEXT NOT NULL,
     source_uri TEXT,
-    -- 签名核验结果由登记方提供证据，平台不代为声称。
+    publisher_id TEXT REFERENCES publishers(publisher_id),
+    signature TEXT,
+    -- 只能由服务端使用 publishers 公钥对 content_hash 做 Ed25519 验签写入。
     signature_verified INTEGER NOT NULL DEFAULT 0,
+    verified_at TEXT,
     published_at TEXT,
     UNIQUE (asset_id, version, content_hash)
 );
@@ -604,6 +648,50 @@ def _migrate_v9(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE governance_transitions ADD COLUMN detail TEXT")
 
 
+def _migrate_v10(conn: sqlite3.Connection) -> None:
+    """v9 → v10：执行记录带上版本声明的证据等级。
+
+    旧行的 product_version 是设备自称的，没有任何权威核过，所以一律记为
+    device_claim——不回溯补一个"已核验"的结论。新行由摄入边界按注册表判定。
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(executions)")}
+    if "product_version_source" not in columns:
+        conn.execute(
+            "ALTER TABLE executions ADD COLUMN product_version_source"
+            " TEXT NOT NULL DEFAULT 'device_claim'")
+
+
+def _migrate_v11(conn: sqlite3.Connection) -> None:
+    """v10 → v11：publishers 公钥表与 asset_releases 服务端验签证据列。
+
+    旧版本允许客户端自报 signature_verified=true，没有密码学签名作证。
+    迁移时清理无签名支撑的历史自报已验签标记，避免伪证据继续展示。
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(asset_releases)")}
+    if "publisher_id" not in columns:
+        conn.execute("ALTER TABLE asset_releases ADD COLUMN publisher_id TEXT REFERENCES publishers(publisher_id)")
+    if "signature" not in columns:
+        conn.execute("ALTER TABLE asset_releases ADD COLUMN signature TEXT")
+    if "verified_at" not in columns:
+        conn.execute("ALTER TABLE asset_releases ADD COLUMN verified_at TEXT")
+    conn.execute(
+        "UPDATE asset_releases SET signature_verified = 0, verified_at = NULL"
+        " WHERE signature IS NULL OR signature = ''"
+    )
+
+
+def _migrate_v12(conn: sqlite3.Connection) -> None:
+    """v11 → v12：Intent 记录指令来源谱系（source_kind / source_ref）。
+
+    历史调用未采集来源时保留 NULL（即 unknown），不得替历史数据猜测来源。
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(intents)")}
+    if "source_kind" not in columns:
+        conn.execute("ALTER TABLE intents ADD COLUMN source_kind TEXT")
+    if "source_ref" not in columns:
+        conn.execute("ALTER TABLE intents ADD COLUMN source_ref TEXT")
+
+
 def _ensure_attribution_foreign_keys(conn: sqlite3.Connection) -> None:
     """升级早期 v6 试运行表，让保留策略删除源证据时同时删除归因边。"""
     if conn.execute('PRAGMA foreign_key_list(event_attributions)').fetchall():
@@ -661,6 +749,9 @@ def migrate(conn: sqlite3.Connection) -> None:
     _migrate_v7(conn)
     _migrate_v8(conn)
     _migrate_v9(conn)
+    _migrate_v10(conn)
+    _migrate_v11(conn)
+    _migrate_v12(conn)
 
     # v8 只新增表（assets/asset_instances/asset_releases/execution_findings），
     # DDL 的 IF NOT EXISTS 对新旧库都生效；executions/admissions 里的

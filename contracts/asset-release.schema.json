@@ -1,6 +1,6 @@
 {
   "additionalProperties": false,
-  "description": "可验证内容版本。",
+  "description": "可验证内容版本。signature_verified 只能由服务端验签后写入。",
   "properties": {
     "asset_id": {
       "minLength": 1,
@@ -25,10 +25,34 @@
       "default": null,
       "title": "Published At"
     },
+    "publisher_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Publisher Id"
+    },
     "release_id": {
       "minLength": 1,
       "title": "Release Id",
       "type": "string"
+    },
+    "signature": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Signature"
     },
     "signature_verified": {
       "default": false,
@@ -46,6 +70,19 @@
       ],
       "default": null,
       "title": "Source Uri"
+    },
+    "verified_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Verified At"
     },
     "version": {
       "minLength": 1,

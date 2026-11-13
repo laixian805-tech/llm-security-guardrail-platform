@@ -9,7 +9,7 @@ from domain.governance import Admission, Incident, PolicyDecision, PolicyRuleSet
 
 TABLES = {Admission:'admissions', Incident:'incidents', PolicyDecision:'policy_decisions', PolicyRuleSet:'policy_versions', RiskAssessment:'risk_assessments'}
 KEYS = {Admission:'admission_id', Incident:'incident_id', PolicyDecision:'decision_id', PolicyRuleSet:'policy_version', RiskAssessment:'assessment_id'}
-JSON_FIELDS = {'reasons', 'evidence_refs', 'rules'}
+JSON_FIELDS = {'reasons', 'evidence_refs', 'dimensions', 'rules'}
 
 
 class StateConflict(ValueError):

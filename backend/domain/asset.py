@@ -56,13 +56,28 @@ class AssetInstance(StrictModel):
     last_seen_at: datetime
 
 
+class Publisher(StrictModel):
+    """受信任的资产发布方公钥登记。"""
+
+    publisher_id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    public_key: str = Field(min_length=1)
+    algorithm: str = "ed25519"
+    status: str = "active"
+    created_at: datetime
+    revoked_at: datetime | None = None
+
+
 class AssetRelease(StrictModel):
-    """可验证内容版本。"""
+    """可验证内容版本。signature_verified 只能由服务端验签后写入。"""
 
     release_id: str = Field(min_length=1)
     asset_id: str = Field(min_length=1)
     version: str = Field(min_length=1)
     content_hash: str = Field(min_length=1)
     source_uri: str | None = None
+    publisher_id: str | None = None
+    signature: str | None = None
     signature_verified: bool = False
+    verified_at: datetime | None = None
     published_at: datetime | None = None

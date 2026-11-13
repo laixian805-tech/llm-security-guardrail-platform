@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from datetime import datetime, timezone
 from endpoint.config import load
-from endpoint.outbox import Outbox
+from endpoint.outbox import Outbox, enqueue
 from endpoint.protocols import parse, directive
 from endpoint.redaction import summarize
 
@@ -63,7 +63,9 @@ def capture(config, product, payload, *, now=None):
                 'decision': decision, 'decision_reason': reason if decision != 'not_applicable' else None,
                 'params_summary': summary, 'params_sha256': digest, 'redaction_applied': True,
                 'occurred_at': stamp, 'ended_at': stamp if event['event'] == 'PostToolUse' else None,
-                'product_result': 'observed' if event['event'] == 'PostToolUse' else None}
+                'product_result': 'observed' if event['event'] == 'PostToolUse' else None,
+                'source_kind': os.environ.get('ASGP_SOURCE_KIND') or None,
+                'source_ref': os.environ.get('ASGP_SOURCE_REF') or None}
             records.append((intent_id+':'+event['event'], '/api/v1/executions/'+execution_id+'/intents', intent))
             if config.get('runtime_anchors') and event['event']=='PreToolUse':
                 pid=os.getppid()
@@ -74,8 +76,14 @@ def capture(config, product, payload, *, now=None):
                         fields=dict(line.split(':',1) for line in status.read_text().splitlines() if ':' in line)
                         name=fields.get('Name','').strip()
                         parent=int(fields['PPid'])
-                        if name in {'codex','claude','claude.exe'}:
-                            product_pid=(pid,parent,name);break
+                        cmdline=''
+                        if product=='qwen-code' and name not in {'codex','claude','claude.exe','qwen'}:
+                            try:
+                                cmdline=(Path('/proc')/str(pid)/'cmdline').read_bytes().decode('utf-8','ignore')
+                            except OSError:
+                                cmdline=''
+                        if name in {'codex','claude','claude.exe','qwen'} or (product=='qwen-code' and ('@qwen-code' in cmdline or 'cli-entry.js' in cmdline or '/bin/qwen' in cmdline)):
+                            product_pid=(pid,parent,'qwen' if product=='qwen-code' else name);break
                         if parent<=1:break
                         pid=parent
                     except (OSError,KeyError,ValueError):break
@@ -90,7 +98,7 @@ def capture(config, product, payload, *, now=None):
         if event['event'] == 'SessionEnd':
             execution = dict(execution, ended_at=stamp, outcome='completed')
             records.append((execution_id+':end', '/api/v1/executions', execution))
-        outbox.enqueue_many(records, session=(execution_id, started))
+        enqueue(outbox, records, session=(execution_id, started))
         return directive(event['hook_event_type'], decision, reason)
     finally:
         outbox.close()

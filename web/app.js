@@ -164,7 +164,8 @@ function applyGovernanceGating() {
     'policyVersionName','policyRulesJson','admissionAsset','admissionHash','admissionTransaction',
     'incidentTitle','incidentSeverity','incidentOwner','incidentSummary',
     'assetType','assetName','assetProduct','assetPublisher','assetHost','assetScope',
-    'assetInstallPath','assetVersion','assetHash','assetRegisterSubmit'];
+    'assetInstallPath','assetVersion','assetHash','assetPublisherId','assetSignature',
+    'assetRegisterSubmit','publisherName','publisherKey','publisherSubmit','runtimeCorrelateBtn'];
   for (const id of controls) {
     const element = byId(id);
     if (!element) continue;
@@ -501,7 +502,129 @@ async function refreshRuntime() {
   if (result.executions.some((execution) => execution.execution_id === previous)) select.value = previous;
   byId('runtimeEmpty').hidden = result.executions.length > 0;
   if (select.value) await showRuntimeTimeline(false);
-  else byId('runtimeEntries').replaceChildren();
+  else {
+    byId('runtimeEntries').replaceChildren();
+    byId('effectDiffSummary').hidden = true;
+    byId('effectDiffList').replaceChildren();
+  }
+}
+
+const SOURCE_KIND_LABELS = {
+  user_task: '用户任务（高信任）',
+  workspace_config: '工作区配置（中信任）',
+  installed_skill: '已安装 Skill（低信任）',
+  mcp_server: 'MCP Server（低信任）',
+  tool_output: '工具输出/网页（非信任）',
+  unknown: '来源未标定',
+};
+const VERDICT_META = {
+  undeclared_side_effect: { label: '越界副作用', cls: 'danger' },
+  within_expected: { label: '符合预期', cls: 'ok' },
+  no_observed_effect: { label: '无 OS 观测', cls: '' },
+  unverified: { label: '待核验', cls: 'warn' },
+};
+
+function jumpToGovernanceWithEvidence(targetHash, executionId, summaryText) {
+  location.hash = targetHash;
+  if (targetHash === '#policy' && byId('riskExecution')) {
+    byId('riskExecution').value = executionId;
+  } else if (targetHash === '#incidents') {
+    if (byId('incidentTitle') && !byId('incidentTitle').value) {
+      byId('incidentTitle').value = `越界副作用排查：${executionId.slice(0, 14)}`;
+    }
+    if (byId('incidentSummary')) {
+      byId('incidentSummary').value = summaryText;
+    }
+  }
+}
+
+async function renderEffectDiff(executionId) {
+  const strip = byId('effectDiffSummary');
+  const list = byId('effectDiffList');
+  const hint = byId('effectDiffHint');
+  strip.replaceChildren();
+  list.replaceChildren();
+  let data;
+  try {
+    data = await request('/api/v1/executions/' + encodeURIComponent(executionId) + '/effect-diff');
+  } catch (error) {
+    if (error instanceof UnauthenticatedError) return;
+    throw error;
+  }
+  strip.hidden = false;
+  const stats = [
+    ['来源覆盖 Intent', String(data.intent_count), ''],
+    ['强/候选归因 OS 事件', String(data.attributed_event_count), 'ok'],
+    ['诚实留空（未归因）', String(data.unattributed_event_count), 'warn'],
+    ['越界副作用检出', String(data.undeclared_count), data.undeclared_count > 0 ? 'danger' : 'ok'],
+  ];
+  for (const [label, value, cls] of stats) {
+    const card = document.createElement('div');
+    card.className = 'diffStat';
+    const s = document.createElement('span'); s.textContent = label;
+    const v = document.createElement('strong'); v.className = cls; v.textContent = value;
+    card.append(s, v);
+    strip.append(card);
+  }
+  const sourceSummary = Object.entries(data.by_source_kind || {})
+    .map(([k, n]) => `${SOURCE_KIND_LABELS[k] || k}: ${n}`).join(' · ');
+  hint.textContent = `${data.rule_version}${sourceSummary ? ' · ' + sourceSummary : ''}`;
+
+  if (!(data.items || []).length) {
+    const empty = document.createElement('p');
+    empty.className = 'fieldHint';
+    empty.textContent = '本次执行暂无 Intent 记录。';
+    list.append(empty);
+    return;
+  }
+  for (const item of data.items) {
+    const meta = VERDICT_META[item.verdict] || { label: item.verdict, cls: '' };
+    const card = document.createElement('article');
+    card.className = `diffCard verdict-${item.verdict}`;
+    const head = document.createElement('div');
+    head.className = 'diffCardHead';
+    const title = document.createElement('strong');
+    title.textContent = `${item.tool_name} · ${SOURCE_KIND_LABELS[item.source_kind] || item.source_kind}${item.source_ref ? ` (${item.source_ref})` : ''}`;
+    const badge = document.createElement('span');
+    badge.className = `diffBadge ${meta.cls}`.trim();
+    badge.textContent = meta.label;
+    head.append(title, badge);
+
+    const cols = document.createElement('div');
+    cols.className = 'diffCols';
+    const left = document.createElement('div');
+    left.textContent = `预期边界：${item.expected_scope}`;
+    const right = document.createElement('div');
+    right.textContent = item.event_id
+      ? `OS 实测：${item.event_type} → ${item.observed_target}（${item.attribution_method} / ${item.attribution_confidence}）`
+      : 'OS 实测：未归因到系统事件（留空）';
+    cols.append(left, right);
+
+    const reason = document.createElement('p');
+    reason.className = 'fieldHint';
+    reason.style.margin = '0';
+    reason.textContent = `差分依据：${item.reason}`;
+    card.append(head, cols, reason);
+
+    if (item.verdict === 'undeclared_side_effect') {
+      const actions = document.createElement('div');
+      actions.className = 'quickActions';
+      const toRisk = document.createElement('button');
+      toRisk.type = 'button'; toRisk.className = 'secondaryButton';
+      toRisk.textContent = '带此执行去风险评估';
+      toRisk.addEventListener('click', () => jumpToGovernanceWithEvidence('#policy', executionId, item.reason));
+      const toInc = document.createElement('button');
+      toInc.type = 'button'; toInc.className = 'secondaryButton';
+      toInc.textContent = '发起 Incident 工单';
+      toInc.addEventListener('click', () => jumpToGovernanceWithEvidence(
+        '#incidents', executionId,
+        `${item.tool_name} (${item.source_kind}) 触发越界副作用：${item.observed_target} — ${item.reason}`
+      ));
+      actions.append(toRisk, toInc);
+      card.append(actions);
+    }
+    list.append(card);
+  }
 }
 
 async function showRuntimeTimeline(append) {
@@ -532,6 +655,13 @@ async function showRuntimeTimeline(append) {
   }
   runtimeExecution = id; runtimeCursor = response.next_cursor;
   byId('runtimeMore').hidden = !runtimeCursor;
+  if (!append) {
+    await Promise.all([
+      renderEffectDiff(id),
+      renderAttributionLane(id),
+      renderDataFlow(id),
+    ]);
+  }
 }
 
 function timelineEntryTitle(entry) {
@@ -850,6 +980,7 @@ async function correlateCurrent() {
   const id=byId('runtimeExecution').value;if(!id)return;
   const result=await request(`/api/v1/executions/${encodeURIComponent(id)}/correlate`,{method:'POST',headers:JSON_HEADERS,body:'{}'});
   const edges=await request(`/api/v1/executions/${encodeURIComponent(id)}/attributions`);
+  await renderEffectDiff(id);
   await renderAttributionLane(id);
   await renderDataFlow(id);
   const box=byId('attributionCandidates');box.replaceChildren();
@@ -860,17 +991,60 @@ async function correlateCurrent() {
 /* ---------- 资产中心 ---------- */
 
 async function refreshAssets() {
-  const [catalog, executions, ledger] = await Promise.all([
+  const [catalog, executions, ledger, publishers] = await Promise.all([
     request('/api/v1/products'), request('/api/v1/executions?limit=200'),
-    request(assetLedgerQuery()),
+    request(assetLedgerQuery()), request('/api/v1/publishers'),
   ]);
   state.products = catalog.products;
   state.executions = executions.executions;
   state.ledger = ledger;
+  state.publishers = publishers.items || [];
   renderAssetProducts();
   renderAssetHosts();
   renderAssetLedger();
+  renderPublishers();
   renderExecutionChoices();
+}
+
+function renderPublishers() {
+  const tbody = byId('publisherRows');
+  if (!tbody) return;
+  tbody.replaceChildren();
+  const rows = state.publishers || [];
+  byId('publisherCount').textContent = `${rows.length} 个发布方`;
+  if (!rows.length) {
+    addEmptyRow(tbody, 6, '暂未登记发布方公钥。');
+    return;
+  }
+  const govern = canGovern();
+  for (const pub of rows) {
+    const tr = document.createElement('tr');
+    const name = addCell(tr, pub.name);
+    const idSmall = document.createElement('small');
+    idSmall.textContent = pub.publisher_id;
+    name.append(idSmall);
+    addCell(tr, pub.algorithm);
+    addCell(tr, `${pub.public_key.slice(0, 16)}…`, 'monoId');
+    addCell(tr, pub.status === 'active' ? '有效' : '已吊销');
+    addCell(tr, formatTime(pub.created_at));
+    const op = addCell(tr, '');
+    if (pub.status === 'active') {
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'secondaryButton'; btn.textContent = '吊销';
+      btn.disabled = !govern;
+      btn.addEventListener('click', guarded(async () => {
+        btn.disabled = true;
+        await request(`/api/v1/publishers/${encodeURIComponent(pub.publisher_id)}/revoke`,
+          { method: 'POST', headers: JSON_HEADERS, body: '{}' });
+        showNotice(`发布方 ${pub.name} 已吊销`, 'success');
+        await refreshAssets();
+      }));
+      op.append(btn);
+    } else {
+      op.textContent = formatTime(pub.revoked_at);
+    }
+    tbody.append(tr);
+  }
 }
 
 // 筛选串在 URL 上，刷新和分享视图都保留同一批条件。
@@ -963,7 +1137,7 @@ async function showAssetTrace(assetId) {
   box.append(head);
 
   const sections = [
-    ['内容版本', trace.releases, (row) => `${row.version} · ${row.content_hash.slice(0, 16)}… · 签名${row.signature_verified ? '已验证' : '未验证'}`],
+    ['内容版本', trace.releases, (row) => `${row.version} · ${row.content_hash.slice(0, 16)}… · 签名${row.signature_verified ? `已验证（Ed25519${row.publisher_id ? ` · ${row.publisher_id}` : ''}）` : '未验证'}`],
     ['副本与三态', trace.instances, (row) => `${row.host_id} / ${row.product_scope} · 安装 ${installationStateLabels[row.installation_state] || row.installation_state} · 启用 ${activationStateLabels[row.activation_state] || row.activation_state} · 运行 ${runtimeStateLabels[row.runtime_state] || row.runtime_state} · 准入 ${row.admission_count} 次 · 执行 ${row.execution_count} 次`],
     ['准入事务', trace.admissions, (row) => `${row.transaction_id} · ${admissionStateLabels[row.state] || row.state} · 声明 ${row.content_hash.slice(0, 16)}… · 实测 ${row.observed_content_hash ? `${row.observed_content_hash.slice(0, 16)}…` : '未测量'}`],
     ['执行记录', trace.executions, (row) => `${row.execution_id} · ${row.product} ${row.product_version} · ${row.host_id} · ${row.outcome}`],
@@ -1031,11 +1205,14 @@ byId('assetRegisterForm').addEventListener('submit', guarded(async (event) => {
     });
     const version = byId('assetVersion').value.trim();
     const hash = byId('assetHash').value.trim();
+    const publisherId = byId('assetPublisherId') ? byId('assetPublisherId').value.trim() : '';
+    const signature = byId('assetSignature') ? byId('assetSignature').value.trim() : '';
     if (version && hash) {
+      const releaseBody = { asset_id: asset.asset.asset_id, version, content_hash: hash };
+      if (publisherId) releaseBody.publisher_id = publisherId;
+      if (signature) releaseBody.signature = signature;
       await request('/api/v1/asset-releases', {
-        method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({
-          asset_id: asset.asset.asset_id, version, content_hash: hash,
-        }),
+        method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(releaseBody),
       });
     }
     const notes = [`资产 ${asset.asset.asset_id}${asset.duplicate ? '（已存在，返回原记录）' : ''}`,
@@ -1750,6 +1927,30 @@ byId('incidentsRefresh').addEventListener('click', guarded(refreshIncidents));
 byId('hostEventsRefresh').addEventListener('click', guarded(refreshHostEvents));
 byId('approvalRefresh').addEventListener('click', guarded(refreshApprovals));
 byId('correlateExecution').addEventListener('click', guarded(correlateCurrent));
+if (byId('runtimeCorrelateBtn')) {
+  byId('runtimeCorrelateBtn').addEventListener('click', guarded(correlateCurrent));
+}
+if (byId('publisherForm')) {
+  byId('publisherForm').addEventListener('submit', guarded(async (event) => {
+    event.preventDefault();
+    const btn = byId('publisherSubmit');
+    btn.disabled = true;
+    try {
+      const res = await request('/api/v1/publishers', {
+        method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({
+          name: byId('publisherName').value.trim(),
+          public_key: byId('publisherKey').value.trim(),
+        }),
+      });
+      showNotice(`发布方 ${res.publisher.name} (${res.publisher.publisher_id}) 已登记`, 'success');
+      byId('publisherName').value = '';
+      byId('publisherKey').value = '';
+      await refreshAssets();
+    } finally {
+      btn.disabled = !canGovern();
+    }
+  }));
+}
 
 let approvalRefreshBusy = false;
 setInterval(async () => {
@@ -1826,11 +2027,13 @@ async function renderOverview() {
   }).join('');
 
   const ev = data.evaluation || {};
+  const pctText = (v) => (v == null ? '未测量' : Math.round(v * 100) + '%');
+  const ratioText = (a, b) => (a == null || b == null ? '未测量' : a + ' / ' + b);
   const rows = [
-    ['数据流链检出', (ev.dataflow_detected || 0) + ' / ' + (ev.dataflow_sequences || 0), 'ok'],
-    ['数据流链误报', String(ev.dataflow_false_positive || 0), 'ok'],
-    ['归因精度', Math.round((ev.attribution_precision || 0) * 100) + '%', ''],
-    ['归因召回', Math.round((ev.attribution_recall || 0) * 100) + '%', 'warn'],
+    ['副作用差分捕获 (A/B)', ratioText(ev.effect_diff_undeclared_tp, ev.effect_diff_scenarios ? Math.round(ev.effect_diff_scenarios / 2) : null), ev.effect_diff_undeclared_tp != null ? 'ok' : 'warn'],
+    ['差分对比（规则基线 → ASGP）', ev.effect_diff_asgp_capture_rate == null ? '未测量' : pctText(ev.effect_diff_baseline_capture_rate) + ' → ' + pctText(ev.effect_diff_asgp_capture_rate), 'ok'],
+    ['数据流链检出 / 误报', ratioText(ev.dataflow_detected, ev.dataflow_sequences) + ' · FP ' + (ev.dataflow_false_positive ?? '未测量'), 'ok'],
+    ['归因精度 / 召回', pctText(ev.attribution_precision) + ' / ' + pctText(ev.attribution_recall), 'warn'],
   ];
   byId('evalRows').innerHTML = rows.map(function (row) {
     return '<div class="evalRow"><span>' + row[0] + '</span><strong class="' + row[2] + '">'

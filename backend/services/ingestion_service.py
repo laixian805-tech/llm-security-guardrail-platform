@@ -9,6 +9,7 @@ from pydantic import AwareDatetime, Field, ValidationError
 
 from domain import ExecutionOutcome, Intent, RuntimeEvent
 from domain.asset import StrictModel
+from adapters.products.capabilities import version_source
 from products.registry import ProductCatalog
 from storage.execution_repositories import (
     ExecutionConflict, ExecutionRepository, IntentRepository, RuntimeEventRepository,
@@ -98,6 +99,10 @@ class IngestionService:
         args['started_at'] = data.started_at.astimezone(timezone.utc)
         if data.ended_at:
             args['ended_at'] = data.ended_at.astimezone(timezone.utc)
+        # 版本声明照收，但必须记下它是什么证据等级。执行仍然入库：版本漂移
+        # 不该让整段遥测消失，否则"产品升级了"和"设备在伪造版本"在平台上
+        # 看起来完全一样——都是没有数据。
+        args['product_version_source'] = version_source(data.product, data.product_version)
         try:
             return self.executions.upsert(**args, host_id=device["host_id"], device_id=device_id)
         except ExecutionConflict:
@@ -115,6 +120,12 @@ class IngestionService:
             descriptor = ProductCatalog().descriptor(execution['product'])
             capability = descriptor.capability_for(data.hook_event_type)
             needed = HookCapability.CONFIRM if data.decision is IntentDecision.ASK else HookCapability.DENY if data.decision is IntentDecision.DENY else HookCapability.OBSERVE
+            # 版本门控原先只比对设备自己上报的 product_version，等于让设备
+            # 自证。现在额外要求声明来源是 registry：设备报 0.26.8 而注册表
+            # 说 0.166.0（codex）时，执行照样入库，但任何携带决策的 Intent 都
+            # 在这里被拒——伪造版本换不来一次被采信的 allow/deny。
+            if execution['product_version_source'] != 'registry':
+                raise IngestError('unverified_product_version')
             if descriptor.product_version != execution['product_version'] or not capability or needed not in capability.capabilities:
                 raise IngestError('unsupported_decision')
         data.occurred_at = data.occurred_at.astimezone(timezone.utc)
@@ -126,7 +137,10 @@ class IngestionService:
             row = conn.execute("SELECT execution_id FROM intents WHERE intent_id=?", (data.intent_id,)).fetchone()
         if row and row["execution_id"] != execution_id:
             raise IngestError("intent_id_conflict", 409)
-        return self.intents.record(**data.model_dump(exclude={"created_at"}))
+        payload = data.model_dump(exclude={"created_at"})
+        if data.source_kind is not None:
+            payload["source_kind"] = data.source_kind.value
+        return self.intents.record(**payload)
 
     def batch(self, device_id: str, body: dict) -> dict:
         reject_secrets(body)

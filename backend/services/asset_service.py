@@ -24,7 +24,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from domain import Asset, AssetInstance, AssetRelease
+from domain import Asset, AssetInstance, AssetRelease, Publisher
 from domain.enums import (
     ActivationState,
     AdmissionState,
@@ -32,6 +32,7 @@ from domain.enums import (
     InstallationState,
     RuntimeState,
 )
+from services.ed25519 import parse_public_key, parse_signature, verify_ed25519
 from services.ingestion_service import IngestError, reject_secrets
 from storage.asset_repositories import (
     AssetRepository,
@@ -40,7 +41,9 @@ from storage.asset_repositories import (
     asset_release_from_row,
     new_asset_id,
     new_instance_id,
+    new_publisher_id,
     new_release_id,
+    publisher_from_row,
 )
 from storage.repositories import Storage
 
@@ -56,13 +59,14 @@ ON_DISK_STATES = frozenset({
 
 ASSET_FIELDS = {"asset_type", "canonical_name", "product", "publisher", "namespace", "provenance"}
 INSTANCE_FIELDS = {"asset_id", "host_id", "product_scope", "install_path"}
+PUBLISHER_FIELDS = {"name", "public_key", "algorithm"}
 RELEASE_FIELDS = {"asset_id", "version", "content_hash", "source_uri",
-                  "signature_verified", "published_at"}
+                  "publisher_id", "signature", "published_at"}
 
 # 各分段的关联方式写进响应，界面和时间线都按原样展示：哪些是显式登记的、
 # 哪些是字符串匹配，不能混同为采集器证明的因果。
 TRACE_LINKS = {
-    "release": "登记时声明的内容版本，平台不代为核验签名",
+    "release": "登记时由服务端使用 publishers 公钥对 content_hash 做 Ed25519 验签；未提供签名时记为未验证",
     "instance": "登记时声明的主机/产品作用域副本",
     "admission": "按 admissions.asset_instance_id 字符串匹配（P1 遗留自由文本，无外键）",
     "execution": "按 executions.asset_instance_id 字符串匹配（P1 遗留自由文本，无外键）",
@@ -225,16 +229,60 @@ class AssetService:
         return {"instance": self.repo.create_instance(model).model_dump(mode="json"),
                 "duplicate": False}
 
+    def register_publisher(self, body: dict[str, Any]) -> dict[str, Any]:
+        reject_secrets(body)
+        if set(body) - PUBLISHER_FIELDS:
+            raise IngestError("invalid_publisher_input")
+        name = _text(body.get("name"), "name", maximum=120, required=True)
+        algorithm = _text(body.get("algorithm"), "algorithm", maximum=32) or "ed25519"
+        if algorithm != "ed25519":
+            raise IngestError("unsupported_signature_algorithm")
+        raw_key = _text(body.get("public_key"), "public_key", maximum=256, required=True)
+        key_bytes = parse_public_key(raw_key)
+        if key_bytes is None:
+            raise IngestError("invalid_public_key")
+        canonical_key = key_bytes.hex()
+        existing = self.repo.find_publisher_by_name(name)
+        if existing:
+            if existing["public_key"] != canonical_key:
+                raise IngestError("publisher_key_conflict", 409)
+            return {"publisher": publisher_from_row(existing).model_dump(mode="json"),
+                    "duplicate": True}
+        model = Publisher(
+            publisher_id=new_publisher_id(),
+            name=name,
+            public_key=canonical_key,
+            algorithm="ed25519",
+            status="active",
+            created_at=NOW(),
+        )
+        return {"publisher": self.repo.create_publisher(model).model_dump(mode="json"),
+                "duplicate": False}
+
+    def list_publishers(self, *, limit: int = 100) -> dict[str, Any]:
+        rows = self.repo.list_publishers(limit=limit)
+        return {"items": [publisher_from_row(row).model_dump(mode="json") for row in rows]}
+
+    def revoke_publisher(self, publisher_id: str) -> dict[str, Any]:
+        if not self.repo.get_publisher(publisher_id):
+            raise IngestError("unknown_publisher", 404)
+        updated = self.repo.revoke_publisher(publisher_id)
+        return {"publisher": publisher_from_row(updated).model_dump(mode="json")}
+
     def register_release(self, body: dict[str, Any]) -> dict[str, Any]:
         reject_secrets(body)
+        # 绝不采信客户端自报的 signature_verified；必须由服务端用公钥验签。
+        if "signature_verified" in body:
+            raise IngestError("client_signature_verified_forbidden")
         if set(body) - RELEASE_FIELDS:
             raise IngestError("invalid_asset_release_input")
         asset_id = _text(body.get("asset_id"), "asset_id", maximum=64, required=True)
         version = _text(body.get("version"), "version", maximum=120, required=True)
         content_hash = _content_hash(body.get("content_hash"))
-        signature_verified = body.get("signature_verified", False)
-        if not isinstance(signature_verified, bool):
-            raise IngestError("invalid_signature_verified")
+        publisher_id = _text(body.get("publisher_id"), "publisher_id", maximum=64)
+        signature_raw = _text(body.get("signature"), "signature", maximum=256)
+        if bool(publisher_id) != bool(signature_raw):
+            raise IngestError("signature_requires_publisher_and_signature")
         published_at = body.get("published_at")
         published = None
         if published_at is not None:
@@ -246,6 +294,26 @@ class AssetService:
                 raise IngestError("invalid_published_at") from None
         if not self.repo.get_asset(asset_id):
             raise IngestError("unknown_asset", 404)
+
+        canonical_sig = None
+        signature_verified = False
+        verified_at = None
+        if publisher_id and signature_raw:
+            publisher = self.repo.get_publisher(publisher_id)
+            if not publisher:
+                raise IngestError("unknown_publisher", 404)
+            if publisher["status"] != "active":
+                raise IngestError("publisher_revoked")
+            sig_bytes = parse_signature(signature_raw)
+            if sig_bytes is None:
+                raise IngestError("invalid_signature_format")
+            pub_bytes = bytes.fromhex(publisher["public_key"])
+            if not verify_ed25519(pub_bytes, content_hash.encode("ascii"), sig_bytes):
+                raise IngestError("signature_verification_failed")
+            canonical_sig = sig_bytes.hex()
+            signature_verified = True
+            verified_at = NOW()
+
         existing = self.repo.find_release(asset_id=asset_id, version=version,
                                           content_hash=content_hash)
         if existing:
@@ -255,7 +323,10 @@ class AssetService:
                              version=version, content_hash=content_hash,
                              source_uri=_text(body.get("source_uri"), "source_uri",
                                               maximum=500),
+                             publisher_id=publisher_id,
+                             signature=canonical_sig,
                              signature_verified=signature_verified,
+                             verified_at=verified_at,
                              published_at=published)
         return {"release": self.repo.create_release(model).model_dump(mode="json"),
                 "duplicate": False}

@@ -14,6 +14,24 @@ from domain.enums import AdmissionState, Confidence, IncidentStatus, PolicyActio
 from domain.evidence import EvidenceRef
 
 
+class RiskDimension(StrictModel):
+    """一个风险维度的得分及其计算依据。
+
+    为什么必须有这个结构：原来三个维度只有三个浮点数，"Intrinsic 为什么是
+    95"答不出来——查表得来的数字和算出来的数字在库里长得一样。confidence
+    由证据充分度计算，不是人工填写：没有证据的维度记 UNKNOWN 而不是 0，
+    否则"没测"会被读成"没有风险"。
+    """
+
+    dimension: str = Field(min_length=1, max_length=40)
+    score: float = Field(ge=0, le=100)
+    confidence: Confidence = Confidence.UNKNOWN
+    rule_version: str = Field(min_length=1, max_length=80)
+    # 人类可读的计算依据：用了哪些证据、命中了哪条规则、为什么是这个置信度。
+    basis: str = Field(default="", max_length=2048)
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
+
+
 class RiskAssessment(StrictModel):
     assessment_id: str = Field(min_length=1)
     asset_id: str | None = None
@@ -24,6 +42,9 @@ class RiskAssessment(StrictModel):
     confidence: Confidence = Confidence.UNKNOWN
     reasons: list[str] = Field(default_factory=list, max_length=32)
     evidence_refs: list[EvidenceRef] = Field(default_factory=list)
+    # 三个维度的逐项依据。总分是这三个数的最大值聚合，但"为什么是这个值"
+    # 只存在于这里——总分回答不了这个问题。
+    dimensions: list[RiskDimension] = Field(default_factory=list, max_length=8)
     rule_version: str = Field(min_length=1)
     created_at: datetime
     updated_at: datetime

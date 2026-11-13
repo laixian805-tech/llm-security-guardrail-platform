@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime,timezone
-from domain import Admission, Incident, IncidentEvidence, PolicyDecision, RiskAssessment
+from domain import Admission, Incident, IncidentEvidence, PolicyDecision, RiskAssessment, RiskDimension
 from domain.enums import AdmissionState, Confidence, IncidentStatus, Severity
 from domain.evidence import EvidenceRef
 from services.managed_installer import InstallerError, ManagedInstaller, component
@@ -16,6 +16,128 @@ NOW=lambda:datetime.now(timezone.utc)
 LEVEL={'unknown':0,'info':5,'low':20,'medium':45,'high':75,'critical':95}
 # 安装器真正落过盘的状态：回滚要有确定目标，未提交的事务不能动已安装内容。
 INSTALLED_STATES=frozenset({AdmissionState.STAGED,AdmissionState.COMMITTED,AdmissionState.VERIFIED,AdmissionState.RECONCILED,AdmissionState.FAILED})
+
+# --- 风险评分规则 ---------------------------------------------------------
+# 每个维度一条规则，规则本体可读：用了什么证据、怎么映射成分数、置信度由什么
+# 决定。置信度一律由证据充分度计算，不允许人工填写——填出来的置信度无法复核，
+# 也无法回答"凭什么说这次评估可信"。
+RULE_INTRINSIC='risk-v1-intrinsic-severity-max'
+RULE_RUNTIME='risk-v1-runtime-event-class'
+RULE_EXPOSURE='risk-v1-exposure-declared'
+RULE_OVERALL='risk-v1-max-per-dimension'
+
+# 严重度 → 分数。取档位代表值而不是连续函数：策略阈值按档比较，连续值会让
+# "high 到底算 75 还是 74"取决于实现细节。
+SEVERITY_LEVEL=LEVEL
+
+# 运行事件的分类分值。网络出口只是观测，不是外泄证据，所以低于文件/进程类。
+RUNTIME_EVENT_SCORE={'network_connect':25}
+RUNTIME_DEFAULT_SCORE=10
+
+# 暴露因子权重。这是声明值，不是测量值——权重可以讨论，但"它没有被独立测量"
+# 这件事必须体现在置信度里，而不是只写在 reasons 的散文里。
+EXPOSURE_WEIGHTS={'privileged':80,'network_access':25,'untrusted_source':50}
+
+# 置信度等级顺序，用于"多个独立检测器相互印证时升一级"。
+_RANK={Confidence.UNKNOWN:0,Confidence.LOW:1,Confidence.MEDIUM:2,Confidence.HIGH:3}
+_BY_RANK={v:k for k,v in _RANK.items()}
+
+
+def _promote(confidence,steps=1):
+    return _BY_RANK[min(_RANK[Confidence.HIGH],_RANK[confidence]+steps)]
+
+
+def _cap(confidence,ceiling):
+    """按等级顺序取较低者。
+
+    不能写 ``min(a, b)``：Confidence 是 StrEnum，min 会按字符串比较，于是
+    ``min(HIGH, MEDIUM)`` 返回 HIGH——MEDIUM 上限会被静默绕过。
+    """
+    return _BY_RANK[min(_RANK[confidence],_RANK[ceiling])]
+
+
+def _intrinsic_dimension(findings):
+    """固有风险 = 最强 finding 的严重度档位分。
+
+    置信度由两件事决定：finding 自己声明的置信度（取最弱的一条，评估不强于
+    其最弱证据），以及是否有多个独立检测器印证同一严重度档。单一检测器的
+    结论再高也只到 MEDIUM——没有独立确认的"严重"只是一个人的判断。
+    """
+    if not findings:
+        return RiskDimension(dimension='intrinsic',score=0,confidence=Confidence.UNKNOWN,
+            rule_version=RULE_INTRINSIC,
+            basis='无 finding 证据：该维度未测量。0 分表示没有数据，不等于没有风险。',
+            evidence_refs=[])
+    # 分数取最高严重度档，置信度只由支撑这一档的 finding 决定。两者不能用同一
+    # 条 finding：最低置信度的那条可能只是 info，拿它定档会把最严重的问题藏起来。
+    peak=max(SEVERITY_LEVEL[f['severity']] for f in findings)
+    band=[f for f in findings if SEVERITY_LEVEL[f['severity']]==peak]
+    worst=min(band,key=lambda f:_RANK[f['confidence']])
+    detectors={f['detector_id'] for f in band}
+    confidence=_promote(worst['confidence']) if len(detectors)>1 else _cap(
+        worst['confidence'],Confidence.MEDIUM)
+    refs=[EvidenceRef(kind='finding',uri=f['finding_id']) for f in findings]
+    basis=(f"{len(findings)} 条 finding，最高严重度 {worst['severity']} → {peak} 分"
+           f"（{RULE_INTRINSIC} 严重度档位表）；该档由 {len(band)} 条 finding、"
+           f"{len(detectors)} 个检测器（{', '.join(sorted(detectors))}）支撑，"
+           f"其中最弱置信度 {worst['confidence'].value}。"
+           + ('多个独立检测器印证同一档位，置信度升一级。' if len(detectors)>1
+              else '单一检测器结论，置信度上限 MEDIUM：没有独立确认。'))
+    return RiskDimension(dimension='intrinsic',score=peak,confidence=confidence,
+        rule_version=RULE_INTRINSIC,basis=basis,evidence_refs=refs)
+
+
+def _runtime_dimension(events):
+    """运行风险 = 观测到的最高分类分值。
+
+    置信度取决于这些事件有没有被归因：选中的归因边说明"这次调用确实产生了
+    这个现象"，没有归因的主机事件只说明"主机上发生了某事"，对某个执行的
+    风险叙事要弱得多。
+    """
+    if not events:
+        return RiskDimension(dimension='runtime',score=0,confidence=Confidence.UNKNOWN,
+            rule_version=RULE_RUNTIME,
+            basis='无运行事件证据：该维度未测量。0 分表示没有数据，不等于没有风险。',
+            evidence_refs=[])
+    score=max(RUNTIME_EVENT_SCORE.get(e['event_type'],RUNTIME_DEFAULT_SCORE) for e in events)
+    attributed=[e for e in events if e['attributed']]
+    if len(attributed)==len(events):
+        confidence=Confidence.HIGH
+    elif attributed:
+        confidence=Confidence.MEDIUM
+    else:
+        confidence=Confidence.LOW
+    kinds=sorted({e['event_type'] for e in events})
+    refs=[EvidenceRef(kind='runtime_event',uri='/'.join([e['host_id'],e['collector_id'],e['event_id']]))
+          for e in events]
+    basis=(f"{len(events)} 条运行事件，分类 {', '.join(kinds)}，最高分值 {score}"
+           f"（{RULE_RUNTIME}）；其中 {len(attributed)} 条有选中归因。"
+           + ('全部有归因，置信度高。' if len(attributed)==len(events)
+              else '部分事件无归因，只能说明主机上发生过，不能证明由该执行引起。'
+              if attributed else '没有任何事件被归因：无法确认这些现象由该执行产生。'))
+    return RiskDimension(dimension='runtime',score=score,confidence=confidence,
+        rule_version=RULE_RUNTIME,basis=basis,evidence_refs=refs)
+
+
+def _exposure_dimension(exposure):
+    """暴露风险 = 命中因子的最高权重。
+
+    这一维度永远是声明值：调用方自己说"这台以特权运行"，平台没有独立测量
+    过。所以只要有因子命中，置信度封顶 LOW——不是低估风险，是不把自述当成
+    事实。一个因子都没给时记 UNKNOWN，不记 0。
+    """
+    hits=[(name,weight) for name,weight in EXPOSURE_WEIGHTS.items() if exposure.get(name)]
+    if not hits:
+        return RiskDimension(dimension='exposure',score=0,confidence=Confidence.UNKNOWN,
+            rule_version=RULE_EXPOSURE,
+            basis='未声明任何暴露因子：该维度未测量。0 分表示没有数据，不等于没有风险。',
+            evidence_refs=[])
+    score=max(weight for _,weight in hits)
+    basis=(f"声明因子 {', '.join(f'{name}={weight}' for name,weight in hits)}，"
+           f"最高权重 {score}（{RULE_EXPOSURE}）。全部由调用方自述，平台未独立测量，"
+           f"置信度封顶 LOW。")
+    return RiskDimension(dimension='exposure',score=score,confidence=Confidence.LOW,
+        rule_version=RULE_EXPOSURE,basis=basis,evidence_refs=[])
 
 
 def _installer_call(operation,*args):
@@ -41,28 +163,39 @@ class GovernanceService:
         for field in ('finding_ids','event_ids'):
             values=body.get(field,[])
             if not isinstance(values,list) or len(values)>100:raise IngestError('invalid_risk_evidence_list')
-        refs=[];intrinsic=runtime=0;reasons=[]
+        findings=[];events=[];refs=[]
         with self.storage.connection() as c:
             for fid in body.get('finding_ids',[]):
-                row=c.execute('SELECT severity FROM findings WHERE finding_id=?',(fid,)).fetchone()
+                row=c.execute('SELECT severity,confidence,detector_id FROM findings WHERE finding_id=?',(fid,)).fetchone()
                 if not row:raise IngestError('unknown_finding',404)
-                intrinsic=max(intrinsic,LEVEL[row['severity']]);refs.append(EvidenceRef(kind='finding',uri=fid))
+                findings.append({'severity':row['severity'],'confidence':Confidence(row['confidence']),
+                    'detector_id':row['detector_id'],'finding_id':fid})
+                refs.append(EvidenceRef(kind='finding',uri=fid))
             for identity in body.get('event_ids',[]):
                 if not isinstance(identity,dict) or set(identity)!={'host_id','collector_id','event_id'}:raise IngestError('event_identity_required')
-                row=c.execute('SELECT event_type,result FROM runtime_events WHERE host_id=? AND collector_id=? AND event_id=?',
-                    (identity['host_id'],identity['collector_id'],identity['event_id'])).fetchone()
+                where=(identity['host_id'],identity['collector_id'],identity['event_id'])
+                row=c.execute('SELECT event_type FROM runtime_events WHERE host_id=? AND collector_id=? AND event_id=?',where).fetchone()
                 if not row:raise IngestError('unknown_event',404)
-                # Mere network activity is observation, not proof of malicious exfiltration.
-                runtime=max(runtime,25 if row['event_type']=='network_connect' else 10)
+                # 选中归因边说明"这个现象确实由该执行产生"；没有边的事件只说明主机上
+                # 发生过某事。分数照记（观测不能被丢），但置信度必须反映这个区别。
+                attributed=c.execute('SELECT 1 FROM event_attributions WHERE host_id=? AND collector_id=?'
+                    ' AND event_id=? AND selected=1',where).fetchone()
+                events.append({**identity,'event_type':row['event_type'],'attributed':bool(attributed)})
                 refs.append(EvidenceRef(kind='runtime_event',uri='/'.join(identity[k] for k in ['host_id','collector_id','event_id'])))
         exposure=body.get('exposure',{})
-        if not isinstance(exposure,dict) or set(exposure)-{'privileged','network_access','untrusted_source'}:raise IngestError('invalid_exposure')
+        if not isinstance(exposure,dict) or set(exposure)-set(EXPOSURE_WEIGHTS):raise IngestError('invalid_exposure')
         if any(not isinstance(v,bool) for v in exposure.values()):raise IngestError('invalid_exposure')
-        score=max([weight for name,weight in [('privileged',80),('network_access',25),('untrusted_source',50)] if exposure.get(name)]+[0])
-        reasons=['intrinsic: strongest observed finding','runtime: observed activity only','exposure: declared context, not independently measured']
+        dimensions=[_intrinsic_dimension(findings),_runtime_dimension(events),_exposure_dimension(exposure)]
+        by_name={d.dimension:d for d in dimensions}
+        # 总体置信度 = 参与评分的最弱维度。评估不强于其最弱证据；取平均值或取最强
+        # 都会让"这次评估有多可信"变成一句无法复核的话。
+        contributing=[d for d in dimensions if d.confidence is not Confidence.UNKNOWN]
+        overall=min((d.confidence for d in contributing),key=_RANK.get) if contributing else Confidence.UNKNOWN
+        reasons=[f"{d.dimension}: {d.score} 分，置信度 {d.confidence.value}，规则 {d.rule_version}" for d in dimensions]
         model=RiskAssessment(assessment_id='risk_'+uuid.uuid4().hex,asset_id=body.get('asset_id'),execution_id=body.get('execution_id'),
-            intrinsic_risk=intrinsic,runtime_risk=runtime,exposure_risk=score,confidence=Confidence.MEDIUM if refs else Confidence.UNKNOWN,
-            reasons=reasons,evidence_refs=refs,rule_version='risk-v1-max-per-dimension',created_at=NOW(),updated_at=NOW())
+            intrinsic_risk=by_name['intrinsic'].score,runtime_risk=by_name['runtime'].score,exposure_risk=by_name['exposure'].score,
+            confidence=overall,reasons=reasons,evidence_refs=refs,dimensions=dimensions,
+            rule_version=RULE_OVERALL,created_at=NOW(),updated_at=NOW())
         return self.repo.create(model)
 
     def evaluate(self,body):

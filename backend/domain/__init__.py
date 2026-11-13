@@ -4,7 +4,7 @@
 Detector 与 Collector 不得直接写 Asset 状态。
 """
 
-from domain.asset import Asset, AssetInstance, AssetRelease
+from domain.asset import Asset, AssetInstance, AssetRelease, Publisher
 from domain.auth import (
     AuditEvent,
     ConsoleSession,
@@ -25,6 +25,7 @@ from domain.enums import (
     AuditOutcome,
     AssetType,
     AttributionMethod,
+    EffectDiffVerdict,
     AdmissionState,
     CapabilityVerification,
     Confidence,
@@ -48,6 +49,7 @@ from domain.enums import (
     RuntimeState,
     RunStatus,
     Severity,
+    SourceKind,
     WireApi,
 )
 from domain.evidence import EvidenceRef
@@ -57,6 +59,7 @@ from domain.product import AgentProductDescriptor, HookEventCapability
 from domain.provider import ModelProviderProfile, WireProfile
 from domain.runtime_event import ProcessInfo, ResourceInfo, RuntimeEvent
 from domain.attribution import EventAttribution
+from domain.effect_diff import EffectDiffItem, ExecutionEffectDiff
 from domain.governance import (
     DEFAULT_POLICY_VERSION,
     Admission,
@@ -66,6 +69,7 @@ from domain.governance import (
     PolicyRule,
     PolicyRuleSet,
     RiskAssessment,
+    RiskDimension,
     default_rule_set,
 )
 
@@ -76,6 +80,7 @@ __all__ = [
     "Asset",
     "AssetInstance",
     "AssetRelease",
+    "Publisher",
     "ActorKind",
     "AuditEvent",
     "AuditOutcome",
@@ -114,7 +119,11 @@ __all__ = [
     "RetentionRule",
     "RawReportRef",
     "RuntimeEvent",
+    "EffectDiffItem",
+    "EffectDiffVerdict",
     "EventAttribution",
+    "ExecutionEffectDiff",
+    "SourceKind",
     "Admission",
     "Incident",
     "IncidentEvidence",
@@ -122,6 +131,7 @@ __all__ = [
     "PolicyRule",
     "PolicyRuleSet",
     "RiskAssessment",
+    "RiskDimension",
     "DEFAULT_POLICY_VERSION",
     "default_rule_set",
     "RuntimeState",

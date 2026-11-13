@@ -179,6 +179,26 @@ class AttributionMethod(StrEnum):
     TEMPORAL_FEATURE = "temporal_feature"
 
 
+class SourceKind(StrEnum):
+    """触发工具调用的指令来源类别，用于区分高信任任务指令与外部低信任内容。"""
+
+    USER_TASK = "user_task"
+    WORKSPACE_CONFIG = "workspace_config"
+    INSTALLED_SKILL = "installed_skill"
+    MCP_SERVER = "mcp_server"
+    TOOL_OUTPUT = "tool_output"
+    UNKNOWN = "unknown"
+
+
+class EffectDiffVerdict(StrEnum):
+    """模型预期副作用边界与 OS 实测事件之间的差分结论。"""
+
+    WITHIN_EXPECTED = "within_expected"
+    UNDECLARED_SIDE_EFFECT = "undeclared_side_effect"
+    NO_OBSERVED_EFFECT = "no_observed_effect"
+    UNVERIFIED = "unverified"
+
+
 class PolicyAction(StrEnum):
     ALLOW = "allow"
     AUDIT = "audit"

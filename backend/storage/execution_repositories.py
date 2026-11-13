@@ -72,7 +72,8 @@ class ExecutionRepository:
     def upsert(self, *, execution_id: str, host_id: str, device_id: str, product: str,
                product_version: str, session_id: str, asset_instance_id: str | None,
                started_at: datetime, ended_at: datetime | None,
-               outcome: ExecutionOutcome) -> dict[str, Any]:
+               outcome: ExecutionOutcome,
+               product_version_source: str = "device_claim") -> dict[str, Any]:
         """创建或收尾一条 Execution。
 
         返回 {"execution_id", "duplicate"}：duplicate=True 表示本次上报
@@ -93,12 +94,13 @@ class ExecutionRepository:
                     try:
                         conn.execute(
                             "INSERT INTO executions (execution_id, host_id, device_id,"
-                            " product, product_version, session_id, asset_instance_id,"
-                            " started_at, ended_at, outcome, intent_count, created_at,"
-                            " updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,0,?,?)",
+                            " product, product_version, product_version_source, session_id,"
+                            " asset_instance_id, started_at, ended_at, outcome,"
+                            " intent_count, created_at, updated_at)"
+                            " VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?,?)",
                             (execution_id, host_id, device_id, product, product_version,
-                             session_id, asset_instance_id, started_at_text, ended_at_text,
-                             outcome.value, now, now),
+                             product_version_source, session_id, asset_instance_id,
+                             started_at_text, ended_at_text, outcome.value, now, now),
                         )
                     except sqlite3.IntegrityError:
                         # UNIQUE(host_id, product, session_id)：同一会话已有
@@ -157,7 +159,9 @@ class IntentRepository:
                decision: str, decision_reason: str | None, params_summary: str,
                params_sha256: str | None, redaction_applied: bool,
                occurred_at: datetime, ended_at: datetime | None,
-               product_result: str | None) -> dict[str, Any]:
+               product_result: str | None,
+               source_kind: str | None = None,
+               source_ref: str | None = None) -> dict[str, Any]:
         """登记一次观测。
 
         同一 (execution_id, tool_call_id) 的后续事件合并进原行：补
@@ -184,7 +188,8 @@ class IntentRepository:
                     before = (existing["ended_at"], existing["product_result"],
                               existing["decision"], existing["decision_reason"],
                               existing["occurred_at"], existing["params_summary"],
-                              existing["params_sha256"])
+                              existing["params_sha256"], existing["source_kind"],
+                              existing["source_ref"])
                     conn.execute(
                         "UPDATE intents SET"
                         # 结果只补空，不覆盖：首次观测到的 ended_at/结果留档，
@@ -199,6 +204,8 @@ class IntentRepository:
                         " ELSE params_summary END,"
                         " params_sha256 = COALESCE(params_sha256, ?),"
                         " redaction_applied = MAX(redaction_applied, ?),"
+                        " source_kind = COALESCE(source_kind, ?),"
+                        " source_ref = COALESCE(source_ref, ?),"
                         # 一旦被执行前事件观测过，创建事件就固定为 pre_tool_use：
                         # 决策与创建事件必须同源，不能出现"事后事件带决策"的行。
                         " hook_event_type = CASE WHEN ? = ? THEN ? ELSE hook_event_type END"
@@ -208,6 +215,7 @@ class IntentRepository:
                          decision_reason, occurred_at_text,
                          params_summary, params_sha256,
                          1 if redaction_applied else 0,
+                         source_kind, source_ref,
                          hook_event_type, PRE_TOOL_USE, PRE_TOOL_USE,
                          existing["intent_id"]),
                     )
@@ -217,7 +225,8 @@ class IntentRepository:
                     after = (after_row["ended_at"], after_row["product_result"],
                              after_row["decision"], after_row["decision_reason"],
                              after_row["occurred_at"], after_row["params_summary"],
-                             after_row["params_sha256"])
+                             after_row["params_sha256"], after_row["source_kind"],
+                             after_row["source_ref"])
                     conn.execute("COMMIT")
                     return {"intent_id": existing["intent_id"], "duplicate": before == after}
 
@@ -225,13 +234,13 @@ class IntentRepository:
                     "INSERT INTO intents (intent_id, execution_id, parent_intent_id,"
                     " tool_call_id, tool_name, hook_event_type, decision, decision_reason,"
                     " params_summary, params_sha256, redaction_applied, occurred_at,"
-                    " ended_at, product_result, created_at)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                    " ended_at, product_result, source_kind, source_ref, created_at)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
                     " ON CONFLICT(intent_id) DO NOTHING",
                     (intent_id, execution_id, parent_intent_id, tool_call_id, tool_name,
                      hook_event_type, decision, decision_reason, params_summary,
                      params_sha256, 1 if redaction_applied else 0, occurred_at_text,
-                     ended_at_text, product_result, now),
+                     ended_at_text, product_result, source_kind, source_ref, now),
                 )
                 if cursor.rowcount == 0:
                     # intent_id 重放：同一事件重复上报。
