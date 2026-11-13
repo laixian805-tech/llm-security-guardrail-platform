@@ -18,6 +18,13 @@ from endpoint.outbox import Outbox
 
 HEADER=re.compile(r'\btype=(\w+)\s+msg=audit\((\d+(?:\.\d+)?):(\d+)\)')
 FIELDS=re.compile(r'(\w+)=("[^"]*"|\S+)')
+OWN_TELEMETRY_MODULES={'endpoint.hook','endpoint.flush','endpoint.audit'}
+_PYTHON_BIN=re.compile(r'^python(?:\d+(?:\.\d+)*)?(?:\.exe)?$')
+_PY_VALUE_FLAGS={'-W','-X'}
+_PY_BOOL_FLAGS=set('uBEsSIOqvbdiRP')
+_SHELL_BINS={'sh','bash','dash'}
+_FORBIDDEN_SHELL_META=('\n','\r',';','|','`','$(','>','<','#')
+_EXECVE_ARG=re.compile(r'^a(\d+)$')
 # x86_64 only: rule installation is explicitly arch=b64.
 SYSCALLS={'59':'process_start','322':'process_start','42':'network_connect',
           '2':'file_access','257':'file_access','437':'file_access'}
@@ -64,7 +71,10 @@ def normalize(records,*,uid,keys,boot_id):
     if event_type=='file_access':
         resources=[{'path':r[3]['name']} for r in records if r[2]=='PATH' and r[3].get('name') and r[3].get('nametype')!='PARENT'] or [None]
     elif event_type=='network_connect':
-        resources=[address(r[3].get('saddr','')) for r in records if r[2]=='SOCKADDR'] or [None]
+        addrs=[address(r[3].get('saddr','')) for r in records if r[2]=='SOCKADDR']
+        if addrs:
+            resources=[a for a in addrs if a is not None]
+            if not resources:return []
     events=[]
     for index,resource in enumerate(resources):
         digest=hashlib.sha256(f'{boot_id}:{stamp}:{serial}:{index}'.encode()).hexdigest()[:32]
@@ -96,6 +106,71 @@ def log_candidates(source):
                 continue
     # 新的轮转文件在前：它刚被切出去，最可能还留着没读完的尾巴。
     return [source] + [Path(name) for _, name in sorted(rotated, reverse=True)]
+
+
+def _is_env_assignment(token):
+    return '=' in token and token.split('=',1)[0].isidentifier()
+
+
+def _is_own_python_argv(tokens):
+    if not tokens or not _PYTHON_BIN.match(os.path.basename(tokens[0])):return False
+    i=1
+    while i<len(tokens):
+        tok=tokens[i]
+        if tok=='-m':
+            return i+1<len(tokens) and tokens[i+1] in OWN_TELEMETRY_MODULES
+        if tok in _PY_VALUE_FLAGS:
+            i+=2;continue
+        if tok.startswith(('-W','-X')) and len(tok)>2:
+            i+=1;continue
+        if tok.startswith('-') and len(tok)>1 and set(tok[1:])<=_PY_BOOL_FLAGS:
+            i+=1;continue
+        return False
+    return False
+
+
+def is_own_telemetry_argv(argv):
+    """仅识别 ASGP 自身采集/Hook/上报命令，不落库参数且防伪造参数绕过。"""
+    tokens=[t for t in argv if t]
+    if not tokens:return False
+    if os.path.basename(tokens[0])=='env':
+        idx=1
+        while idx<len(tokens) and _is_env_assignment(tokens[idx]):idx+=1
+        tokens=tokens[idx:]
+        if not tokens:return False
+    if _is_own_python_argv(tokens):return True
+    if os.path.basename(tokens[0]) in _SHELL_BINS and len(tokens)==3 and tokens[1]=='-c':
+        cmd=tokens[2].strip()
+        if not cmd or any(meta in cmd for meta in _FORBIDDEN_SHELL_META):return False
+        parts=cmd.split(' && ')
+        if len(parts)>2:return False
+        try:
+            if len(parts)==2:
+                cd_tokens=shlex.split(parts[0])
+                if len(cd_tokens)!=2 or cd_tokens[0]!='cd':return False
+                exec_tokens=shlex.split(parts[1])
+            else:
+                exec_tokens=shlex.split(parts[0])
+        except ValueError:
+            return False
+        idx=0
+        while idx<len(exec_tokens) and _is_env_assignment(exec_tokens[idx]):idx+=1
+        return _is_own_python_argv(exec_tokens[idx:])
+    return False
+
+
+def _extract_raw_argv(kind,line_text):
+    if kind=='EXECVE':
+        numbered=[]
+        for k,v in FIELDS.findall(line_text):
+            m=_EXECVE_ARG.match(k)
+            if m:numbered.append((int(m.group(1)),decode(v)))
+        numbered.sort(key=lambda item:item[0])
+        return [val for _,val in numbered]
+    if kind=='PROCTITLE':
+        for k,v in FIELDS.findall(line_text):
+            if k=='proctitle':return [part for part in decode(v).split('\x00') if part]
+    return []
 
 
 def is_own_telemetry_pid(pid):
@@ -150,10 +225,17 @@ def collect_once(config,*,settled=False):
         boundary=raw.rfind(b'\n')+1
         if boundary==0:raise ValueError('audit_record_exceeds_read_limit')
         raw=raw[:boundary];groups={};positions={};position=offset
+        own_keys=set();non_own_execve_keys=set()
         for line in raw.splitlines(keepends=True):
-            parsed=record(line.decode('utf-8','replace'))
+            text=line.decode('utf-8','replace')
+            parsed=record(text)
             if parsed:
                 key=parsed[:2];groups.setdefault(key,[]).append(parsed);positions.setdefault(key,position)
+                if parsed[2] in {'EXECVE','PROCTITLE'}:
+                    if is_own_telemetry_argv(_extract_raw_argv(parsed[2],text)):
+                        own_keys.add(key)
+                    elif parsed[2]=='EXECVE':
+                        non_own_execve_keys.add(key)
             position+=len(line)
         # 游标绝不能超过被读文件的实际长度：日志轮转时 offset 可能在旧文件上
         # 累加出越界值，一旦保存进去，后续采集会一直在越界位置读不到数据，
@@ -164,12 +246,49 @@ def collect_once(config,*,settled=False):
             if not any(r[2]=='EOE' for r in groups[last]):
                 end=positions[last];groups.pop(last)
         boot_id=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+        own_exec_times={};other_exec_times={}
+        for key,rows in groups.items():
+            syscall=next((r[3] for r in rows if r[2]=='SYSCALL'),{})
+            pid=syscall.get('pid');ppid=syscall.get('ppid')
+            if not pid or not ppid:continue
+            try:t=float(key[0])
+            except ValueError:continue
+            proc=(pid,ppid)
+            if key in own_keys:own_exec_times.setdefault(proc,[]).append(t)
+            elif syscall.get('syscall') in {'59','322'} and syscall.get('success')=='yes':other_exec_times.setdefault(proc,[]).append(t)
+        def is_own_telemetry_group(key,syscall):
+            if key in own_keys or is_own_telemetry_pid(syscall.get('pid')):return True
+            proc=(syscall.get('pid'),syscall.get('ppid'))
+            t_owns=own_exec_times.get(proc)
+            if not t_owns:return False
+            try:t=float(key[0])
+            except ValueError:return False
+            sc=syscall.get('syscall')
+            if sc in {'59','322'} and syscall.get('success')!='yes' and syscall.get('exit')=='-2':
+                return any(0.0<=t_own-t<=0.5 for t_own in t_owns)
+            if sc not in {'59','322'}:
+                others=other_exec_times.get(proc,[])
+                for t_own in t_owns:
+                    limit=min([t_own+30.0]+[to for to in others if to>t_own])
+                    if t_own<=t<=limit:return True
+            return False
+        def is_resolved_path_probe(syscall,stamp_str):
+            if syscall.get('syscall') not in {'59','322'} or syscall.get('success')=='yes' or syscall.get('exit')!='-2':
+                return False
+            proc=(syscall.get('pid'),syscall.get('ppid'))
+            succs=other_exec_times.get(proc)
+            if not succs:return False
+            try:t=float(stamp_str)
+            except ValueError:return False
+            return any(0.0<=t_ok-t<=0.5 for t_ok in succs)
         records=[]
         excluded=0
-        for rows in groups.values():
+        for key,rows in groups.items():
             syscall=next((r[3] for r in rows if r[2]=='SYSCALL'),{})
-            if is_own_telemetry_pid(syscall.get('pid')):
+            if is_own_telemetry_group(key,syscall):
                 excluded+=1
+                continue
+            if is_resolved_path_probe(syscall,key[0]):
                 continue
             for event in normalize(rows,uid=config['audit_uid'],keys=set(config['audit_keys']),boot_id=boot_id):
                 batch={'collector_id':'linux-audit-v1','events':[event]}

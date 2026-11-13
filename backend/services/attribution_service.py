@@ -56,8 +56,13 @@ class AttributionService:
                     if pid in anchors:
                         for intent in anchors[pid]:
                             # PID trees alone are not a timeless identity; require the call interval.
-                            start=seconds(intent['occurred_at']);end=seconds(intent['ended_at']) if intent['ended_at'] else start+30
-                            if start-1<=seconds(event['occurred_at'])<=end+1:candidates.append((intent,AttributionMethod.PROCESS_TREE,.85))
+                            start=seconds(intent['occurred_at']);has_end=bool(intent['ended_at'])
+                            end=seconds(intent['ended_at']) if has_end else start+30
+                            ev_t=seconds(event['occurred_at'])
+                            # 已结束的调用（Pre/PostToolUse 同一宿主机时钟闭合）不把前置 Hook 或后置宿主辅助进程拉进直接子进程。
+                            if has_end and len(lineage)<=2:
+                                if start-0.005<=ev_t<=end+0.005:candidates.append((intent,AttributionMethod.PROCESS_TREE,.85))
+                            elif start-1<=ev_t<=end+1:candidates.append((intent,AttributionMethod.PROCESS_TREE,.85))
                         break
                     pid=parents.get(pid)
             if not candidates:

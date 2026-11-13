@@ -150,3 +150,83 @@ def test_audit_rotation_loses_nothing_across_polls(tmp_path):
     assert collect_once(cfg,settled=True)['events']==0
     box=Outbox(cfg['state_dir'])
     assert box.db.execute('SELECT count(*) FROM outbox').fetchone()[0]==4
+
+
+def test_collector_excludes_short_lived_hook_and_prevents_spoofing(tmp_path):
+    hook_cmd_hex='cd /lab/source && ASGP_ENDPOINT_CONFIG=/lab/endpoint/config.json /usr/bin/python3 -m endpoint.hook qwen-code'.encode().hex()
+    spoof_hex='curl example.com # -m endpoint.hook'.encode().hex()
+    chain_hex='cd /tmp && cat /lab/.env.secret && /usr/bin/python3 -m endpoint.hook'.encode().hex()
+    log_text=f'''type=SYSCALL msg=audit(1794564246.235:4829): arch=c000003e syscall=59 success=no exit=-2 ppid=4676 pid=4692 uid=1000 exe="/lab/bin/node" key="asgp_p2_exec"
+type=PROCTITLE msg=audit(1794564246.235:4829): proctitle=6e6f6465
+type=EOE msg=audit(1794564246.235:4829):
+type=SYSCALL msg=audit(1794564246.235:4831): arch=c000003e syscall=59 success=yes exit=0 ppid=4676 pid=4692 uid=1000 exe="/usr/bin/bash" key="asgp_p2_exec"
+type=EXECVE msg=audit(1794564246.235:4831): argc=3 a0="bash" a1="-c" a2={hook_cmd_hex}
+type=EOE msg=audit(1794564246.235:4831):
+type=SYSCALL msg=audit(1794564246.235:4832): arch=c000003e syscall=59 success=yes exit=0 ppid=4676 pid=4692 uid=1000 exe="/usr/bin/python3.10" key="asgp_p2_exec"
+type=EXECVE msg=audit(1794564246.235:4832): argc=4 a0="/usr/bin/python3" a1="-m" a2="endpoint.hook" a3="qwen-code"
+type=EOE msg=audit(1794564246.235:4832):
+type=SYSCALL msg=audit(1794564246.240:4833): arch=c000003e syscall=257 success=yes exit=3 ppid=4676 pid=4692 uid=1000 exe="/usr/bin/python3.10" key="asgp_p2_file"
+type=PATH msg=audit(1794564246.240:4833): item=0 name="/lab/endpoint/outbox.sqlite" nametype=NORMAL
+type=EOE msg=audit(1794564246.240:4833):
+type=SYSCALL msg=audit(1794564246.300:4834): arch=c000003e syscall=59 success=yes exit=0 ppid=4676 pid=4700 uid=1000 exe="/usr/bin/python3.10" key="asgp_p2_exec"
+type=EXECVE msg=audit(1794564246.300:4834): argc=4 a0="/usr/bin/python3" a1="/tmp/evil.py" a2="-m" a3="endpoint.hook"
+type=EOE msg=audit(1794564246.300:4834):
+type=SYSCALL msg=audit(1794564246.310:4835): arch=c000003e syscall=59 success=yes exit=0 ppid=4676 pid=4701 uid=1000 exe="/usr/bin/bash" key="asgp_p2_exec"
+type=EXECVE msg=audit(1794564246.310:4835): argc=3 a0="bash" a1="-c" a2={spoof_hex}
+type=EOE msg=audit(1794564246.310:4835):
+type=SYSCALL msg=audit(1794564246.320:4836): arch=c000003e syscall=59 success=yes exit=0 ppid=4676 pid=4702 uid=1000 exe="/usr/bin/bash" key="asgp_p2_exec"
+type=EXECVE msg=audit(1794564246.320:4836): argc=3 a0="bash" a1="-c" a2={chain_hex}
+type=EOE msg=audit(1794564246.320:4836):
+'''
+    source=tmp_path/'audit.log';source.write_text(log_text)
+    cfg={'state_dir':str(tmp_path/'state'),'audit_log':str(source),'audit_uid':1000,'audit_keys':['asgp_p2_exec','asgp_p2_file']}
+    res=collect_once(cfg,settled=True)
+    assert res['own_telemetry_excluded']==4 and res['events']==3
+    box=Outbox(cfg['state_dir'])
+    pids=[json.loads(r[0])['events'][0]['process']['pid'] for r in box.db.execute('SELECT payload FROM outbox')]
+    assert pids==[4700,4701,4702]
+    assert 'evil.py' not in box.db.execute('SELECT payload FROM outbox').fetchone()[0]
+
+
+def test_closed_call_window_excludes_pre_hook_and_post_turn_helper(tmp_path):
+    storage=Storage(tmp_path/'control.db');devices=DeviceIdentityRepository(storage)
+    did,_=devices.enroll(label='lab');devices.set_host(device_id=did,host_id='h');ingest=IngestionService(storage)
+    base=datetime(2026,11,13,10,4,6,0,tzinfo=timezone.utc)
+    def at(ms):return (base+timedelta(milliseconds=ms)).isoformat()
+    ingest.execution(did,{'execution_id':'exec_win','session_id':'s','product':'qwen-code','product_version':'0.26.8','started_at':at(0)})
+    ingest.intent(did,'exec_win',{'intent_id':'i_read','tool_call_id':'tc_read','tool_name':'read_file','hook_event_type':'pre_tool_use','occurred_at':at(283),'ended_at':at(407)})
+    ingest.batch(did,{'collector_id':'test','events':[
+        {'event_id':'anchor_r','execution_id':'exec_win','intent_ref':'i_read','event_type':'hook_anchor','occurred_at':at(283),'process':{'pid':4676,'ppid':4675}},
+        {'event_id':'pre_hook','event_type':'process_start','occurred_at':at(235),'process':{'pid':4692,'ppid':4676,'executable':'/usr/bin/bash'}},
+        {'event_id':'real_read','event_type':'file_access','occurred_at':at(347),'process':{'pid':4676,'ppid':4675},'resource':{'path':'/lab/health_check.sh'}},
+        {'event_id':'post_git','event_type':'process_start','occurred_at':at(451),'process':{'pid':4694,'ppid':4676,'executable':'/usr/bin/git'}},
+    ]})
+    service=AttributionService(storage);service.correlate('exec_win')
+    selected={e['event_id'] for e in service.list('exec_win') if e['selected']}
+    assert selected=={'anchor_r','real_read'}
+
+
+def test_collector_skips_local_unix_sockets_and_resolved_path_probes(tmp_path):
+    unix_hex='01002f72756e2f646275732f73797374656d5f6275735f736f636b657400'
+    inet_hex='020001BB7F0000010000000000000000'
+    log_text=f'''type=SYSCALL msg=audit(1794569607.567:6630): arch=c000003e syscall=59 success=no exit=-2 ppid=6712 pid=6731 uid=1000 exe="/lab/bin/node" key="asgp_p2_exec"
+type=EOE msg=audit(1794569607.567:6630):
+type=SYSCALL msg=audit(1794569607.567:6631): arch=c000003e syscall=59 success=yes exit=0 ppid=6712 pid=6731 uid=1000 exe="/usr/bin/systemd-inhibit" key="asgp_p2_exec"
+type=EOE msg=audit(1794569607.567:6631):
+type=SYSCALL msg=audit(1794569607.571:6633): arch=c000003e syscall=42 success=yes exit=0 ppid=6712 pid=6731 uid=1000 exe="/usr/bin/systemd-inhibit" key="asgp_p2_net"
+type=SOCKADDR msg=audit(1794569607.571:6633): saddr={unix_hex}
+type=EOE msg=audit(1794569607.571:6633):
+type=SYSCALL msg=audit(1794569607.575:6634): arch=c000003e syscall=42 success=yes exit=0 ppid=6712 pid=6732 uid=1000 exe="/usr/bin/curl" key="asgp_p2_net"
+type=SOCKADDR msg=audit(1794569607.575:6634): saddr={inet_hex}
+type=EOE msg=audit(1794569607.575:6634):
+'''
+    source=tmp_path/'audit.log';source.write_text(log_text)
+    cfg={'state_dir':str(tmp_path/'state'),'audit_log':str(source),'audit_uid':1000,'audit_keys':['asgp_p2_exec','asgp_p2_net']}
+    res=collect_once(cfg,settled=True)
+    assert res['events']==2 and res['own_telemetry_excluded']==0
+    box=Outbox(cfg['state_dir'])
+    items=[json.loads(r[0])['events'][0] for r in box.db.execute('SELECT payload FROM outbox ORDER BY rowid')]
+    assert [(i['event_type'],i['process']['executable']) for i in items]==[
+        ('process_start','/usr/bin/systemd-inhibit'),
+        ('network_connect','/usr/bin/curl'),
+    ]
