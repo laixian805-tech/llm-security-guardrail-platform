@@ -633,10 +633,138 @@ async function refreshCoverage() {
   }
 }
 
+/* ---------- 归因泳道图 ------------------------------------------------
+   把"哪条事件属于哪次调用"画出来，是理解这套归因唯一直观的方式：
+   左列是 Intent，右列是 Event，连线是边。没有连线的 Event 就是"留空"——
+   平台承认自己不知道它属于谁，而不是硬连一个最近邻。
+   ------------------------------------------------------------------- */
+const METHOD_STYLE = {
+  hook_id: {color: '#34d399', label: 'Hook ID', dash: ''},
+  process_tree: {color: '#60a5fa', label: '进程树', dash: ''},
+  temporal_feature: {color: '#94a3b8', label: '资源/时间', dash: '4 4'},
+};
+const LANE_LIMIT = 14;
+
+function svgEl(name, attrs) {
+  const node = document.createElementNS('http://www.w3.org/2000/svg', name);
+  Object.keys(attrs).forEach(function (key) { node.setAttribute(key, attrs[key]); });
+  return node;
+}
+
+function svgText(x, y, content, attrs) {
+  const node = svgEl('text', Object.assign({x: x, y: y}, attrs || {}));
+  node.textContent = content;
+  return node;
+}
+
+async function renderAttributionLane(executionId) {
+  const svg = byId('attributionLane');
+  const foot = byId('laneFoot');
+  svg.replaceChildren();
+  let data;
+  try { data = await request('/api/v1/executions/' + encodeURIComponent(executionId) + '/attribution-graph'); }
+  catch (error) { if (error instanceof UnauthenticatedError) return; throw error; }
+
+  const intents = (data.intents || []).slice(0, LANE_LIMIT);
+  const events = (data.events || []).slice(0, LANE_LIMIT);
+  const edges = data.edges || [];
+  if (!intents.length) {
+    svg.setAttribute('viewBox', '0 0 600 120');
+    svg.appendChild(svgText(24, 60, '这次执行没有 Intent 记录', {fill: '#7c8b87', 'font-size': 13}));
+    foot.textContent = '';
+    return;
+  }
+
+  const ROW_I = 54, ROW_E = 46, PAD = 16, BOX_W = 250, GAP = 150;
+  const width = PAD + BOX_W + GAP + BOX_W + PAD;
+  const rows = Math.max(intents.length, events.length, 3);
+  const height = PAD * 2 + rows * Math.max(ROW_I, ROW_E);
+  svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+  svg.setAttribute('height', String(height));
+
+  const intentY = {}, eventY = {};
+  const xIntents = PAD, xEvents = PAD + BOX_W + GAP;
+
+  // 列标题
+  svg.appendChild(svgText(xIntents, PAD - 2, 'INTENT（工具调用）', {'font-size': 10, fill: '#6f7d79', 'letter-spacing': 1}));
+  svg.appendChild(svgText(xEvents, PAD - 2, 'EVENT（系统事件）', {'font-size': 10, fill: '#6f7d79', 'letter-spacing': 1}));
+
+  intents.forEach(function (intent, index) {
+    const y = PAD + 12 + index * ROW_I;
+    intentY[intent.intent_id] = y + 18;
+    const box = svgEl('rect', {x: xIntents, y: y, width: BOX_W, height: 38, rx: 8,
+      fill: 'rgba(79,209,176,.06)', stroke: 'rgba(79,209,176,.22)'});
+    svg.appendChild(box);
+    svg.appendChild(svgText(xIntents + 12, y + 16,
+      String(intent.tool_name || 'intent').slice(0, 30), {'font-size': 12, fill: '#d5e2de'}));
+    svg.appendChild(svgText(xIntents + 12, y + 30,
+      String(intent.occurred_at || '').slice(11, 19) + ' · ' + String(intent.decision || '').slice(0, 12),
+      {'font-size': 10, fill: '#7c8b87'}));
+  });
+
+  events.forEach(function (event, index) {
+    const y = PAD + 12 + index * ROW_E;
+    eventY[event.event_id] = y + 15;
+    const resource = event.resource_host
+      ? event.resource_host + (event.resource_port ? ':' + event.resource_port : '')
+      : (event.resource_path || '');
+    const box = svgEl('rect', {x: xEvents, y: y, width: BOX_W, height: 32, rx: 8,
+      fill: 'rgba(255,255,255,.03)', stroke: 'rgba(255,255,255,.1)'});
+    svg.appendChild(box);
+    svg.appendChild(svgText(xEvents + 12, y + 14,
+      String(event.event_type || 'event'), {'font-size': 12, fill: '#c9d6d2'}));
+    svg.appendChild(svgText(xEvents + 12, y + 26, String(resource).slice(0, 34),
+      {'font-size': 10, fill: '#7c8b87'}));
+  });
+
+  edges.forEach(function (edge) {
+    const y1 = intentY[edge.intent_id], y2 = eventY[edge.event_id];
+    if (y1 === undefined || y2 === undefined) return;
+    const style = METHOD_STYLE[edge.method] || {color: '#94a3b8', dash: ''};
+    const x1 = xIntents + BOX_W, x2 = xEvents;
+    const path = svgEl('path', {
+      d: 'M ' + x1 + ' ' + y1 + ' C ' + (x1 + 60) + ' ' + y1 + ', ' + (x2 - 60) + ' ' + y2
+         + ', ' + x2 + ' ' + y2,
+      fill: 'none', stroke: style.color,
+      'stroke-width': edge.selected ? 2.4 : 1.2,
+      'stroke-opacity': edge.selected ? 0.9 : 0.45,
+    });
+    if (style.dash) path.setAttribute('stroke-dasharray', style.dash);
+    const tip = svgEl('title', {});
+    tip.textContent = edge.method + ' · ' + edge.confidence + ' · ' + Number(edge.score).toFixed(2)
+      + (edge.selected ? ' · 当前选择' : ' · 未选择候选');
+    path.appendChild(tip);
+    svg.appendChild(path);
+    if (edge.selected) {
+      svg.appendChild(svgEl('circle', {cx: x2, cy: y2, r: 3, fill: style.color}));
+    }
+  });
+
+  // 图例
+  const used = Array.from(new Set(edges.map(function (e) { return e.method; })));
+  byId('laneLegend').innerHTML = used.map(function (method) {
+    const style = METHOD_STYLE[method] || {color: '#94a3b8', label: method};
+    return '<span><b style="background:' + style.color + '"></b>' + style.label + '</span>';
+  }).join('');
+
+  const selected = edges.filter(function (e) { return e.selected; }).length;
+  const parts = [
+    '本次执行 ' + (data.intents || []).length + ' 个 Intent',
+    (data.events || []).length + ' 个已归因 Event',
+    selected + ' 条选定边',
+  ];
+  if (data.unattributed_events > 0) {
+    parts.push('同期还有 ' + data.unattributed_events + ' 条事件未归因 —— 没有证据时留空，不硬连最近邻');
+  }
+  if ((data.intents || []).length > LANE_LIMIT) parts.push('仅展示前 ' + LANE_LIMIT + ' 条');
+  foot.textContent = parts.join(' · ');
+}
+
 async function correlateCurrent() {
   const id=byId('runtimeExecution').value;if(!id)return;
   const result=await request(`/api/v1/executions/${encodeURIComponent(id)}/correlate`,{method:'POST',headers:JSON_HEADERS,body:'{}'});
   const edges=await request(`/api/v1/executions/${encodeURIComponent(id)}/attributions`);
+  await renderAttributionLane(id);
   const box=byId('attributionCandidates');box.replaceChildren();
   const summary=document.createElement('p');summary.textContent=`受评事件 ${result.subject_count} · 候选 ${result.candidate_count} · 强候选选择 ${result.selected_count} · 无候选 ${result.no_candidate_count} · 有候选但未选定 ${result.ambiguous_count}（同主机事件可能属于其他会话）`;box.append(summary);
   for(const edge of edges.attributions){const line=document.createElement('p');line.textContent=`${edge.event_id} → ${edge.intent_id} · ${edge.method} · ${edge.confidence} · ${edge.selected ? '当前选择，仍须核验证据' : '未选择候选'}`;box.append(line);}

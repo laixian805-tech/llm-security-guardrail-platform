@@ -307,3 +307,17 @@ td code { font-size: 11px; }
   font-size: var(--fs-xs); line-height: 1.7; color: #9aa8a4;
 }
 .fieldHint { font-size: var(--fs-sm); line-height: 1.7; color: #8b9a96; margin: 0 0 var(--sp-4); }
+
+/* 归因泳道图 */
+.laneWrap {
+  margin: var(--sp-4) 0;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius-md); padding: var(--sp-4);
+}
+.laneHead { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: var(--sp-3); }
+.laneTitle { font-size: var(--fs-md); font-weight: 600; }
+.laneLegend { display: flex; gap: var(--sp-4); font-size: var(--fs-xs); color: #9aa8a4; }
+.laneLegend span { display: inline-flex; align-items: center; }
+.laneLegend b { width: 14px; height: 2px; margin-right: 6px; border-radius: 2px; }
+.laneSvg { width: 100%; display: block; overflow: visible; }
+.laneFoot { margin: var(--sp-3) 0 0; font-size: var(--fs-xs); color: #8b9a96; line-height: 1.6; }

@@ -164,6 +164,51 @@ def _required_permission(method: str, path: str) -> Permission | None:
     return Permission.READ
 
 
+def attribution_graph(storage, execution_id: str) -> dict[str, Any]:
+    """把归因结果整理成泳道图需要的形状：左列 intent、右列 event、中间边。
+
+    为什么要专门开一个接口：前端画图需要 tool_name / event_type 这些节点标签，
+    而 attributions 只返回边的关系。让前端自己再查两轮接口既慢又容易对不齐。
+    """
+    with storage.connection() as conn:
+        execution = conn.execute(
+            "SELECT * FROM executions WHERE execution_id=?", (execution_id,)).fetchone()
+        if not execution:
+            raise IngestError("unknown_execution", 404)
+        intents = [dict(row) for row in conn.execute(
+            "SELECT intent_id,tool_name,occurred_at,decision FROM intents"
+            " WHERE execution_id=? ORDER BY occurred_at", (execution_id,))]
+        intent_ids = [row["intent_id"] for row in intents]
+        edges = []
+        if intent_ids:
+            marks = ",".join("?" * len(intent_ids))
+            edges = [dict(row) for row in conn.execute(
+                "SELECT intent_id,event_id,method,confidence,score,selected"
+                f" FROM event_attributions WHERE intent_id IN ({marks})", intent_ids)]
+        event_ids = sorted({row["event_id"] for row in edges})
+        events = []
+        if event_ids:
+            marks = ",".join("?" * len(event_ids))
+            events = [dict(row) for row in conn.execute(
+                "SELECT event_id,event_type,occurred_at,resource_host,resource_port,resource_path,pid"
+                f" FROM runtime_events WHERE event_id IN ({marks})", event_ids)]
+        # 同一时间窗内、属于这台设备但没归因到本执行的事件数——用来在图上显示
+        # "留空"的规模，避免读者把"没画连线"误解成"没有事件"。
+        window_total = conn.execute(
+            "SELECT COUNT(*) FROM runtime_events WHERE host_id=? AND device_id=?"
+            " AND occurred_at>=?" ,
+            (execution["host_id"], execution["device_id"], execution["started_at"])).fetchone()[0]
+    return {
+        "execution_id": execution_id,
+        "intents": intents,
+        "events": events,
+        "edges": edges,
+        "window_events": window_total,
+        "attributed_events": len(event_ids),
+        "unattributed_events": max(window_total - len(event_ids), 0),
+    }
+
+
 def overview_stats(storage) -> dict[str, Any]:
     """控制台概览的聚合指标。评测类数据单独分组，避免与线上实时数据混读。"""
     with storage.connection() as conn:
@@ -378,6 +423,8 @@ class Handler(BaseHTTPRequestHandler):
                 # 概览只做聚合查询，不缓存也不造假：拿不到的数据返回 null 而不是 0，
                 # 否则"没测"会被读成"没有"。
                 self._send(200, overview_stats(storage))
+            elif path.startswith('/api/v1/executions/') and path.endswith('/attribution-graph') and method == 'GET':
+                self._send(200, attribution_graph(storage, path.split('/')[4]))
             elif path.startswith('/api/v1/executions/') and path.endswith('/data-flows') and method == 'GET':
                 # 按会话现场重建数据外发候选链；不落库，避免为启发式结果造历史表。
                 self._send(200, dataflow_service.trace(path.split('/')[4]))
