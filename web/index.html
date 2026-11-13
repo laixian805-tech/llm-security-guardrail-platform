@@ -15,94 +15,169 @@
         <div class="workspaceLabel">工作区</div>
         <nav aria-label="主导航">
           <div class="navGroupLabel">核心证据链</div>
-          <a class="navItem active" href="#overview">概览</a>
-          <a class="navItem" href="#runtime">运行时间线 & 差分</a>
-          <a class="navItem" href="#assets">资产与验签</a>
-          <a class="navItem" href="#detections">检测中心</a>
-          <a class="navItem" href="#hostRuntime">主机运行事件</a>
+          <a class="navItem active" href="#overview">
+            <svg class="navIcon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
+            <span>概览</span>
+          </a>
+          <a class="navItem" href="#runtime">
+            <svg class="navIcon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8h2.5l2-4.5 3 9 2-4.5H14"/></svg>
+            <span>运行时间线 &amp; 差分</span>
+          </a>
+          <a class="navItem" href="#assets">
+            <svg class="navIcon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.8L13.5 5v6L8 14.2 2.5 11V5L8 1.8z"/><path d="M8 8v6.2M8 8l5.5-3M8 8L2.5 5"/></svg>
+            <span>资产与验签</span>
+          </a>
+          <a class="navItem" href="#detections">
+            <svg class="navIcon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3.5M8 11h.01"/></svg>
+            <span>检测中心</span>
+          </a>
+          <a class="navItem" href="#hostRuntime">
+            <svg class="navIcon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M4.5 6.5L6.5 8 4.5 9.5M8 9.5h3.5"/></svg>
+            <span>主机运行事件</span>
+          </a>
           <div class="navGroupLabel">治理与配置</div>
-          <a class="navItem" href="#approvals">调用审批</a>
-          <a class="navItem" href="#policy">风险与策略</a>
-          <a class="navItem" href="#admissions">准入安装</a>
-          <a class="navItem" href="#incidents">Incident 中心</a>
-          <a class="navItem" href="#scan">新建扫描</a>
-          <a class="navItem" href="#engines">引擎与模型</a>
+          <a class="navItem" href="#approvals">
+            <svg class="navIcon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.8l5 2v4c0 3.2-2.1 5.6-5 6.5-2.9-.9-5-3.3-5-6.5v-4l5-2z"/><path d="M5.8 8.2l1.6 1.6 3-3.2"/></svg>
+            <span>调用审批</span>
+          </a>
+          <a class="navItem" href="#policy">
+            <svg class="navIcon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5h10M3 8h10M3 11.5h6"/><circle cx="11" cy="4.5" r="1.2" fill="currentColor"/><circle cx="6" cy="8" r="1.2" fill="currentColor"/></svg>
+            <span>风险与策略</span>
+          </a>
+          <a class="navItem" href="#admissions">
+            <svg class="navIcon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v7.5M5 6.8L8 9.8l3-3M2.5 12.5h11"/></svg>
+            <span>准入安装</span>
+          </a>
+          <a class="navItem" href="#incidents">
+            <svg class="navIcon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2.2L14 13H2L8 2.2z"/><path d="M8 6.5v3M8 11.3h.01"/></svg>
+            <span>Incident 中心</span>
+            <span id="navIncidentBadge" class="navBadge" hidden>0</span>
+          </a>
+          <a class="navItem" href="#scan">
+            <svg class="navIcon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+            <span>新建扫描</span>
+          </a>
+          <a class="navItem" href="#engines">
+            <svg class="navIcon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.2"/><path d="M8 2v1.6M8 12.4V14M2 8h1.6M12.4 8H14M3.8 3.8l1.1 1.1M11.1 11.1l1.1 1.1M12.2 3.8l-1.1 1.1M4.9 11.1l-1.1 1.1"/></svg>
+            <span>引擎与模型</span>
+          </a>
         </nav>
         <div class="sidebarFoot">
           <div id="sessionChip" class="sessionChip" hidden>
             <span id="sessionUser" class="sessionUser"></span>
-            <button id="logoutButton" class="textButton" type="button">退出登录</button>
+            <button id="logoutButton" class="textButton" type="button">退出</button>
           </div>
-          <div class="portLine"><span class="localDot"></span> HTTPS 控制面 · TLS 443</div>
+          <div class="portLine"><span class="localDot"></span> HTTPS · TLS 443</div>
         </div>
       </aside>
 
       <main class="mainContent">
         <header class="topbar">
           <div>
-            <p class="eyebrow">智能体安全工作台</p>
-            <h1>安全治理工作台</h1>
+            <p class="eyebrow" id="viewEyebrow">智能体安全态势</p>
+            <h1 id="viewTitle">安全态势总览</h1>
           </div>
           <div class="topbarActions">
             <span class="topbarBadge"><span class="localDot"></span>TLS 443 · 控制面在线</span>
+            <button id="specDrawerBtn" class="specTrigger" type="button" title="查看证据边界与判据说明">
+              <span>ⓘ</span> 判据与边界
+            </button>
             <button id="refreshButton" class="iconButton" type="button" title="刷新数据" aria-label="刷新数据">↻</button>
           </div>
         </header>
 
         <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
 
-        <section id="overview" class="metrics" aria-label="扫描概览" data-view="overview">
-          <div class="metric"><span>扫描次数</span><strong id="metricScans">—</strong><small>本地扫描记录</small></div>
-          <div class="metric"><span>发现项</span><strong id="metricFindings">—</strong><small>已归一化的引擎结果</small></div>
-          <div class="metric"><span>高优先级</span><strong id="metricHigh">—</strong><small>严重与高危等级</small></div>
-          <div class="metric"><span>最近扫描</span><strong id="metricLatest">—</strong><small>UTC 时间</small></div>
+        <!-- VIEW: OVERVIEW -->
+        <section id="overview" class="metrics" aria-label="核心指标" data-view="overview">
+          <div class="metric"><span>扫描记录</span><strong id="metricScans">—</strong><small>累计扫描</small></div>
+          <div class="metric"><span>检测发现</span><strong id="metricFindings">—</strong><small>已归一化</small></div>
+          <div class="metric"><span>高优先级</span><strong id="metricHigh">—</strong><small>严重 / 高危</small></div>
+          <div class="metric"><span>最近扫描</span><strong id="metricLatest">—</strong><small>UTC</small></div>
         </section>
 
-        <section data-view="overview" class="overviewGrid" aria-label="治理概览">
-          <article class="vizCard">
-            <header><h3>归因覆盖</h3><span class="hint" id="attrHint">—</span></header>
-            <div class="vizBig"><strong id="attrBig">—</strong><span id="attrPct">—</span></div>
-            <div class="ratioBar"><span id="attrBar" style="width:0%"></span></div>
-            <p class="vizFoot" id="attrFoot">正在加载…</p>
-          </article>
-          <article class="vizCard">
-            <header><h3>策略决策分布</h3><span class="hint" id="decHint">—</span></header>
-            <div class="stackBar" id="decBar"><i style="width:100%;background:rgba(255,255,255,.06)"></i></div>
-            <div class="legend" id="decLegend"></div>
-          </article>
-          <article class="vizCard">
-            <header><h3>治理状态</h3><span class="hint">实时</span></header>
-            <div class="evalRows" id="govRows"><p class="vizFoot">正在加载…</p></div>
-          </article>
-          <article class="vizCard">
-            <header><h3>离线评测</h3><span class="hint">标注集，非线上统计</span></header>
-            <div class="evalRows" id="evalRows"><p class="vizFoot">正在加载…</p></div>
-          </article>
+        <section data-view="overview" class="overviewWorkbench" aria-label="安全态势工作区">
+          <div class="overviewMain">
+            <div class="panel">
+              <div class="sectionHeading">
+                <div><p class="eyebrow">实时运行</p><h2>近期 Agent 执行记录</h2></div>
+                <a class="textLink" href="#runtime">进入时间线 &amp; 差分 →</a>
+              </div>
+              <div class="tableWrap">
+                <table>
+                  <thead><tr><th>产品 / 设备</th><th>状态</th><th>开始时间</th><th>操作</th></tr></thead>
+                  <tbody id="overviewExecRows"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="sectionHeading">
+                <div><p class="eyebrow">静态检测</p><h2>高优先级发现项</h2></div>
+                <a class="textLink" href="#detections">全部发现 →</a>
+              </div>
+              <div class="tableWrap">
+                <table>
+                  <thead><tr><th>级别</th><th>风险分</th><th>规则</th><th>发现内容与位置</th></tr></thead>
+                  <tbody id="overviewFindingRows"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <aside class="overviewSide">
+            <article class="vizCard">
+              <header><h3>OS 事件归因覆盖</h3><span class="hint" id="attrHint">—</span></header>
+              <div class="vizBig"><strong id="attrBig">—</strong><span id="attrPct">—</span></div>
+              <div class="ratioBar"><span id="attrBar" style="width:0%"></span></div>
+            </article>
+
+            <article class="vizCard">
+              <header><h3>策略决策分布</h3><span class="hint" id="decHint">—</span></header>
+              <div class="stackBar" id="decBar"><i style="width:100%;background:rgba(255,255,255,.06)"></i></div>
+              <div class="legend" id="decLegend"></div>
+            </article>
+
+            <article class="vizCard">
+              <header><h3>治理台账状态</h3><span class="hint">实时</span></header>
+              <div class="evalRows" id="govRows"><p class="vizFoot">正在加载…</p></div>
+            </article>
+
+            <article class="vizCard">
+              <header><h3>离线 A/B 评测基准</h3><span class="hint">标注集</span></header>
+              <div class="evalRows" id="evalRows"><p class="vizFoot">正在加载…</p></div>
+            </article>
+          </aside>
         </section>
+
+        <!-- VIEW: ASSETS -->
         <section id="assets" class="panel" data-view="assets">
-          <div class="sectionHeading"><div><p class="eyebrow">资产</p><h2>资产中心</h2></div><button id="assetsRefresh" type="button" class="textButton">刷新资产视图</button></div>
-          <div class="fieldHint">三态均按平台持有的真实证据现算：<b>目录里有文件不算已启用</b>。
-            <details class="inlineDetails"><summary>查看判据</summary>
-              安装状态由准入事务推导，运行状态由执行记录推导，启用状态由产品侧加载结论（<code>product_loaded</code>）推导。只有产品会话确认加载过才记 <code>enabled</code>；探测不可用记 <code>unknown</code> 而不是 false；客户端声明的状态一律拒绝。
-            </details></div>
+          <div class="sectionHeading">
+            <div><p class="eyebrow">接入与台账</p><h2>产品可观测矩阵</h2></div>
+            <div class="quickActions">
+              <button type="button" class="specMiniBtn" data-open-spec="assets">ⓘ 三态判据</button>
+              <button id="assetsRefresh" type="button" class="textButton">↻ 刷新</button>
+            </div>
+          </div>
           <div class="tableWrap">
             <table>
-              <thead><tr><th>产品 / 版本</th><th>供应商</th><th>Hook 传输</th><th>采集器</th><th>事件观测</th><th>ASGP 调用审批</th><th>可摄入</th></tr></thead>
+              <thead><tr><th>产品 / 版本</th><th>供应商</th><th>Hook 传输</th><th>采集器</th><th>事件观测</th><th>ASGP 审批</th><th>可摄入</th></tr></thead>
               <tbody id="assetProductRows"></tbody>
             </table>
           </div>
-          <div class="sectionHeading findingHeading"><div><p class="eyebrow">接入面</p><h2>主机与执行上下文</h2></div><span id="assetHostCount" class="subtleText"></span></div>
+
+          <div class="sectionHeading findingHeading"><div><p class="eyebrow">测试主机</p><h2>主机与执行上下文</h2></div><span id="assetHostCount" class="subtleText"></span></div>
           <div class="tableWrap">
             <table>
-              <thead><tr><th>主机</th><th>执行次数</th><th>产品</th><th>关联资产实例引用</th><th>最近活动</th></tr></thead>
+              <thead><tr><th>主机</th><th>执行次数</th><th>产品</th><th>关联实例</th><th>最近活动</th></tr></thead>
               <tbody id="assetHostRows"></tbody>
             </table>
           </div>
 
-          <div class="sectionHeading findingHeading"><div><p class="eyebrow">台账</p><h2>已登记资产</h2></div><span id="assetLedgerCount" class="subtleText"></span></div>
+          <div class="sectionHeading findingHeading"><div><p class="eyebrow">资产台账</p><h2>已登记逻辑资产</h2></div><span id="assetLedgerCount" class="subtleText"></span></div>
           <form id="assetFilterForm" class="filterRow">
             <div><label for="assetFilterQuery">名称包含</label><input id="assetFilterQuery" placeholder="demo-skill" /></div>
-            <div><label for="assetFilterType">资产类型</label>
+            <div><label for="assetFilterType">类型</label>
               <select id="assetFilterType">
                 <option value="">全部</option>
                 <option value="agent">agent</option>
@@ -128,159 +203,206 @@
                 <option value="stopped">stopped</option>
               </select>
             </div>
-            <div class="filterActions"><button id="assetFilterApply" class="secondaryButton" type="submit">应用筛选</button></div>
+            <div class="filterActions"><button id="assetFilterApply" class="secondaryButton" type="submit">筛选</button></div>
           </form>
           <div class="tableWrap">
             <table>
-              <thead><tr><th>资产</th><th>类型</th><th>产品</th><th>副本</th><th>安装</th><th>启用</th><th>运行</th><th>准入 / 执行</th><th>操作</th></tr></thead>
+              <thead><tr><th>资产</th><th>类型</th><th>产品</th><th>副本</th><th>安装</th><th>启用</th><th>运行</th><th>准入/执行</th><th>操作</th></tr></thead>
               <tbody id="assetLedgerRows"></tbody>
             </table>
           </div>
-          <p class="fieldHint" id="assetLedgerLinks"></p>
-
-          <form id="assetRegisterForm" class="panel nestedPanel">
-            <div class="sectionHeading"><h3>登记资产与副本</h3></div>
-            <div class="centerGrid">
-              <div>
-                <label for="assetType">资产类型</label>
-                <select id="assetType">
-                  <option value="skill">skill</option>
-                  <option value="mcp_server">mcp_server</option>
-                  <option value="agent">agent</option>
-                  <option value="plugin">plugin</option>
-                  <option value="tool">tool</option>
-                </select>
-                <label for="assetName">规范名称</label>
-                <input id="assetName" placeholder="demo-skill" required />
-                <label for="assetProduct">产品（可选）</label>
-                <input id="assetProduct" placeholder="claude-code" />
-                <label for="assetPublisher">发布方（可选）</label>
-                <input id="assetPublisher" placeholder="acme" />
-              </div>
-              <div>
-                <label for="assetHost">主机 ID</label>
-                <input id="assetHost" placeholder="host_lab" required />
-                <label for="assetScope">产品作用域</label>
-                <input id="assetScope" placeholder="claude-code" value="claude-code" required />
-                <label for="assetInstallPath">安装路径（可选）</label>
-                <input id="assetInstallPath" placeholder="~/.claude/skills/demo" />
-                <label for="assetVersion">内容版本与哈希（可选）</label>
-                <div class="inputPair">
-                  <input id="assetVersion" placeholder="1.0.0" />
-                  <input id="assetHash" placeholder="sha256（64 位小写十六进制）" />
-                </div>
-                <label for="assetPublisherId">Ed25519 验签凭据（可选，由服务端验签）</label>
-                <div class="inputPair">
-                  <input id="assetPublisherId" placeholder="pub_..." />
-                  <input id="assetSignature" placeholder="Ed25519 签名（hex 或 base64）" />
-                </div>
-              </div>
-            </div>
-            <button id="assetRegisterSubmit" class="primaryButton" type="submit">登记</button>
-            <p class="fieldHint">同名同类型同产品的逻辑资产只登记一次，重复登记返回原记录；副本按（资产，主机，产品作用域）去重。<code>signature_verified</code> 只能由服务端基于发布方公钥对 <code>content_hash</code> 验签写入，不接受客户端自报布尔值。</p>
-          </form>
-          <div class="panel nestedPanel">
-            <div class="sectionHeading"><h3>发布方公钥（Ed25519）</h3><span id="publisherCount" class="subtleText"></span></div>
-            <form id="publisherForm" class="filterRow">
-              <div><label for="publisherName">发布方名称</label><input id="publisherName" placeholder="acme-signer" required /></div>
-              <div><label for="publisherKey">Ed25519 公钥（32 字节 hex 或 base64）</label><input id="publisherKey" placeholder="64 位 hex 或 base64 公钥" required /></div>
-              <div class="filterActions"><button id="publisherSubmit" class="secondaryButton" type="submit">登记公钥</button></div>
-            </form>
-            <div class="tableWrap">
-              <table>
-                <thead><tr><th>发布方</th><th>算法</th><th>公钥指纹</th><th>状态</th><th>登记时间</th><th>操作</th></tr></thead>
-                <tbody id="publisherRows"></tbody>
-              </table>
-            </div>
-          </div>
           <div id="assetTrace" class="recordList"></div>
+
+          <details class="panelFold">
+            <summary>+ 登记新资产与管理 Ed25519 发布方公钥</summary>
+            <div class="panelFoldBody">
+              <form id="assetRegisterForm" class="nestedPanel">
+                <div class="sectionHeading"><h3>登记资产与副本</h3></div>
+                <div class="centerGrid">
+                  <div>
+                    <label for="assetType">资产类型</label>
+                    <select id="assetType">
+                      <option value="skill">skill</option>
+                      <option value="mcp_server">mcp_server</option>
+                      <option value="agent">agent</option>
+                      <option value="plugin">plugin</option>
+                      <option value="tool">tool</option>
+                    </select>
+                    <label for="assetName">规范名称</label>
+                    <input id="assetName" placeholder="demo-skill" required />
+                    <label for="assetProduct">产品（可选）</label>
+                    <input id="assetProduct" placeholder="claude-code" />
+                    <label for="assetPublisher">发布方（可选）</label>
+                    <input id="assetPublisher" placeholder="acme" />
+                  </div>
+                  <div>
+                    <label for="assetHost">主机 ID</label>
+                    <input id="assetHost" placeholder="host_lab" required />
+                    <label for="assetScope">产品作用域</label>
+                    <input id="assetScope" placeholder="claude-code" value="claude-code" required />
+                    <label for="assetInstallPath">安装路径（可选）</label>
+                    <input id="assetInstallPath" placeholder="~/.claude/skills/demo" />
+                    <label for="assetVersion">内容版本与哈希（可选）</label>
+                    <div class="inputPair">
+                      <input id="assetVersion" placeholder="1.0.0" />
+                      <input id="assetHash" placeholder="sha256（64 位 hex）" />
+                    </div>
+                    <label for="assetPublisherId">Ed25519 验签凭据（可选）</label>
+                    <div class="inputPair">
+                      <input id="assetPublisherId" placeholder="pub_..." />
+                      <input id="assetSignature" placeholder="Ed25519 签名（hex/base64）" />
+                    </div>
+                  </div>
+                </div>
+                <button id="assetRegisterSubmit" class="primaryButton" type="submit">登记资产</button>
+              </form>
+
+              <div class="nestedPanel">
+                <div class="sectionHeading"><h3>发布方公钥（Ed25519）</h3><span id="publisherCount" class="subtleText"></span></div>
+                <form id="publisherForm" class="filterRow">
+                  <div><label for="publisherName">发布方名称</label><input id="publisherName" placeholder="acme-signer" required /></div>
+                  <div><label for="publisherKey">Ed25519 公钥（hex / base64）</label><input id="publisherKey" placeholder="64 位 hex 或 base64 公钥" required /></div>
+                  <div class="filterActions"><button id="publisherSubmit" class="secondaryButton" type="submit">登记公钥</button></div>
+                </form>
+                <div class="tableWrap">
+                  <table>
+                    <thead><tr><th>发布方</th><th>算法</th><th>公钥指纹</th><th>状态</th><th>登记时间</th><th>操作</th></tr></thead>
+                    <tbody id="publisherRows"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </details>
         </section>
 
+        <!-- VIEW: DETECTIONS -->
         <section id="detections" class="panel" data-view="detections">
-          <div class="sectionHeading"><div><p class="eyebrow">检测</p><h2>检测运行</h2></div><span id="scanCount" class="subtleText"></span></div>
+          <div class="sectionHeading">
+            <div><p class="eyebrow">静态扫描</p><h2>检测运行记录</h2></div>
+            <div class="quickActions">
+              <span id="scanCount" class="subtleText"></span>
+              <button type="button" class="specMiniBtn" data-open-spec="detections">ⓘ 检测与丢失率说明</button>
+            </div>
+          </div>
           <div class="tableWrap">
             <table>
               <thead><tr><th>引擎</th><th>目标</th><th>状态</th><th>发现项</th><th>完成时间</th></tr></thead>
               <tbody id="scanRows"></tbody>
             </table>
           </div>
-          <div class="sectionHeading findingHeading"><div><p class="eyebrow">统一结果</p><h2>发现项</h2></div><span id="findingCount" class="subtleText"></span></div>
+          <div class="sectionHeading findingHeading"><div><p class="eyebrow">归一化结果</p><h2>安全发现项</h2></div><span id="findingCount" class="subtleText"></span></div>
           <div class="tableWrap">
             <table>
-              <thead><tr><th>严重级别</th><th>风险分</th><th>引擎</th><th>规则</th><th>发现内容</th><th>位置</th></tr></thead>
+              <thead><tr><th>级别</th><th>风险分</th><th>引擎</th><th>规则</th><th>发现内容</th><th>位置</th></tr></thead>
               <tbody id="findingRows"></tbody>
             </table>
           </div>
-          <p class="fieldHint">超时、解析错误与部分覆盖不会显示为无发现项；失败运行保持失败状态。原始报告正文按 <code>read_raw_report</code> 权限单独复核，列表与详情都不回传。</p>
         </section>
 
-        <section id="runtime" class="panel" data-view="runtime">
-          <div class="sectionHeading">
-            <div><p class="eyebrow">执行观测 &amp; 单点突破</p><h2>运行时间线与副作用差分</h2></div>
-            <div class="quickActions">
-              <button id="runtimeCorrelateBtn" type="button" class="secondaryButton">运行归因与差分分析</button>
-              <button id="runtimeRefresh" type="button" class="textButton">刷新执行记录</button>
-            </div>
-          </div>
-          <div id="runtimeProducts" class="fieldHint"></div>
-          <label for="runtimeExecution">产品、测试设备与会话</label>
-          <select id="runtimeExecution"></select>
-          <p id="runtimeEmpty" class="fieldHint">暂无上报执行。请在已登记的测试设备运行 Agent 后刷新。</p>
-          <p id="runtimeBoundary" class="fieldHint">仅基于可验证证据做归因与来源副作用差分；无 OS 证据事件保持未归因。</p>
-          <div id="effectDiffSummary" class="diffSummaryStrip" hidden></div>
-          <div class="laneWrap">
-            <div class="laneHead">
-              <span class="laneTitle">指令来源谱系 × 预期/真实 OS 副作用差分</span>
-              <span class="hint" id="effectDiffHint">对比模型声明边界与 OS 实际事件</span>
-            </div>
-            <div id="effectDiffList" class="recordList"></div>
-          </div>
-          <p id="runtimeSectionLinks" class="fieldHint"></p>
-          <div class="laneWrap">
-            <div class="laneHead">
-              <span class="laneTitle">Intent → Event 归因</span>
-              <span class="laneLegend" id="laneLegend"></span>
-            </div>
-            <svg id="attributionLane" class="laneSvg" role="img" aria-label="Intent 与 Event 的归因连线图"></svg>
-            <p class="laneFoot" id="laneFoot">选择一个执行并点击「运行归因」后显示。</p>
-          </div>
-          <div class="laneWrap">
-            <div class="laneHead">
-              <span class="laneTitle">数据流链（敏感读 → 中转 → 外连）</span>
-              <span class="hint">路径级判据，不证明内容被发送</span>
-            </div>
-            <svg id="dataflowChain" class="laneSvg" role="img" aria-label="数据外发链"></svg>
-            <p class="laneFoot" id="dataflowFoot">选择一个执行并点击「运行归因」后显示。</p>
-          </div>
-          <ol id="runtimeEntries" class="runtimeEntries"></ol>
-          <button id="runtimeMore" type="button" class="textButton" hidden>加载更多</button>
-        </section>
-
-        <section id="approvals" class="panel" data-view="approvals">
-          <div class="sectionHeading"><h2>调用审批</h2><button id="approvalRefresh" type="button" class="textButton">刷新待审批</button></div>
-          <p class="fieldHint">ASGP 审批绑定设备、调用与参数哈希。它不是 Codex 原生 ask。页面不展示原始命令，批准前请核对测试端本地上下文；拒绝、超时或控制面不可达均不放行。</p>
-          <div id="approvalRequests">点击刷新查看审批。</div>
-        </section>
-        <section id="hostRuntime" class="panel" data-view="hostRuntime">
-          <div class="sectionHeading"><h2>主机运行事件</h2><button id="hostEventsRefresh" type="button" class="textButton">刷新主机事件</button></div>
-          <label for="runtimeHost">主机 ID</label><input id="runtimeHost" value="test-agentsec-01" />
-          <p class="fieldHint">Linux Audit 是观测来源，事件没有调用证据时保持未归因；不展示进程参数。</p>
-          <ul id="hostEvents" class="runtimeEntries"></ul>
-          <button id="correlateExecution" class="secondaryButton" type="button">分析上方选中会话的归因候选</button>
-          <div id="attributionCandidates" class="fieldHint"></div>
-        </section>
         <section id="coverage" class="panel" data-view="detections">
-          <div class="sectionHeading"><div><p class="eyebrow">接入面</p><h2>采集覆盖度</h2></div><button id="coverageRefresh" type="button" class="textButton">刷新覆盖度</button></div>
-          <div class="fieldHint">Hook 与 Audit 丢失率由端侧对账得出。 <details class="inlineDetails"><summary>说明</summary>端侧每次因队列容量封顶、重试上限耗尽、审计日志轮转缺口丢数据时都会登记并上报。丢失率 = 丢失记录 / 尝试送达记录；轮转缺口量级未知，单独列出而不并进分母。主机有执行却长时间没有对账上报，标记为采集器静默。</details></div>
+          <div class="sectionHeading"><div><p class="eyebrow">端侧健康</p><h2>采集覆盖与丢数对账</h2></div><button id="coverageRefresh" type="button" class="textButton">↻ 刷新</button></div>
           <div id="coverageSummary" class="fieldHint">点击刷新查看覆盖度。</div>
           <div id="coverageHosts" class="recordList"></div>
         </section>
 
-        <section id="policy" class="panel" data-view="policy">
-          <div class="sectionHeading"><div><p class="eyebrow">决策</p><h2>风险与策略</h2></div><button id="policyRefresh" type="button" class="textButton">刷新策略视图</button></div>
-          <div class="fieldHint">固有、运行、暴露三维度风险分立评估，按当前活跃策略依序求值。 <details class="inlineDetails"><summary>说明</summary>不同量纲不在代码里相加；求值记录实际生效的 <code>policy_version</code>。没有活跃版本时求值返回 500，不静默回退。策略决定不等于执行：阻断成功必须另有 EnforcementEvidence。</details></div>
+        <!-- VIEW: RUNTIME -->
+        <section id="runtime" class="panel" data-view="runtime">
+          <div class="runtimeToolbar">
+            <div class="runtimePicker">
+              <label for="runtimeExecution" class="srOnly">选择运行执行会话</label>
+              <select id="runtimeExecution"></select>
+            </div>
+            <div class="quickActions">
+              <button id="runtimeCorrelateBtn" type="button" class="primaryButton">运行归因与差分</button>
+              <button id="runtimeRefresh" type="button" class="secondaryButton">↻ 刷新</button>
+              <button type="button" class="specMiniBtn" data-open-spec="runtime">ⓘ 采集与归因边界</button>
+            </div>
+          </div>
+          <p id="runtimeEmpty" class="fieldHint">暂无上报执行，请在已接入设备运行 Agent 后刷新。</p>
 
-          <div class="centerGrid">
+          <div id="effectDiffSummary" class="diffSummaryStrip" hidden></div>
+
+          <div class="laneWrap">
+            <div class="laneHead">
+              <span class="laneTitle">来源谱系 × OS 副作用差分</span>
+              <span class="hint" id="effectDiffHint">—</span>
+            </div>
+            <div id="effectDiffList" class="signalList"></div>
+          </div>
+
+          <div class="laneWrap">
+            <div class="laneHead">
+              <span class="laneTitle">Intent → Event 归因泳道图</span>
+              <span class="laneLegend" id="laneLegend"></span>
+            </div>
+            <svg id="attributionLane" class="laneSvg" role="img" aria-label="Intent 与 Event 的归因连线图"></svg>
+            <p class="laneFoot" id="laneFoot">选择执行记录并点击「运行归因与差分」后显示。</p>
+          </div>
+
+          <div class="laneWrap">
+            <div class="laneHead">
+              <span class="laneTitle">数据外发链路（敏感读 → 中转 → 外连）</span>
+              <span class="hint">路径级证据</span>
+            </div>
+            <svg id="dataflowChain" class="laneSvg" role="img" aria-label="数据外发链"></svg>
+            <p class="laneFoot" id="dataflowFoot">选择执行记录并点击「运行归因与差分」后显示。</p>
+          </div>
+
+          <div class="laneWrap">
+            <div class="laneHead">
+              <span class="laneTitle">原始事件时间线</span>
+              <button id="runtimeMore" type="button" class="textButton" hidden>加载更多</button>
+            </div>
+            <div class="timelineScroll">
+              <ol id="runtimeEntries" class="runtimeEntries"></ol>
+            </div>
+          </div>
+        </section>
+
+        <!-- VIEW: APPROVALS -->
+        <section id="approvals" class="panel" data-view="approvals">
+          <div class="sectionHeading">
+            <div><p class="eyebrow">人工把关</p><h2>待处理调用审批</h2></div>
+            <div class="quickActions">
+              <button type="button" class="specMiniBtn" data-open-spec="governance">ⓘ 审批边界</button>
+              <button id="approvalRefresh" type="button" class="textButton">↻ 刷新</button>
+            </div>
+          </div>
+          <div id="approvalRequests">暂无待审批请求。</div>
+        </section>
+
+        <!-- VIEW: HOST RUNTIME -->
+        <section id="hostRuntime" class="panel" data-view="hostRuntime">
+          <div class="sectionHeading">
+            <div><p class="eyebrow">Linux Audit</p><h2>主机 OS 运行事件</h2></div>
+            <div class="quickActions">
+              <button id="correlateExecution" class="secondaryButton" type="button">分析选中会话归因候选</button>
+              <button id="hostEventsRefresh" type="button" class="textButton">↻ 刷新</button>
+            </div>
+          </div>
+          <div class="filterRow hostFilterBar">
+            <div><label for="runtimeHost">主机 ID</label><input id="runtimeHost" value="test-agentsec-01" /></div>
+          </div>
+          <div id="attributionCandidates" class="fieldHint"></div>
+          <div class="timelineScroll">
+            <ul id="hostEvents" class="runtimeEntries"></ul>
+          </div>
+        </section>
+
+        <!-- VIEW: POLICY -->
+        <section id="policy" class="panel" data-view="policy">
+          <div class="sectionHeading">
+            <div><p class="eyebrow">决策引擎</p><h2>风险评估与策略配置</h2></div>
+            <div class="quickActions">
+              <button type="button" class="specMiniBtn" data-open-spec="governance">ⓘ 策略规则说明</button>
+              <button id="policyRefresh" type="button" class="textButton">↻ 刷新</button>
+            </div>
+          </div>
+
+          <div class="sectionHeading findingHeading"><div><p class="eyebrow">生效版本</p><h2>当前活跃策略</h2></div><span id="policyActiveMeta" class="subtleText"></span></div>
+          <div id="policyActive"></div>
+
+          <div class="centerGrid" style="margin-top:16px">
             <form id="riskForm" class="panel nestedPanel">
               <div class="sectionHeading"><h3>创建风险评估</h3></div>
               <label for="riskAsset">资产 ID（可选）</label>
@@ -288,21 +410,21 @@
               <label for="riskExecution">关联执行（可选）</label>
               <select id="riskExecution"></select>
               <label>证据：发现项</label>
-              <div id="riskFindings" class="checkList"><p class="fieldHint">暂无发现项。请先在检测中心加载扫描记录。</p></div>
+              <div id="riskFindings" class="checkList"><p class="fieldHint">暂无发现项。</p></div>
               <label>证据：主机运行事件</label>
-              <div id="riskEvents" class="checkList"><p class="fieldHint">暂无运行事件。请先在主机运行事件按主机加载。</p></div>
+              <div id="riskEvents" class="checkList"><p class="fieldHint">暂无运行事件。</p></div>
               <fieldset class="exposureSet">
-                <legend>暴露面（声明值，非独立测量）</legend>
+                <legend>暴露面声明</legend>
                 <label class="inlineLabel" for="exposurePrivileged"><input id="exposurePrivileged" type="checkbox" /> 特权上下文</label>
                 <label class="inlineLabel" for="exposureNetwork"><input id="exposureNetwork" type="checkbox" /> 可访问网络</label>
                 <label class="inlineLabel" for="exposureUntrusted"><input id="exposureUntrusted" type="checkbox" /> 来源不可信</label>
               </fieldset>
-              <button id="riskSubmit" class="primaryButton" type="submit">提交风险评估</button>
+              <button id="riskSubmit" class="primaryButton" type="submit">提交评估</button>
             </form>
 
             <form id="evaluateForm" class="panel nestedPanel">
               <div class="sectionHeading"><h3>按策略求值</h3></div>
-              <label for="evalAssessment">风险评估</label>
+              <label for="evalAssessment">选择评估记录</label>
               <select id="evalAssessment"></select>
               <label for="evalSubjectKind">主体类型</label>
               <input id="evalSubjectKind" list="subjectKinds" placeholder="asset_instance" />
@@ -315,123 +437,134 @@
               </datalist>
               <label for="evalSubjectId">主体 ID</label>
               <input id="evalSubjectId" placeholder="inst_..." />
-              <button id="evaluateSubmit" class="primaryButton" type="submit">求值并记录决定</button>
-              <p class="fieldHint">决定记录 <code>enforcement_expected=false</code>；产品是否真正执行由 Hook 回执与准入安装证据另行证明。</p>
+              <button id="evaluateSubmit" class="primaryButton" type="submit">执行策略求值</button>
             </form>
           </div>
 
-          <div class="sectionHeading findingHeading"><div><p class="eyebrow">生效中</p><h2>当前活跃策略版本</h2></div><span id="policyActiveMeta" class="subtleText"></span></div>
-          <div id="policyActive"></div>
-
-          <div class="sectionHeading findingHeading"><div><p class="eyebrow">版本</p><h2>策略版本</h2></div><span id="policyVersionCount" class="subtleText"></span></div>
+          <div class="sectionHeading findingHeading"><div><p class="eyebrow">版本台账</p><h2>策略版本历史</h2></div><span id="policyVersionCount" class="subtleText"></span></div>
           <div class="tableWrap">
             <table>
               <thead><tr><th>版本</th><th>状态</th><th>规则</th><th>创建者</th><th>创建时间</th><th>激活时间</th><th>操作</th></tr></thead>
               <tbody id="policyVersionRows"></tbody>
             </table>
           </div>
-          <p class="fieldHint">激活是原子操作：旧版本停用与新版本生效在同一事务；已停用版本不能再次激活。</p>
 
-          <form id="policyDraftForm" class="panel nestedPanel">
-            <div class="sectionHeading"><h3>新建草稿版本</h3></div>
-            <label for="policyVersionName">版本号</label>
-            <input id="policyVersionName" placeholder="policy-v2" required />
-            <label for="policyRulesJson">规则（JSON 数组，依序首个命中者胜出）</label>
-            <textarea id="policyRulesJson" spellcheck="false" required></textarea>
-            <button id="policyTemplateButton" class="textButton" type="button">填入默认规则模板</button>
-            <p class="fieldHint">条件字段 <code>intrinsic_risk_min</code>、<code>runtime_risk_min</code>、<code>exposure_risk_min</code>、<code>any_dimension_above</code>、<code>peak_at_most</code> 均可省略；全部省略即无条件兜底规则。</p>
-            <button id="policyDraftSubmit" class="primaryButton" type="submit">创建草稿</button>
-          </form>
+          <details class="panelFold">
+            <summary>+ 新建策略草稿版本</summary>
+            <div class="panelFoldBody">
+              <form id="policyDraftForm" class="nestedPanel">
+                <label for="policyVersionName">版本号</label>
+                <input id="policyVersionName" placeholder="policy-v2" required />
+                <label for="policyRulesJson">规则（JSON 数组，首条命中生效）</label>
+                <textarea id="policyRulesJson" spellcheck="false" required></textarea>
+                <div class="quickActions">
+                  <button id="policyDraftSubmit" class="primaryButton" type="submit">创建草稿</button>
+                  <button id="policyTemplateButton" class="secondaryButton" type="button">填入默认模板</button>
+                </div>
+              </form>
+            </div>
+          </details>
 
-          <div class="sectionHeading findingHeading"><div><p class="eyebrow">记录</p><h2>风险评估与策略决定</h2></div></div>
+          <div class="sectionHeading findingHeading"><div><p class="eyebrow">记录</p><h2>评估与决定明细</h2></div></div>
           <div id="riskList" class="recordList"></div>
           <div id="decisionList" class="recordList"></div>
         </section>
 
+        <!-- VIEW: ADMISSIONS -->
         <section id="admissions" class="panel" data-view="admissions">
-          <div class="sectionHeading"><div><p class="eyebrow">准入</p><h2>准入安装</h2></div><button id="admissionsRefresh" type="button" class="textButton">刷新准入记录</button></div>
-          <div class="fieldHint">受管安装器在平台托管目录执行真实事务转移。 <details class="inlineDetails"><summary>说明</summary>只在托管目录（inbound / staging / installed / backup）内做真实的 stage/commit/verify/reconcile/rollback，每次转移都有文件系统后果，body 布尔值不能代替安装证据。托管目录是平台自己的包管理存储，<b>不代表 Agent 产品已加载该包</b>。</details></div>
-          <form id="admissionForm" class="panel nestedPanel">
-            <div class="sectionHeading"><h3>创建准入检查</h3></div>
-            <label for="admissionAsset">资产实例 ID</label>
-            <input id="admissionAsset" placeholder="inst_demo" required />
-            <label for="admissionHash">内容哈希（64 位小写十六进制）</label>
-            <input id="admissionHash" placeholder="sha256" required />
-            <label for="admissionTransaction">事务 ID</label>
-            <input id="admissionTransaction" placeholder="txn_001" required />
-            <button id="admissionSubmit" class="primaryButton" type="submit">创建检查</button>
-            <p class="fieldHint">两个标识符都会被用作目录名，只允许单个安全路径分量；安装中的实例拒绝新事务。</p>
-          </form>
+          <div class="sectionHeading">
+            <div><p class="eyebrow">供应链准入</p><h2>受管安装事务</h2></div>
+            <div class="quickActions">
+              <button type="button" class="specMiniBtn" data-open-spec="governance">ⓘ 准入约束</button>
+              <button id="admissionsRefresh" type="button" class="textButton">↻ 刷新</button>
+            </div>
+          </div>
           <div class="tableWrap">
             <table>
               <thead><tr><th>准入 / 事务</th><th>资产实例</th><th>声明哈希</th><th>实测哈希</th><th>状态</th><th>回滚凭据</th><th>失败原因</th><th>操作</th></tr></thead>
               <tbody id="admissionRows"></tbody>
             </table>
           </div>
-          <p class="fieldHint">暂存来源填写托管 inbound 目录下的相对路径；越界路径、符号链接与 setuid/setgid 文件会被拒绝。</p>
+          <details class="panelFold">
+            <summary>+ 新建准入安装检查</summary>
+            <div class="panelFoldBody">
+              <form id="admissionForm" class="nestedPanel">
+                <label for="admissionAsset">资产实例 ID</label>
+                <input id="admissionAsset" placeholder="inst_demo" required />
+                <label for="admissionHash">内容哈希（64 位 hex）</label>
+                <input id="admissionHash" placeholder="sha256" required />
+                <label for="admissionTransaction">事务 ID</label>
+                <input id="admissionTransaction" placeholder="txn_001" required />
+                <button id="admissionSubmit" class="primaryButton" type="submit">创建检查</button>
+              </form>
+            </div>
+          </details>
         </section>
 
+        <!-- VIEW: INCIDENTS -->
         <section id="incidents" class="panel" data-view="incidents">
-          <div class="sectionHeading"><div><p class="eyebrow">闭环</p><h2>Incident 中心</h2></div><button id="incidentsRefresh" type="button" class="textButton">刷新工单</button></div>
-          <p class="fieldHint">工单从发现项走向调查、确认、修复、复测与关闭。真实风险关闭需要工单开启后、同检测器同目标的 clean 复测 DetectorRun 证据；<code>retest_passed</code> 布尔值不作为证据。</p>
-          <form id="incidentForm" class="panel nestedPanel">
-            <div class="sectionHeading"><h3>新建工单</h3></div>
-            <label for="incidentTitle">标题</label>
-            <input id="incidentTitle" placeholder="可疑 Skill 凭据读取" required />
-            <label for="incidentSeverity">严重级别</label>
-            <select id="incidentSeverity">
-              <option value="unknown">未评级</option>
-              <option value="info">信息</option>
-              <option value="low">低</option>
-              <option value="medium">中</option>
-              <option value="high">高</option>
-              <option value="critical">严重</option>
-            </select>
-            <label for="incidentOwner">负责人</label>
-            <input id="incidentOwner" placeholder="analyst" />
-            <label for="incidentSummary">摘要</label>
-            <input id="incidentSummary" placeholder="观测到的事实与待确认问题" />
-            <button id="incidentSubmit" class="primaryButton" type="submit">创建工单</button>
+          <div class="sectionHeading">
+            <div><p class="eyebrow">处置闭环</p><h2>Incident 工单中心</h2></div>
+            <div class="quickActions">
+              <button type="button" class="specMiniBtn" data-open-spec="governance">ⓘ 闭环规则</button>
+              <button id="incidentsRefresh" type="button" class="textButton">↻ 刷新</button>
+            </div>
+          </div>
+          <form id="incidentForm" class="inlineCreateBar nestedPanel">
+            <div><label for="incidentTitle">工单标题</label><input id="incidentTitle" placeholder="可疑 Skill 凭据读取" required /></div>
+            <div><label for="incidentSeverity">级别</label>
+              <select id="incidentSeverity">
+                <option value="unknown">未评级</option>
+                <option value="info">信息</option>
+                <option value="low">低</option>
+                <option value="medium">中</option>
+                <option value="high">高</option>
+                <option value="critical">严重</option>
+              </select>
+            </div>
+            <div><label for="incidentOwner">负责人</label><input id="incidentOwner" placeholder="analyst" /></div>
+            <div><label for="incidentSummary">摘要</label><input id="incidentSummary" placeholder="观测到的事实" /></div>
+            <div class="filterActions"><button id="incidentSubmit" class="primaryButton" type="submit">创建工单</button></div>
           </form>
           <div class="tableWrap">
             <table>
-              <thead><tr><th>工单</th><th>严重级别</th><th>状态</th><th>负责人</th><th>开启时间</th><th>关闭时间</th><th>状态流转与证据</th></tr></thead>
+              <thead><tr><th>工单</th><th>级别</th><th>状态</th><th>负责人</th><th>开启时间</th><th>关闭时间</th><th>流转与证据</th></tr></thead>
               <tbody id="incidentRows"></tbody>
             </table>
           </div>
         </section>
 
+        <!-- VIEW: SCAN -->
         <section class="workGrid" data-view="scan">
           <section id="scan" class="panel scanPanel" data-view="scan">
-            <div class="sectionHeading"><div><p class="eyebrow">运行</p><h2>开始扫描</h2></div></div>
+            <div class="sectionHeading"><div><p class="eyebrow">主动扫描</p><h2>发起扫描</h2></div></div>
             <form id="scanForm">
               <label for="scanEngine">扫描引擎</label>
               <select id="scanEngine" name="engine" required></select>
-              <p id="engineBoundary" class="fieldHint">选择已安装的扫描引擎；下方会显示来源和执行边界。</p>
+              <p id="engineBoundary" class="fieldHint">选择引擎以查看边界。</p>
               <label for="scanTarget">目标路径</label>
               <div class="inputWithPrefix"><span>workspace/</span><input id="scanTarget" name="target" placeholder="skills/my-skill" required /></div>
-              <p class="fieldHint">目标必须位于项目的 <code>workspace/</code> 目录内。</p>
               <button id="scanButton" class="primaryButton" type="submit">开始扫描</button>
             </form>
           </section>
 
           <section class="panel importPanel">
-            <div class="sectionHeading"><div><p class="eyebrow">导入</p><h2>导入扫描报告</h2></div></div>
+            <div class="sectionHeading"><div><p class="eyebrow">离线导入</p><h2>导入 SARIF / JSON 报告</h2></div></div>
             <form id="importForm">
               <label for="reportEngine">引擎名称</label>
               <input id="reportEngine" name="engine" placeholder="skillspector" required />
               <label for="reportTarget">目标标识</label>
               <input id="reportTarget" name="target" placeholder="skills/my-skill" />
-              <label for="reportFile">SARIF 或 JSON 报告</label>
+              <label for="reportFile">选择报告文件</label>
               <input id="reportFile" type="file" accept=".sarif,.json,application/json" required />
               <button class="secondaryButton" type="submit">导入报告</button>
             </form>
-            <p class="fieldHint">导入只保存归一化发现项和引擎来源，不会执行目标内容。</p>
           </section>
         </section>
 
+        <!-- VIEW: ENGINES -->
         <section id="engines" class="panel enginePanel" data-view="engines">
-          <div class="sectionHeading"><div><p class="eyebrow">集成</p><h2>扫描引擎</h2></div><span id="engineCount" class="subtleText"></span></div>
+          <div class="sectionHeading"><div><p class="eyebrow">扫描引擎</p><h2>已集成引擎</h2></div><span id="engineCount" class="subtleText"></span></div>
           <div class="tableWrap">
             <table>
               <thead><tr><th>引擎</th><th>用途</th><th>执行边界</th><th>状态</th></tr></thead>
@@ -441,25 +574,81 @@
         </section>
 
         <section id="providers" class="panel providerPanel" data-view="engines">
-          <div class="sectionHeading"><div><p class="eyebrow">模型服务</p><h2>供应商配置</h2></div><span id="providerSelection" class="subtleText"></span></div>
+          <div class="sectionHeading"><div><p class="eyebrow">模型端点</p><h2>模型供应商配置</h2></div><span id="providerSelection" class="subtleText"></span></div>
           <div class="tableWrap">
             <table>
-              <thead><tr><th>供应商</th><th>角色</th><th>Codex 接口</th><th>扫描器接口</th><th>模型</th><th>配置状态</th></tr></thead>
+              <thead><tr><th>供应商</th><th>角色</th><th>Codex 接口</th><th>扫描器接口</th><th>模型</th><th>状态</th></tr></thead>
               <tbody id="providerRows"></tbody>
             </table>
           </div>
-          <p class="fieldHint providerHint">仅展示接口与密钥是否已配置，不读取或显示密钥值。模型调用密钥由进程环境变量提供。</p>
         </section>
 
         <footer><span>ASGP · Agent Security Governance Platform</span><span>Based on Tencent Zhuque Lab AI-Infra-Guard · <a href="https://github.com/Tencent/AI-Infra-Guard" target="_blank" rel="noreferrer">上游项目</a></span></footer>
       </main>
     </div>
+
+    <!-- SLIDE-OVER REFERENCE DRAWER: preserves full technical rigor without cluttering the canvas -->
+    <div id="specDrawerBackdrop" class="drawerBackdrop" hidden></div>
+    <aside id="specDrawer" class="specDrawer" aria-label="证据边界与判据说明" hidden>
+      <div class="drawerHead">
+        <div>
+          <p class="eyebrow">方法论与可信边界</p>
+          <h2>证据判据手册</h2>
+        </div>
+        <button id="specDrawerClose" class="iconButton" type="button" aria-label="关闭">✕</button>
+      </div>
+      <div class="drawerTabs" role="tablist">
+        <button type="button" class="drawerTab active" data-spec-tab="runtime">运行时与归因</button>
+        <button type="button" class="drawerTab" data-spec-tab="assets">资产与签名</button>
+        <button type="button" class="drawerTab" data-spec-tab="detections">检测与丢失率</button>
+        <button type="button" class="drawerTab" data-spec-tab="governance">治理闭环</button>
+      </div>
+      <div class="drawerBody">
+        <section class="specPane" data-spec-pane="runtime">
+          <h3>归因覆盖原则（不硬连）</h3>
+          <p id="attrFoot" class="specNote">正在加载归因统计…</p>
+          <p class="specNote">未归因事件不等于安全或不等于误漏——没有确定性 <code>hook_anchor</code> 或进程树证据时，控制面宁可诚实留空，也不把主机背景噪音强行归因给最近 Intent。</p>
+          <h3>端侧产品观测能力</h3>
+          <div id="runtimeProducts" class="specList"></div>
+          <h3>时间线分段与语义边界</h3>
+          <p id="runtimeBoundary" class="specNote"></p>
+          <div id="runtimeSectionLinks" class="specList"></div>
+        </section>
+
+        <section class="specPane" data-spec-pane="assets" hidden>
+          <h3>资产三态推导判据</h3>
+          <p class="specNote">目录存在文件不等于已启用：<code>installation_state</code> 由准入事务推导，<code>runtime_state</code> 由执行记录推导，<code>activation_state</code> 仅在产品会话确认加载（<code>product_loaded=true</code>）时记为 <code>enabled</code>；不可探测时记 <code>unknown</code>，拒收客户端自报状态。</p>
+          <h3>Ed25519 验签与去重规则</h3>
+          <p class="specNote">同名同类型同产品的逻辑资产只登记一次；副本按（资产，主机，产品作用域）去重。<code>signature_verified</code> 仅能由服务端使用发布方公钥对 <code>content_hash</code> 计算写入，请求体自带布尔值一律 400 拒收。</p>
+          <h3>台账关联键说明</h3>
+          <div id="assetLedgerLinks" class="specList"></div>
+        </section>
+
+        <section class="specPane" data-spec-pane="detections" hidden>
+          <h3>扫描失败语义</h3>
+          <p class="specNote">超时、解析错误与部分覆盖均显式保持失败状态，绝不伪装成“无发现项”。原始报告正文仅在具备 <code>read_raw_report</code> 权限时单独复核。</p>
+          <h3>丢失率与采集静默</h3>
+          <p class="specNote">端侧因队列封顶、重试耗尽或审计轮转缺口丢数时均会登记。丢失率 = 丢失记录 / 尝试送达记录；轮转缺口独立展示不并入分母；有执行而长期无对账上报标记为采集器静默。</p>
+          <h3>模型密钥隔离</h3>
+          <p class="specNote">供应商列表仅展示接口地址与密钥是否已配，绝不读取或回显密钥明文；密钥仅由进程环境变量注入并消费于内存。</p>
+        </section>
+
+        <section class="specPane" data-spec-pane="governance" hidden>
+          <h3>调用审批门控</h3>
+          <p class="specNote">ASGP 审批绑定设备、调用 ID 与参数 SHA-256 哈希，不等于产品原生弹窗；页面不回显原始命令参数；拒绝、超时或控制面不可达均默认不放行。</p>
+          <h3>策略分层与执行证明</h3>
+          <p class="specNote">固有、运行、暴露面三维度分立评估，按当前活跃策略版本顺序求值；无活跃版本返回 500 而不静默回退；版本激活为单事务原子替换，停用版本不可复用。策略决定记录 <code>enforcement_expected=false</code>，真实阻断须另有执行证据。</p>
+          <h3>受管安装与 Incident 闭环</h3>
+          <p class="specNote">受管安装仅在托管目录（<code>inbound / staging / installed / backup</code>）内执行真实文件状态转移，拒绝越界路径、符号链接及 <code>setuid/setgid</code> 文件。Incident 关闭必须关联开启后的同目标干净复测 <code>DetectorRun</code>，不认客户端自报 <code>retest_passed</code>。</p>
+        </section>
+      </div>
+    </aside>
+
     <div id="authGate" class="authGate" hidden>
       <form id="loginForm" class="authCard">
         <div class="brand"><span class="brandMark">AS</span><span>ASGP<br /><b>安全治理平台</b></span></div>
         <p class="eyebrow">控制台登录</p>
-        <h2>需要控制台会话</h2>
-        <p class="fieldHint">所有接口都要求已登录的控制台会话。初始管理员口令在服务端首次启动时只打印一次。</p>
+        <h2>登录工作台</h2>
         <label for="loginUser">用户名</label>
         <input id="loginUser" name="username" autocomplete="username" required />
         <label for="loginPassword">口令</label>

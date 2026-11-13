@@ -161,12 +161,36 @@ nav { display: grid; gap: 2px; }
 }
 
 .navItem {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   color: var(--text-2);
-  padding: 8px 10px;
+  padding: 7px 10px;
   border-radius: var(--radius-sm);
   font-size: 13px;
   font-weight: 500;
   transition: background 0.14s ease, color 0.14s ease;
+}
+.navIcon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.navItem.active .navIcon,
+.navItem:hover .navIcon {
+  color: var(--accent-hover);
+}
+.navBadge {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  background: rgba(239, 68, 68, 0.16);
+  color: var(--red);
+  border: 1px solid rgba(239, 68, 68, 0.3);
 }
 .navItem:hover {
   color: var(--text);
@@ -816,16 +840,40 @@ td code { font-size: 12px; }
 .diffBadge.ok { background: rgba(16, 185, 129, 0.12); border-color: rgba(16, 185, 129, 0.28); color: #34d399; }
 .diffBadge.warn { background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.28); color: #fbbf24; }
 
-.runtimeEntries { list-style: none; padding-left: 14px; border-left: 2px solid var(--border-strong); }
+.timelineScroll {
+  max-height: 440px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.runtimeEntries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+}
 .runtimeEntries li {
-  padding: 12px 15px;
-  margin: 10px 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  padding: 7px 11px;
   background: var(--bg-inset);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   overflow-wrap: anywhere;
 }
-.runtimeEntries p { color: var(--muted); margin-bottom: 0; font-size: 12px; }
+.runtimeEntries li strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+.runtimeEntries p {
+  color: var(--muted);
+  margin: 0;
+  font-size: 12px;
+}
 
 #runtime select { width: 100%; max-width: 100%; }
 #runtimeProducts { overflow-wrap: anywhere; }
@@ -930,4 +978,306 @@ footer {
   .workGrid { grid-template-columns: minmax(0, 1fr); }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   footer { display: grid; }
+}
+
+
+/* ------------------------------------------------------------------
+   Wiz / Linear / Datadog Workbench Overhaul Additions
+   ------------------------------------------------------------------ */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.textLink {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent-hover);
+  white-space: nowrap;
+}
+.specTrigger,
+.specMiniBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: border-color 0.14s ease, color 0.14s ease, background 0.14s ease;
+}
+.specMiniBtn { padding: 4px 9px; font-size: 11px; }
+.specTrigger:hover,
+.specMiniBtn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+/* Asymmetric SecOps Overview Workbench */
+.overviewWorkbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(300px, 0.95fr);
+  gap: 16px;
+  align-items: start;
+}
+.overviewMain { display: grid; gap: 16px; min-width: 0; }
+.overviewSide { display: grid; gap: 14px; min-width: 0; }
+.overviewWorkbench .tableWrap table { min-width: 0; width: 100%; font-size: 12.5px; }
+.overviewWorkbench th, .overviewWorkbench td { padding: 9px 10px; }
+.overviewWorkbench td { overflow-wrap: anywhere; white-space: normal; }
+.overviewWorkbench td.actionCell { white-space: nowrap; text-align: right; }
+.overviewMain .panel { margin-top: 0; }
+
+/* Runtime Toolbar & Wiz Signal List */
+.runtimeToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.runtimePicker { flex: 1 1 360px; min-width: 240px; }
+.runtimePicker select { width: 100%; }
+
+.signalList {
+  display: grid;
+  gap: 6px;
+}
+.signalRow {
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--state-allow);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  display: grid;
+  gap: 6px;
+}
+.signalRow.verdict-undeclared_side_effect {
+  border-color: rgba(239, 68, 68, 0.24);
+  border-left: 3px solid var(--state-block);
+  background: rgba(239, 68, 68, 0.045);
+}
+.signalRow.verdict-unverified { border-left-color: var(--state-confirm); }
+.signalRow.verdict-no_observed_effect { border-left-color: var(--state-unknown); }
+
+.signalMain {
+  display: grid;
+  grid-template-columns: 88px minmax(150px, 1fr) minmax(210px, 1.45fr) minmax(130px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.signalTool {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.signalTool strong { color: var(--text); font-weight: 600; }
+.lineageTag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(148, 163, 184, 0.11);
+  color: var(--text-2);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+.lineageTag.low {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--amber);
+  border-color: rgba(245, 158, 11, 0.24);
+}
+.signalTarget {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  padding: 2px 7px;
+  border-radius: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.signalReason {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.signalActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.miniActionBtn {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-2);
+}
+.miniActionBtn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--surface-2);
+}
+.signalMetaDetails > summary {
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+  display: inline-block;
+}
+.signalMetaDetails > summary:hover { color: var(--accent-hover); }
+.signalMetaDetails[open] > div {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.55;
+  display: grid;
+  gap: 3px;
+}
+
+/* Collapsible Low-Frequency Forms */
+.panelFold {
+  margin-top: 16px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+}
+.panelFold > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  list-style: none;
+}
+.panelFold > summary:hover { color: var(--accent-hover); }
+.panelFold[open] > summary { margin-bottom: 12px; color: var(--text); }
+.panelFoldBody { display: grid; gap: 14px; }
+
+/* Inline Linear Create Bar */
+.inlineCreateBar {
+  display: grid;
+  grid-template-columns: 1.6fr 105px 1fr 2fr auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+}
+.inlineCreateBar label { margin-top: 0; }
+.hostFilterBar { margin-bottom: 10px; }
+
+/* Slide-Over Methodology & Spec Drawer */
+.drawerBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 7, 11, 0.66);
+  backdrop-filter: blur(2px);
+  z-index: 60;
+}
+.specDrawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(480px, 94vw);
+  background: var(--bg-sidebar);
+  border-left: 1px solid var(--border-strong);
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.6);
+  z-index: 61;
+  display: flex;
+  flex-direction: column;
+}
+.drawerHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.drawerHead h2 { margin: 2px 0 0; font-size: 16px; }
+.drawerTabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+.drawerTab {
+  padding: 5px 10px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.drawerTab:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
+.drawerTab.active {
+  color: var(--text);
+  background: var(--accent-soft);
+  border-color: rgba(59, 130, 246, 0.28);
+}
+.drawerBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 20px 28px;
+}
+.specPane h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  margin: 18px 0 6px;
+}
+.specPane h3:first-child { margin-top: 0; }
+.specNote {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text-2);
+}
+.specList {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.specList p,
+.specList small {
+  margin: 0;
+  padding: 7px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: block;
+}
+
+@media (max-width: 1080px) {
+  .overviewWorkbench { grid-template-columns: 1fr; }
+  .signalMain { grid-template-columns: 1fr; gap: 6px; }
+  .signalActions { justify-content: flex-start; }
+  .inlineCreateBar { grid-template-columns: 1fr; }
 }

@@ -580,53 +580,98 @@ async function renderEffectDiff(executionId) {
   }
   const rank = { undeclared_side_effect: 0, unverified: 1, no_observed_effect: 2, within_expected: 3 };
   const sorted = [...data.items].sort((a, b) => (rank[a.verdict] ?? 9) - (rank[b.verdict] ?? 9));
-  const buildCard = (item) => {
+  const SHORT_SOURCE = {
+    user_task: '用户任务',
+    workspace_config: '工作区配置',
+    installed_skill: '已安装 Skill',
+    mcp_server: 'MCP Server',
+    tool_output: '工具输出',
+    unknown: '来源未知',
+  };
+  const compactVerdictNote = (item) => {
+    const r = String(item.reason || '');
+    if (r.includes('敏感路径')) return '未预期敏感凭据读取';
+    if (r.includes('外部网络外连') || r.includes('无网络活动')) return '未声明外部网络外连';
+    if (r.includes('不应派生新执行进程')) return '只读工具派生子进程';
+    if (r.includes('超出参数声明路径')) return '访问超出声明路径';
+    if (item.verdict === 'within_expected') return '在预期边界内';
+    return r || '待核验';
+  };
+  const isLowTrust = (kind) => ['installed_skill', 'mcp_server', 'tool_output'].includes(kind);
+
+  const buildRow = (item) => {
     const meta = VERDICT_META[item.verdict] || { label: item.verdict, cls: '' };
-    const card = document.createElement('article');
-    card.className = `diffCard verdict-${item.verdict}`;
-    const head = document.createElement('div');
-    head.className = 'diffCardHead';
-    const title = document.createElement('strong');
-    title.textContent = `${item.tool_name} · ${SOURCE_KIND_LABELS[item.source_kind] || item.source_kind}${item.source_ref ? ` (${item.source_ref})` : ''}`;
+    const row = document.createElement('article');
+    row.className = `signalRow verdict-${item.verdict}`;
+
+    const main = document.createElement('div');
+    main.className = 'signalMain';
+
     const badge = document.createElement('span');
     badge.className = `diffBadge ${meta.cls}`.trim();
     badge.textContent = meta.label;
-    head.append(title, badge);
 
-    const cols = document.createElement('div');
-    cols.className = 'diffCols';
-    const left = document.createElement('div');
-    left.textContent = `预期边界：${item.expected_scope}`;
-    const right = document.createElement('div');
-    right.textContent = item.event_id
-      ? `OS 实测：${item.event_type} → ${item.observed_target}（${item.attribution_method} / ${item.attribution_confidence}）`
-      : 'OS 实测：未归因到系统事件（留空）';
-    cols.append(left, right);
+    const toolWrap = document.createElement('div');
+    toolWrap.className = 'signalTool';
+    const toolName = document.createElement('strong');
+    toolName.textContent = item.tool_name;
+    const tag = document.createElement('span');
+    tag.className = `lineageTag ${isLowTrust(item.source_kind) ? 'low' : ''}`.trim();
+    tag.textContent = SHORT_SOURCE[item.source_kind] || item.source_kind || '未知';
+    toolWrap.append(toolName, tag);
 
-    const reason = document.createElement('p');
-    reason.className = 'fieldHint';
-    reason.style.margin = '0';
-    reason.textContent = `差分依据：${item.reason}`;
-    card.append(head, cols, reason);
+    const target = document.createElement('code');
+    target.className = 'signalTarget';
+    const rawTarget = item.observed_target || item.resource_path || item.resource_host || item.executable || 'observed';
+    const shortEvt = { file_access: 'file', network_connect: 'net', process_start: 'proc', process_exec: 'exec' }[item.event_type] || item.event_type;
+    const targetText = item.event_id ? `${shortEvt ? shortEvt + ' · ' : ''}${rawTarget}` : '未归因';
+    target.textContent = targetText;
+    target.title = targetText;
 
+    const note = document.createElement('span');
+    note.className = 'signalReason';
+    note.textContent = compactVerdictNote(item);
+    note.title = item.reason || '';
+
+    const actions = document.createElement('div');
+    actions.className = 'signalActions';
     if (item.verdict === 'undeclared_side_effect') {
-      const actions = document.createElement('div');
-      actions.className = 'quickActions';
       const toRisk = document.createElement('button');
-      toRisk.type = 'button'; toRisk.className = 'secondaryButton';
-      toRisk.textContent = '带此执行去风险评估';
+      toRisk.type = 'button'; toRisk.className = 'miniActionBtn';
+      toRisk.textContent = '评估';
+      toRisk.title = '带此执行进入风险评估';
       toRisk.addEventListener('click', () => jumpToGovernanceWithEvidence('#policy', executionId, item.reason));
       const toInc = document.createElement('button');
-      toInc.type = 'button'; toInc.className = 'secondaryButton';
-      toInc.textContent = '发起 Incident 工单';
+      toInc.type = 'button'; toInc.className = 'miniActionBtn';
+      toInc.textContent = '建单';
+      toInc.title = '发起 Incident 工单';
       toInc.addEventListener('click', () => jumpToGovernanceWithEvidence(
         '#incidents', executionId,
         `${item.tool_name} (${item.source_kind}) 触发越界副作用：${item.observed_target} — ${item.reason}`
       ));
       actions.append(toRisk, toInc);
-      card.append(actions);
     }
-    return card;
+
+    main.append(badge, toolWrap, target, note, actions);
+
+    const details = document.createElement('details');
+    details.className = 'signalMetaDetails';
+    const sum = document.createElement('summary');
+    sum.textContent = '▸ 归因依据';
+    const body = document.createElement('div');
+    const l1 = document.createElement('span');
+    l1.textContent = `来源：${SOURCE_KIND_LABELS[item.source_kind] || item.source_kind}${item.source_ref ? ' (' + item.source_ref + ')' : ''}`;
+    const l2 = document.createElement('span');
+    l2.textContent = `预期边界：${item.expected_scope}`;
+    const l3 = document.createElement('span');
+    l3.textContent = item.event_id
+      ? `归因依据：${item.attribution_method} / ${item.attribution_confidence} · ${item.reason}`
+      : `判定说明：${item.reason}`;
+    body.append(l1, l2, l3);
+    details.append(sum, body);
+
+    row.append(main, details);
+    return row;
   };
 
   let withinShown = 0;
@@ -639,7 +684,7 @@ async function renderEffectDiff(executionId) {
         continue;
       }
     }
-    list.append(buildCard(item));
+    list.append(buildRow(item));
   }
   if (hiddenWithin.length) {
     const fold = document.createElement('details');
@@ -647,9 +692,9 @@ async function renderEffectDiff(executionId) {
     const summary = document.createElement('summary');
     summary.textContent = `展开其余 ${hiddenWithin.length} 条符合预期（within_expected）记录`;
     const wrap = document.createElement('div');
-    wrap.className = 'recordList';
-    wrap.style.marginTop = '10px';
-    for (const item of hiddenWithin) wrap.append(buildCard(item));
+    wrap.className = 'signalList';
+    wrap.style.marginTop = '8px';
+    for (const item of hiddenWithin) wrap.append(buildRow(item));
     fold.append(summary, wrap);
     list.append(fold);
   }
@@ -2011,8 +2056,7 @@ async function renderOverview() {
   // "刻度已放大"，避免读者把视觉比例当成真实比例。
   byId('attrBar').style.width = Math.max(pct, 2.2) + '%';
   byId('attrBig').textContent = attributed.toLocaleString();
-  byId('attrPct').textContent = '条边 / ' + total.toLocaleString() + ' 事件 · ' + pct.toFixed(2)
-    + '%（条长已放大到可辨识）';
+  byId('attrPct').textContent = '/ ' + total.toLocaleString() + ' 事件 (' + pct.toFixed(2) + '%)';
   byId('attrHint').textContent = (data.executions || 0) + ' 次执行';
   byId('attrFoot').textContent = attributed.toLocaleString() + ' / ' + total.toLocaleString()
     + ' 条事件已归因（' + pct.toFixed(2) + '%）。未归因不等于有风险——没有证据时留空是设计选择，不是漏。';
@@ -2067,10 +2111,150 @@ async function renderOverview() {
     return '<div class="evalRow"><span>' + row[0] + '</span><strong class="' + row[2] + '">'
       + row[1] + '</strong></div>';
   }).join('');
+
+  // Open Incident count badge in sidebar
+  const badge = byId('navIncidentBadge');
+  if (badge) {
+    const openInc = Number(data.incidents_open || 0);
+    badge.textContent = String(openInc);
+    badge.hidden = openInc <= 0;
+  }
+
+  // Overview Live Executions Table
+  const execTbody = byId('overviewExecRows');
+  if (execTbody) {
+    let execs = state.executions || [];
+    if (!execs.length) {
+      try {
+        const res = await request('/api/v1/executions?limit=6');
+        execs = res.executions || [];
+      } catch (_) {}
+    }
+    execTbody.replaceChildren();
+    const slice = execs.slice(0, 6);
+    if (!slice.length) {
+      addEmptyRow(execTbody, 4, '暂无运行执行记录。');
+    } else {
+      for (const ex of slice) {
+        const tr = document.createElement('tr');
+        const pCell = addCell(tr, `${ex.product} ${ex.product_version || ''}`.trim());
+        if (ex.host_id) {
+          const hSmall = document.createElement('small');
+          hSmall.textContent = ex.host_id;
+          pCell.append(hSmall);
+        }
+        addPillCell(tr, ex.outcome || 'unknown', { completed: '已完成', running: '运行中', denied: '已拒绝', failed: '失败', unknown: '未知' });
+        addCell(tr, formatTime(ex.started_at));
+        const op = document.createElement('td');
+        op.className = 'actionCell';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'miniActionBtn';
+        btn.textContent = '差分 →';
+        btn.addEventListener('click', () => {
+          const sel = byId('runtimeExecution');
+          if (sel) sel.value = ex.execution_id;
+          location.hash = '#runtime';
+          showRuntimeTimeline(false).catch((err) => showNotice(err.message, 'error'));
+        });
+        op.append(btn);
+        tr.append(op);
+        execTbody.append(tr);
+      }
+    }
+  }
+
+  // Overview Top Priority Findings Table
+  const fTbody = byId('overviewFindingRows');
+  if (fTbody) {
+    const sevOrder = { critical: 0, high: 1, medium: 2, low: 3, info: 4, unknown: 5 };
+    const sortedF = [...(state.findings || [])].sort((a, b) => {
+      const sa = sevOrder[a.severity] ?? 9;
+      const sb = sevOrder[b.severity] ?? 9;
+      if (sa !== sb) return sa - sb;
+      return (b.risk_score ?? -1) - (a.risk_score ?? -1);
+    }).slice(0, 5);
+    fTbody.replaceChildren();
+    if (!sortedF.length) {
+      addEmptyRow(fTbody, 4, '暂无高优先级检测发现。');
+    } else {
+      for (const f of sortedF) {
+        const tr = document.createElement('tr');
+        const sevTd = document.createElement('td');
+        const pill = document.createElement('span');
+        pill.className = `severityPill ${f.severity}`;
+        pill.textContent = severityLabels[f.severity] || '未评级';
+        sevTd.append(pill);
+        tr.append(sevTd);
+        addCell(tr, f.risk_score == null ? '—' : String(Number(f.risk_score.toFixed(2))));
+        addCell(tr, f.rule_id || '—', 'monoId');
+        const cCell = addCell(tr, f.title || '—');
+        if (f.file) {
+          const loc = document.createElement('small');
+          loc.textContent = f.line ? `${f.file}:${f.line}` : f.file;
+          cCell.append(loc);
+        }
+        fTbody.append(tr);
+      }
+    }
+  }
 }
 
 const VIEW_ROUTES = ['overview','assets','detections','scan','engines','runtime',
                      'hostRuntime','approvals','policy','admissions','incidents'];
+
+const VIEW_META = {
+  overview: ['智能体安全态势', '安全态势总览'],
+  runtime: ['运行时观测 & 溯源', '运行时间线与副作用差分'],
+  assets: ['资产与供应链验签', '资产中心'],
+  detections: ['静态检测与覆盖', '检测中心'],
+  hostRuntime: ['Linux Audit 遥测', '主机运行事件'],
+  approvals: ['实时交互门控', '调用审批'],
+  policy: ['多维风险决策', '风险与策略'],
+  admissions: ['受管安装事务', '准入安装'],
+  incidents: ['闭环工单追踪', 'Incident 中心'],
+  scan: ['扫描任务与导入', '新建扫描'],
+  engines: ['检测能力与模型', '引擎与模型'],
+};
+
+function openSpecDrawer(tabKey) {
+  const drawer = byId('specDrawer');
+  const backdrop = byId('specDrawerBackdrop');
+  if (!drawer || !backdrop) return;
+  drawer.hidden = false;
+  backdrop.hidden = false;
+  const target = tabKey || 'runtime';
+  document.querySelectorAll('.drawerTab').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.specTab === target);
+  });
+  document.querySelectorAll('.specPane').forEach((pane) => {
+    pane.hidden = pane.dataset.specPane !== target;
+  });
+}
+
+function closeSpecDrawer() {
+  if (byId('specDrawer')) byId('specDrawer').hidden = true;
+  if (byId('specDrawerBackdrop')) byId('specDrawerBackdrop').hidden = true;
+}
+
+if (byId('specDrawerBtn')) {
+  byId('specDrawerBtn').addEventListener('click', () => {
+    const cur = (location.hash || '#overview').replace('#', '');
+    const map = { assets: 'assets', detections: 'detections', policy: 'governance', admissions: 'governance', incidents: 'governance', approvals: 'governance' };
+    openSpecDrawer(map[cur] || 'runtime');
+  });
+}
+if (byId('specDrawerClose')) byId('specDrawerClose').addEventListener('click', closeSpecDrawer);
+if (byId('specDrawerBackdrop')) byId('specDrawerBackdrop').addEventListener('click', closeSpecDrawer);
+document.querySelectorAll('[data-open-spec]').forEach((btn) => {
+  btn.addEventListener('click', () => openSpecDrawer(btn.dataset.openSpec));
+});
+document.querySelectorAll('.drawerTab').forEach((btn) => {
+  btn.addEventListener('click', () => openSpecDrawer(btn.dataset.specTab));
+});
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeSpecDrawer();
+});
 
 function applyRoute() {
   const requested = (location.hash || '#overview').replace('#', '');
@@ -2081,6 +2265,9 @@ function applyRoute() {
   document.querySelectorAll('.navItem').forEach(function (link) {
     link.classList.toggle('active', link.getAttribute('href') === '#' + key);
   });
+  const meta = VIEW_META[key] || ['智能体安全工作台', '安全治理平台'];
+  if (byId('viewEyebrow')) byId('viewEyebrow').textContent = meta[0];
+  if (byId('viewTitle')) byId('viewTitle').textContent = meta[1];
   if (!location.hash) location.replace('#overview');
   window.scrollTo(0, 0);
   if (key === 'overview' && typeof state !== 'undefined' && state.user) { renderOverview().catch(function () {}); }
