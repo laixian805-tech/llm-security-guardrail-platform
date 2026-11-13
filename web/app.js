@@ -336,6 +336,7 @@ async function refresh() {
     renderEngines();
     await renderScans();
     await Promise.all([
+      loadCenter(renderOverview),
       loadCenter(refreshRuntime),
       loadCenter(refreshCoverage),
       loadCenter(refreshApprovals),
@@ -577,7 +578,9 @@ async function renderEffectDiff(executionId) {
     list.append(empty);
     return;
   }
-  for (const item of data.items) {
+  const rank = { undeclared_side_effect: 0, unverified: 1, no_observed_effect: 2, within_expected: 3 };
+  const sorted = [...data.items].sort((a, b) => (rank[a.verdict] ?? 9) - (rank[b.verdict] ?? 9));
+  const buildCard = (item) => {
     const meta = VERDICT_META[item.verdict] || { label: item.verdict, cls: '' };
     const card = document.createElement('article');
     card.className = `diffCard verdict-${item.verdict}`;
@@ -623,7 +626,32 @@ async function renderEffectDiff(executionId) {
       actions.append(toRisk, toInc);
       card.append(actions);
     }
-    list.append(card);
+    return card;
+  };
+
+  let withinShown = 0;
+  const hiddenWithin = [];
+  for (const item of sorted) {
+    if (item.verdict === 'within_expected') {
+      withinShown += 1;
+      if (withinShown > 3) {
+        hiddenWithin.push(item);
+        continue;
+      }
+    }
+    list.append(buildCard(item));
+  }
+  if (hiddenWithin.length) {
+    const fold = document.createElement('details');
+    fold.className = 'inlineDetails diffFold';
+    const summary = document.createElement('summary');
+    summary.textContent = `展开其余 ${hiddenWithin.length} 条符合预期（within_expected）记录`;
+    const wrap = document.createElement('div');
+    wrap.className = 'recordList';
+    wrap.style.marginTop = '10px';
+    for (const item of hiddenWithin) wrap.append(buildCard(item));
+    fold.append(summary, wrap);
+    list.append(fold);
   }
 }
 
@@ -769,8 +797,8 @@ async function refreshCoverage() {
    平台承认自己不知道它属于谁，而不是硬连一个最近邻。
    ------------------------------------------------------------------- */
 const METHOD_STYLE = {
-  hook_id: {color: '#34d399', label: 'Hook ID', dash: ''},
-  process_tree: {color: '#60a5fa', label: '进程树', dash: ''},
+  hook_id: {color: '#10b981', label: 'Hook ID', dash: ''},
+  process_tree: {color: '#3b82f6', label: '进程树', dash: ''},
   temporal_feature: {color: '#94a3b8', label: '资源/时间', dash: '4 4'},
 };
 const LANE_LIMIT = 14;
@@ -800,7 +828,7 @@ async function renderAttributionLane(executionId) {
   const edges = data.edges || [];
   if (!intents.length) {
     svg.setAttribute('viewBox', '0 0 600 120');
-    svg.appendChild(svgText(24, 60, '这次执行没有 Intent 记录', {fill: '#7c8b87', 'font-size': 13}));
+    svg.appendChild(svgText(24, 60, '这次执行没有 Intent 记录', {fill: '#8e9bb0', 'font-size': 13}));
     foot.textContent = '';
     return;
   }
@@ -816,20 +844,20 @@ async function renderAttributionLane(executionId) {
   const xIntents = PAD, xEvents = PAD + BOX_W + GAP;
 
   // 列标题
-  svg.appendChild(svgText(xIntents, PAD - 2, 'INTENT（工具调用）', {'font-size': 10, fill: '#6f7d79', 'letter-spacing': 1}));
-  svg.appendChild(svgText(xEvents, PAD - 2, 'EVENT（系统事件）', {'font-size': 10, fill: '#6f7d79', 'letter-spacing': 1}));
+  svg.appendChild(svgText(xIntents, PAD - 2, 'INTENT（工具调用）', {'font-size': 10, fill: '#64748b', 'letter-spacing': 1}));
+  svg.appendChild(svgText(xEvents, PAD - 2, 'EVENT（系统事件）', {'font-size': 10, fill: '#64748b', 'letter-spacing': 1}));
 
   intents.forEach(function (intent, index) {
     const y = PAD + 12 + index * ROW_I;
     intentY[intent.intent_id] = y + 18;
     const box = svgEl('rect', {x: xIntents, y: y, width: BOX_W, height: 38, rx: 8,
-      fill: 'rgba(79,209,176,.06)', stroke: 'rgba(79,209,176,.22)'});
+      fill: 'rgba(59,130,246,.08)', stroke: 'rgba(59,130,246,.32)'});
     svg.appendChild(box);
     svg.appendChild(svgText(xIntents + 12, y + 16,
-      String(intent.tool_name || 'intent').slice(0, 30), {'font-size': 12, fill: '#d5e2de'}));
+      String(intent.tool_name || 'intent').slice(0, 30), {'font-size': 12, fill: '#f1f5f9'}));
     svg.appendChild(svgText(xIntents + 12, y + 30,
       String(intent.occurred_at || '').slice(11, 19) + ' · ' + String(intent.decision || '').slice(0, 12),
-      {'font-size': 10, fill: '#7c8b87'}));
+      {'font-size': 10, fill: '#8e9bb0'}));
   });
 
   events.forEach(function (event, index) {
@@ -839,12 +867,12 @@ async function renderAttributionLane(executionId) {
       ? event.resource_host + (event.resource_port ? ':' + event.resource_port : '')
       : (event.resource_path || '');
     const box = svgEl('rect', {x: xEvents, y: y, width: BOX_W, height: 32, rx: 8,
-      fill: 'rgba(255,255,255,.03)', stroke: 'rgba(255,255,255,.1)'});
+      fill: 'rgba(148,163,184,.04)', stroke: 'rgba(148,163,184,.2)'});
     svg.appendChild(box);
     svg.appendChild(svgText(xEvents + 12, y + 14,
-      String(event.event_type || 'event'), {'font-size': 12, fill: '#c9d6d2'}));
+      String(event.event_type || 'event'), {'font-size': 12, fill: '#cbd5e1'}));
     svg.appendChild(svgText(xEvents + 12, y + 26, String(resource).slice(0, 34),
-      {'font-size': 10, fill: '#7c8b87'}));
+      {'font-size': 10, fill: '#8e9bb0'}));
   });
 
   edges.forEach(function (edge) {
@@ -909,10 +937,10 @@ async function renderDataFlow(executionId) {
   if (!flows.length) {
     svg.setAttribute('viewBox', '0 0 900 90');
     svg.setAttribute('height', '90');
-    svg.appendChild(svgText(16, 38, '未发现外发链', {fill: '#c9d6d2', 'font-size': 13}));
+    svg.appendChild(svgText(16, 38, '未发现外发链', {fill: '#cbd5e1', 'font-size': 13}));
     svg.appendChild(svgText(16, 60,
       '读了敏感文件但没有外部连接，或连接目标属于内网/可信域名 —— 按设计不产链。',
-      {fill: '#7c8b87', 'font-size': 11}));
+      {fill: '#8e9bb0', 'font-size': 11}));
     foot.textContent = data.note || '';
     return;
   }
@@ -942,19 +970,19 @@ async function renderDataFlow(executionId) {
         fill: 'rgba(255,255,255,.03)', stroke: tone, 'stroke-opacity': .45}));
       svg.appendChild(svgEl('rect', {x: x, y: y, width: 3, height: BOX_H, rx: 1.5, fill: tone}));
       svg.appendChild(svgText(x + 12, y + 22,
-        String(node.label).slice(0, 26), {'font-size': 12, fill: '#dbe7e3'}));
+        String(node.label).slice(0, 26), {'font-size': 12, fill: '#f1f5f9'}));
       svg.appendChild(svgText(x + 12, y + 40,
-        String(node.sub || '').slice(0, 30), {'font-size': 10, fill: '#7c8b87'}));
+        String(node.sub || '').slice(0, 30), {'font-size': 10, fill: '#8e9bb0'}));
       if (index < nodes.length - 1) {
         const x1 = x + BOX_W, x2 = x + BOX_W + GAP;
         const mid = y + BOX_H / 2;
         svg.appendChild(svgEl('path', {
           d: 'M ' + x1 + ' ' + mid + ' L ' + (x2 - 8) + ' ' + mid,
-          stroke: 'rgba(255,255,255,.25)', 'stroke-width': 1.4, fill: 'none'}));
+          stroke: 'rgba(148,163,184,.35)', 'stroke-width': 1.4, fill: 'none'}));
         svg.appendChild(svgEl('path', {
           d: 'M ' + (x2 - 12) + ' ' + (mid - 4) + ' L ' + x2 + ' ' + mid
            + ' L ' + (x2 - 12) + ' ' + (mid + 4),
-          stroke: 'rgba(255,255,255,.35)', 'stroke-width': 1.4, fill: 'none'}));
+          stroke: 'rgba(148,163,184,.48)', 'stroke-width': 1.4, fill: 'none'}));
       }
     });
 
@@ -962,7 +990,7 @@ async function renderDataFlow(executionId) {
     const badgeX = PAD + (nodes.length - 1) * (BOX_W + GAP) + BOX_W - 52;
     const tone = FLOW_TONE[flow.confidence] || '#94a3b8';
     svg.appendChild(svgEl('rect', {x: badgeX, y: y + BOX_H + 6, width: 52, height: 16,
-      rx: 8, fill: 'rgba(255,255,255,.06)', stroke: tone, 'stroke-opacity': .5}));
+      rx: 8, fill: 'rgba(148,163,184,.12)', stroke: tone, 'stroke-opacity': .5}));
     svg.appendChild(svgText(badgeX + 26, y + BOX_H + 17, flow.confidence,
       {'font-size': 10, fill: tone, 'text-anchor': 'middle'}));
   });
@@ -1995,7 +2023,7 @@ async function renderOverview() {
   const sum = order.reduce(function (acc, key) { return acc + (counts[key] || 0); }, 0);
   bar.innerHTML = ''; legend.innerHTML = '';
   if (!sum) {
-    bar.innerHTML = '<i style="width:100%;background:rgba(255,255,255,.06)"></i>';
+    bar.innerHTML = '<i style="width:100%;background:rgba(148,163,184,.12)"></i>';
     legend.innerHTML = '<span class="hint">还没有策略决策记录</span>';
   } else {
     order.forEach(function (key) {
@@ -2055,7 +2083,7 @@ function applyRoute() {
   });
   if (!location.hash) location.replace('#overview');
   window.scrollTo(0, 0);
-  if (key === 'overview') { renderOverview().catch(function () {}); }
+  if (key === 'overview' && typeof state !== 'undefined' && state.user) { renderOverview().catch(function () {}); }
 }
 
 window.addEventListener('hashchange', applyRoute);

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
     <title>ASGP · Agent Security Governance Platform</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23183b36'/><text x='16' y='22' font-family='sans-serif' font-size='14' font-weight='800' fill='%2367d4bf' text-anchor='middle'>AS</text></svg>" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23121722' stroke='%233b82f6' stroke-width='1.5'/><text x='16' y='21' font-family='monospace' font-size='13' font-weight='700' fill='%23f1f5f9' text-anchor='middle'>AS</text></svg>" />
     <link rel="stylesheet" href="/web/styles.css" />
   </head>
   <body>
@@ -43,7 +43,10 @@
             <p class="eyebrow">智能体安全工作台</p>
             <h1>安全治理工作台</h1>
           </div>
-          <button id="refreshButton" class="iconButton" type="button" title="刷新数据" aria-label="刷新数据">↻</button>
+          <div class="topbarActions">
+            <span class="topbarBadge"><span class="localDot"></span>TLS 443 · 控制面在线</span>
+            <button id="refreshButton" class="iconButton" type="button" title="刷新数据" aria-label="刷新数据">↻</button>
+          </div>
         </header>
 
         <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
@@ -78,11 +81,10 @@
         </section>
         <section id="assets" class="panel" data-view="assets">
           <div class="sectionHeading"><div><p class="eyebrow">资产</p><h2>资产中心</h2></div><button id="assetsRefresh" type="button" class="textButton">刷新资产视图</button></div>
-          <p class="fieldHint">三态都按平台真正持有的证据现算：<b>目录里有文件不算已启用</b>。
-            <details cla…<details class="inlineDetails"><summary>说明</summary>三态都按平台真正持有的证据现算：<b>目录里有文件不算已启用</b>。
-            <details class="inlineDetails"><summary>判据</summary>
-              安装状态由准入事务推导，运行状态由执行记录推导，启用状态由产品侧的加载结论（<code>product_loaded</code>）推导。只有产品会话确认加载过才记 <code>enabled</code>；探测不可用记 <code>unknown</code> 而不是 false；客户端声明的状态一律拒绝。
-            </details></details></p>
+          <div class="fieldHint">三态均按平台持有的真实证据现算：<b>目录里有文件不算已启用</b>。
+            <details class="inlineDetails"><summary>查看判据</summary>
+              安装状态由准入事务推导，运行状态由执行记录推导，启用状态由产品侧加载结论（<code>product_loaded</code>）推导。只有产品会话确认加载过才记 <code>enabled</code>；探测不可用记 <code>unknown</code> 而不是 false；客户端声明的状态一律拒绝。
+            </details></div>
           <div class="tableWrap">
             <table>
               <thead><tr><th>产品 / 版本</th><th>供应商</th><th>Hook 传输</th><th>采集器</th><th>事件观测</th><th>ASGP 调用审批</th><th>可摄入</th></tr></thead>
@@ -269,14 +271,14 @@
         </section>
         <section id="coverage" class="panel" data-view="detections">
           <div class="sectionHeading"><div><p class="eyebrow">接入面</p><h2>采集覆盖度</h2></div><button id="coverageRefresh" type="button" class="textButton">刷新覆盖度</button></div>
-          <p class="fieldHint">Hook 与 Audit 的丢失率由端侧对账得出：端侧每次因队列容量封顶、重试上限耗尽、审计日志轮转缺口丢数据时都会登记…<details class="inlineDetails"><summary>说明</summary>Hook 与 Audit 的丢失率由端侧对账得出：端侧每次因队列容量封顶、重试上限耗尽、审计日志轮转缺口丢数据时都会登记并上报。丢失率 = 丢失记录 / 尝试送达记录；轮转缺口量级未知，单独列出而不并进分母。主机有执行却长时间没有对账上报，标记为采集器静默。</details></p>
+          <div class="fieldHint">Hook 与 Audit 丢失率由端侧对账得出。 <details class="inlineDetails"><summary>说明</summary>端侧每次因队列容量封顶、重试上限耗尽、审计日志轮转缺口丢数据时都会登记并上报。丢失率 = 丢失记录 / 尝试送达记录；轮转缺口量级未知，单独列出而不并进分母。主机有执行却长时间没有对账上报，标记为采集器静默。</details></div>
           <div id="coverageSummary" class="fieldHint">点击刷新查看覆盖度。</div>
           <div id="coverageHosts" class="recordList"></div>
         </section>
 
         <section id="policy" class="panel" data-view="policy">
           <div class="sectionHeading"><div><p class="eyebrow">决策</p><h2>风险与策略</h2></div><button id="policyRefresh" type="button" class="textButton">刷新策略视图</button></div>
-          <p class="fieldHint">固有风险、运行风险、暴露风险分维度评估，不同量纲不在代码里相加；求值按当前活跃策略版本依序匹配，并记录实际生效的 <co…<details class="inlineDetails"><summary>说明</summary>固有风险、运行风险、暴露风险分维度评估，不同量纲不在代码里相加；求值按当前活跃策略版本依序匹配，并记录实际生效的 <code>policy_version</code>。没有活跃版本时求值返回 500，不静默回退。策略决定不等于执行：阻断成功必须另有 EnforcementEvidence。</details></p>
+          <div class="fieldHint">固有、运行、暴露三维度风险分立评估，按当前活跃策略依序求值。 <details class="inlineDetails"><summary>说明</summary>不同量纲不在代码里相加；求值记录实际生效的 <code>policy_version</code>。没有活跃版本时求值返回 500，不静默回退。策略决定不等于执行：阻断成功必须另有 EnforcementEvidence。</details></div>
 
           <div class="centerGrid">
             <form id="riskForm" class="panel nestedPanel">
@@ -348,7 +350,7 @@
 
         <section id="admissions" class="panel" data-view="admissions">
           <div class="sectionHeading"><div><p class="eyebrow">准入</p><h2>准入安装</h2></div><button id="admissionsRefresh" type="button" class="textButton">刷新准入记录</button></div>
-          <p class="fieldHint">受管安装器只在平台托管目录（inbound / staging / installed / backup）内做真实的 s…<details class="inlineDetails"><summary>说明</summary>受管安装器只在平台托管目录（inbound / staging / installed / backup）内做真实的 stage/commit/verify/reconcile/rollback，每次转移都有文件系统后果，body 布尔值不能代替安装证据。托管目录是平台自己的包管理存储，<b>不代表 Agent 产品已加载该包</b>。</details></p>
+          <div class="fieldHint">受管安装器在平台托管目录执行真实事务转移。 <details class="inlineDetails"><summary>说明</summary>只在托管目录（inbound / staging / installed / backup）内做真实的 stage/commit/verify/reconcile/rollback，每次转移都有文件系统后果，body 布尔值不能代替安装证据。托管目录是平台自己的包管理存储，<b>不代表 Agent 产品已加载该包</b>。</details></div>
           <form id="admissionForm" class="panel nestedPanel">
             <div class="sectionHeading"><h3>创建准入检查</h3></div>
             <label for="admissionAsset">资产实例 ID</label>
