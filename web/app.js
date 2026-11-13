@@ -4,6 +4,7 @@ const state = {
   products: [], executions: [], findings: [], hostEvents: [],
   assessments: [], decisions: [], admissions: [], incidents: [],
   policyVersions: [], activePolicy: null, ledger: { items: [], links: {} },
+  coverage: null,
 };
 const roleLabels = { admin: "管理员", operator: "操作员", viewer: "只读" };
 const severityLabels = {
@@ -25,6 +26,8 @@ const incidentStatusLabels = {
   mitigating: "修复中", verifying: "复测中", closed: "已关闭", reopened: "重新打开",
 };
 const verificationLabels = { verified: "已验证", unverified: "未验证" };
+const confidenceLabels = { high: "高", medium: "中", low: "低", unknown: "未测量" };
+const riskDimensionLabels = { intrinsic: "固有风险", runtime: "运行风险", exposure: "暴露风险" };
 const hookEventLabels = {
   session_start: "会话开始", pre_tool_use: "工具调用前",
   post_tool_use: "工具调用后", session_end: "会话结束",
@@ -333,6 +336,7 @@ async function refresh() {
     await renderScans();
     await Promise.all([
       loadCenter(refreshRuntime),
+      loadCenter(refreshCoverage),
       loadCenter(refreshApprovals),
       loadCenter(refreshAssets),
       loadCenter(refreshPolicy),
@@ -561,6 +565,7 @@ function timelineEntryDetail(entry) {
 }
 
 byId('runtimeRefresh').addEventListener('click', guarded(refreshRuntime));
+byId('coverageRefresh').addEventListener('click', guarded(refreshCoverage));
 byId('runtimeExecution').addEventListener('change', () => showRuntimeTimeline(false).catch((error) => showNotice(error.message, 'error')));
 byId('runtimeMore').addEventListener('click', () => showRuntimeTimeline(true).catch((error) => showNotice(error.message, 'error')));
 
@@ -605,12 +610,35 @@ async function refreshHostEvents() {
   renderEventChoices();
 }
 
+async function refreshCoverage() {
+  const result = await request('/api/v1/coverage?window_hours=24');
+  state.coverage = result;
+  const summary = byId('coverageSummary');
+  const warned = result.hosts.filter((host) => host.warn).length;
+  const silent = result.hosts.filter((host) => host.silent).length;
+  summary.textContent = `窗口 ${result.window_hours} 小时 · 上报主机 ${result.hosts.length} 台 · 触发告警 ${warned} 台 · 采集器静默 ${silent} 台 · 有执行但无对账上报 ${result.active_hosts_without_reports.length} 台`;
+  const box = byId('coverageHosts');box.replaceChildren();
+  if (!result.hosts.length) { box.textContent='窗口内没有覆盖度上报。'; return; }
+  for (const host of result.hosts) {
+    const item=document.createElement('article');item.className='recordItem';
+    const head=document.createElement('strong');
+    head.textContent=`${host.host_id} · 丢失率 ${host.loss_rate==null?'无数据':(host.loss_rate*100).toFixed(3)+'%'} · 尝试 ${host.attempted} / 丢失 ${host.lost}`;
+    const meta=document.createElement('p');
+    const gaps=host.gaps.length?` · 量级未知的缺口 ${host.gaps.join('、')}`:'';
+    const kinds=Object.keys(host.drop_kinds).length?` · 丢失构成 ${Object.entries(host.drop_kinds).map(([kind,count])=>`${kind} ${count}`).join('、')}`:'';
+    meta.textContent=`对账 ${host.reports} 条 · 采集器 ${host.collectors.join('、')||'未知'} · 积压 ${host.backlog} · 窗口内执行 ${host.executions_in_window} 次 · 最后对账 ${formatTime(host.last_report_at)}${gaps}${kinds}`;
+    const flags=document.createElement('p');
+    flags.textContent=[host.warn?'丢失率超过阈值或存在未知缺口':'丢失率正常',host.silent?`超过 ${result.silence_after_minutes} 分钟无对账上报，采集器疑似已停止`:''].filter(Boolean).join(' · ');
+    item.append(head,meta,flags);box.append(item);
+  }
+}
+
 async function correlateCurrent() {
   const id=byId('runtimeExecution').value;if(!id)return;
   const result=await request(`/api/v1/executions/${encodeURIComponent(id)}/correlate`,{method:'POST',headers:JSON_HEADERS,body:'{}'});
   const edges=await request(`/api/v1/executions/${encodeURIComponent(id)}/attributions`);
   const box=byId('attributionCandidates');box.replaceChildren();
-  const summary=document.createElement('p');summary.textContent=`候选 ${result.candidate_count} · 强候选选择 ${result.selected_count} · 本次扫描未归因 ${result.unattributed_count}（同主机事件可能属于其他会话）`;box.append(summary);
+  const summary=document.createElement('p');summary.textContent=`受评事件 ${result.subject_count} · 候选 ${result.candidate_count} · 强候选选择 ${result.selected_count} · 无候选 ${result.no_candidate_count} · 有候选但未选定 ${result.ambiguous_count}（同主机事件可能属于其他会话）`;box.append(summary);
   for(const edge of edges.attributions){const line=document.createElement('p');line.textContent=`${edge.event_id} → ${edge.intent_id} · ${edge.method} · ${edge.confidence} · ${edge.selected ? '当前选择，仍须核验证据' : '未选择候选'}`;box.append(line);}
 }
 
@@ -831,12 +859,20 @@ function renderAssetProducts() {
     const detail = document.createElement('small');
     detail.textContent = `${verified}/${product.events.length} 类事件已验证`;
     observation.append(detail);
-    for (const event of product.events) {
-      const line = document.createElement('small');
+    // 原来每个事件一行，一格能堆 6 行，整张表读起来像文档。压成一行能力摘要，
+    // 逐事件的明细放 title——需要的人 hover 就有，不需要的人不必被它淹没。
+    const uniqueCapabilities = Array.from(new Set(
+      product.events.flatMap((event) => event.capabilities))).map(
+      (name) => capabilityLabels[name] || name);
+    const summary = document.createElement('small');
+    summary.className = 'cellSummary';
+    summary.textContent = uniqueCapabilities.length
+      ? `能力 ${uniqueCapabilities.join(' / ')}` : '仅观测';
+    summary.title = product.events.map((event) => {
       const capabilities = event.capabilities.map((name) => capabilityLabels[name] || name).join('/');
-      line.textContent = `${hookEventLabels[event.hook_event_type] || event.hook_event_type}: ${capabilities}${event.pre_execution ? '（执行前）' : ''}`;
-      observation.append(line);
-    }
+      return `${hookEventLabels[event.hook_event_type] || event.hook_event_type}: ${capabilities}${event.pre_execution ? '（执行前）' : ''}`;
+    }).join('\n');
+    observation.append(summary);
     const approval = document.createElement('td');
     const pill = document.createElement('span');
     pill.className = `statusPill ${product.mediated_approval_supported ? 'ready' : 'missing'}`;
@@ -1035,12 +1071,22 @@ function renderRiskAssessments() {
     const item = document.createElement('article');
     item.className = 'recordItem';
     const head = document.createElement('strong');
-    head.textContent = `${assessment.assessment_id} · 固有 ${assessment.intrinsic_risk} / 运行 ${assessment.runtime_risk} / 暴露 ${assessment.exposure_risk} · 置信度 ${assessment.confidence}`;
+    head.textContent = `${assessment.assessment_id} · 固有 ${assessment.intrinsic_risk} / 运行 ${assessment.runtime_risk} / 暴露 ${assessment.exposure_risk} · 置信度 ${confidenceLabels[assessment.confidence] || assessment.confidence}`;
     const meta = document.createElement('p');
     meta.textContent = `资产 ${assessment.asset_id || '未关联'} · 执行 ${assessment.execution_id || '未关联'} · 证据 ${assessment.evidence_refs.length} 条 · 规则 ${assessment.rule_version} · ${formatTime(assessment.created_at)}`;
-    const reasons = document.createElement('p');
-    reasons.textContent = assessment.reasons.join('；');
-    item.append(head, meta, reasons);
+    item.append(head, meta);
+    // 逐维度依据：总分只说明"是多少"，这一层才说明"凭什么是这个值和这个置信度"。
+    // 置信度 unknown 的维度必须显式标注"未测量"，否则 0 分会被读成"没有风险"。
+    for (const dimension of assessment.dimensions || []) {
+      const name = riskDimensionLabels[dimension.dimension] || dimension.dimension;
+      const line = document.createElement('p');
+      line.className = 'fieldHint';
+      line.textContent = `${name} ${dimension.score} 分 · 置信度 ${confidenceLabels[dimension.confidence] || dimension.confidence} · 规则 ${dimension.rule_version}`
+        + (dimension.confidence === 'unknown' ? ' · 该维度未测量，0 分表示没有数据，不等于没有风险' : '');
+      const basis = document.createElement('p');
+      basis.textContent = dimension.basis;
+      item.append(line, basis);
+    }
     box.append(item);
   }
 }
@@ -1140,7 +1186,7 @@ byId('riskForm').addEventListener('submit', guarded(async () => {
   button.disabled = true;
   try {
     const result = await request('/api/v1/risk-assessments', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) });
-    showNotice(`已创建风险评估 ${result.assessment_id}：固有 ${result.intrinsic_risk} / 运行 ${result.runtime_risk} / 暴露 ${result.exposure_risk}`, 'success');
+    showNotice(`已创建风险评估 ${result.assessment_id}：固有 ${result.intrinsic_risk} / 运行 ${result.runtime_risk} / 暴露 ${result.exposure_risk} · 总体置信度 ${confidenceLabels[result.confidence] || result.confidence}（等于最弱的已测量维度）`, 'success');
     await refreshPolicy();
     byId('evalAssessment').value = result.assessment_id;
   } catch (error) {
@@ -1497,3 +1543,101 @@ setInterval(async () => {
   catch (error) { if (!(error instanceof UnauthenticatedError)) showNotice(error.message, 'error'); }
   finally { approvalRefreshBusy = false; }
 }, 2000);
+
+
+/* ---- 视图路由 ----------------------------------------------------------
+   之前 15 个 section 全部常驻显示，11 个导航项只是锚点，整页是一张长条，
+   用户要一直滚才能看完，视觉上也没有"在某个功能里"的感觉。这里按 hash
+   切换，一次只显示当前视图。
+   ---------------------------------------------------------------------- */
+const DECISION_TONE = {block: '--state-block', confirm: '--state-confirm',
+                      audit: '--state-audit', allow: '--state-allow'};
+const DECISION_LABEL = {block: '阻断', confirm: '待确认', audit: '仅记录', allow: '放行'};
+
+async function renderOverview() {
+  let data;
+  try { data = await request('/api/v1/overview'); }
+  catch (error) { if (error instanceof UnauthenticatedError) return; throw error; }
+
+  const total = data.runtime_events || 0;
+  const attributed = data.attributed_edges || 0;
+  const pct = total ? (attributed / total) * 100 : 0;
+  // 0.72% 画成条形只剩 2px，肉眼等于没有；给一个最小可见刻度并在旁边标明
+  // "刻度已放大"，避免读者把视觉比例当成真实比例。
+  byId('attrBar').style.width = Math.max(pct, 2.2) + '%';
+  byId('attrBig').textContent = attributed.toLocaleString();
+  byId('attrPct').textContent = '条边 / ' + total.toLocaleString() + ' 事件 · ' + pct.toFixed(2)
+    + '%（条长已放大到可辨识）';
+  byId('attrHint').textContent = (data.executions || 0) + ' 次执行';
+  byId('attrFoot').textContent = attributed.toLocaleString() + ' / ' + total.toLocaleString()
+    + ' 条事件已归因（' + pct.toFixed(2) + '%）。未归因不等于有风险——没有证据时留空是设计选择，不是漏。';
+
+  const bar = byId('decBar'), legend = byId('decLegend');
+  const counts = data.policy_decisions || {};
+  const order = ['block', 'confirm', 'audit', 'allow'];
+  const sum = order.reduce(function (acc, key) { return acc + (counts[key] || 0); }, 0);
+  bar.innerHTML = ''; legend.innerHTML = '';
+  if (!sum) {
+    bar.innerHTML = '<i style="width:100%;background:rgba(255,255,255,.06)"></i>';
+    legend.innerHTML = '<span class="hint">还没有策略决策记录</span>';
+  } else {
+    order.forEach(function (key) {
+      const n = counts[key] || 0;
+      if (!n) return;
+      const seg = document.createElement('i');
+      seg.style.width = (n / sum * 100) + '%';
+      seg.style.background = 'var(' + DECISION_TONE[key] + ')';
+      seg.title = DECISION_LABEL[key] + ' ' + n;
+      bar.appendChild(seg);
+      const item = document.createElement('span');
+      item.innerHTML = '<b style="background:var(' + DECISION_TONE[key] + ')"></b>'
+        + DECISION_LABEL[key] + ' ' + n;
+      legend.appendChild(item);
+    });
+  }
+  byId('decHint').textContent = sum + ' 条决策';
+
+  const gov = [
+    ['资产', String(data.assets || 0)],
+    ['准入通过', String((data.admissions || {}).verified || 0)],
+    ['未关闭工单', String(data.incidents_open || 0)],
+    ['执行记录', String(data.executions || 0)],
+  ];
+  byId('govRows').innerHTML = gov.map(function (row) {
+    const tone = row[0] === '未关闭工单' && Number(row[1]) > 0 ? 'warn' : '';
+    return '<div class="evalRow"><span>' + row[0] + '</span><strong class="' + tone + '">'
+      + row[1] + '</strong></div>';
+  }).join('');
+
+  const ev = data.evaluation || {};
+  const rows = [
+    ['数据流链检出', (ev.dataflow_detected || 0) + ' / ' + (ev.dataflow_sequences || 0), 'ok'],
+    ['数据流链误报', String(ev.dataflow_false_positive || 0), 'ok'],
+    ['归因精度', Math.round((ev.attribution_precision || 0) * 100) + '%', ''],
+    ['归因召回', Math.round((ev.attribution_recall || 0) * 100) + '%', 'warn'],
+  ];
+  byId('evalRows').innerHTML = rows.map(function (row) {
+    return '<div class="evalRow"><span>' + row[0] + '</span><strong class="' + row[2] + '">'
+      + row[1] + '</strong></div>';
+  }).join('');
+}
+
+const VIEW_ROUTES = ['overview','assets','detections','scan','engines','runtime',
+                     'hostRuntime','approvals','policy','admissions','incidents'];
+
+function applyRoute() {
+  const requested = (location.hash || '#overview').replace('#', '');
+  const key = VIEW_ROUTES.includes(requested) ? requested : 'overview';
+  document.querySelectorAll('section[data-view]').forEach(function (node) {
+    node.hidden = node.dataset.view !== key;
+  });
+  document.querySelectorAll('.navItem').forEach(function (link) {
+    link.classList.toggle('active', link.getAttribute('href') === '#' + key);
+  });
+  if (!location.hash) location.replace('#overview');
+  window.scrollTo(0, 0);
+  if (key === 'overview') { renderOverview().catch(function () {}); }
+}
+
+window.addEventListener('hashchange', applyRoute);
+applyRoute();

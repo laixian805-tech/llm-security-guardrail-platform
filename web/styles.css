@@ -180,3 +180,130 @@ td code { font-size: 11px; }
 #assetLedgerLinks span { color: var(--muted); font-size: 11px; }
 #assetLedgerLinks small, #runtimeSectionLinks small { display: block; margin: 3px 0 0 6px; color: var(--muted); line-height: 1.5; }
 #assetTrace { margin-top: 14px; }
+
+
+/* ==================================================================
+   视觉增强层（不改原有规则，只补令牌与组件）
+   ================================================================== */
+:root {
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
+  --fs-xs: 11px; --fs-sm: 12px; --fs-md: 13px; --fs-lg: 16px; --fs-xl: 22px; --fs-2xl: 32px;
+  --radius-sm: 8px; --radius-md: 14px; --radius-lg: 18px;
+  --card: #131b19; --card-hover: #17211f; --line: rgba(255, 255, 255, .07);
+  --state-block: #f87171; --state-confirm: #fbbf24; --state-audit: #60a5fa;
+  --state-allow: #34d399; --state-unknown: #94a3b8;
+}
+
+/* 概览可视化栅格 */
+.overviewGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--sp-4);
+  margin-top: var(--sp-5);
+  align-items: stretch;
+}
+.vizCard {
+  display: flex; flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: var(--sp-4) var(--sp-5);
+  transition: border-color .2s ease, background .2s ease;
+}
+.vizCard:hover { border-color: rgba(79, 209, 176, .35); background: var(--card-hover); }
+.vizCard header {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--sp-3); margin-bottom: var(--sp-4);
+}
+.vizCard h3 { margin: 0; font-size: var(--fs-md); font-weight: 600; letter-spacing: .01em; }
+.hint { font-size: var(--fs-xs); color: #7c8b87; font-weight: 400; }
+.vizFoot { margin: auto 0 0; padding-top: var(--sp-3); font-size: var(--fs-xs); color: #8b9a96; line-height: 1.6; }
+.vizBig { display: flex; align-items: baseline; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.vizBig strong { font-size: var(--fs-2xl); font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.vizBig span { font-size: var(--fs-xs); color: #8b9a96; }
+
+/* 比例条 */
+.ratioBar {
+  height: 10px; border-radius: 999px; overflow: hidden;
+  background: rgba(255, 255, 255, .06);
+}
+.ratioBar > span {
+  display: block; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, #2dd4bf, #4fd1b0);
+  transition: width .7s cubic-bezier(.2, .8, .2, 1);
+}
+
+/* 堆叠条 + 图例 */
+.stackBar {
+  display: flex; height: 12px; border-radius: 999px; overflow: hidden;
+  background: rgba(255, 255, 255, .06);
+}
+.stackBar > i { display: block; height: 100%; transition: width .6s ease; }
+.legend { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); margin-top: var(--sp-4); }
+.legend > span { display: inline-flex; align-items: center; font-size: var(--fs-xs); color: #9aa8a4; }
+.legend b { width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+
+/* 评测数字 */
+.evalRows { display: grid; gap: var(--sp-4); }
+.evalRow { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); }
+.evalRow > span { font-size: var(--fs-sm); color: #9aa8a4; }
+.evalRow > strong {
+  font-size: var(--fs-xl); font-weight: 700; font-variant-numeric: tabular-nums;
+  letter-spacing: -.01em;
+}
+.evalRow > strong.ok { color: var(--state-allow); }
+.evalRow > strong.warn { color: var(--state-confirm); }
+
+/* 状态色工具类 */
+.tone-block { color: var(--state-block); }
+.tone-confirm { color: var(--state-confirm); }
+.tone-audit { color: var(--state-audit); }
+.tone-allow { color: var(--state-allow); }
+.tone-unknown { color: var(--state-unknown); }
+
+/* 视图切换时给主内容一点进入感 */
+.mainContent > section:not([hidden]) { animation: viewIn .22s ease both; }
+@keyframes viewIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 表格：一眼能扫，而不是一行一行读 */
+.panel table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.panel table th {
+  font-size: var(--fs-xs); font-weight: 600; color: #7c8b87;
+  letter-spacing: .04em; text-transform: uppercase;
+  padding: var(--sp-3) var(--sp-3); border-bottom: 1px solid var(--line);
+  text-align: left; white-space: nowrap;
+}
+.panel table td {
+  padding: var(--sp-4) var(--sp-3); border-bottom: 1px solid rgba(255,255,255,.04);
+  vertical-align: top; font-size: var(--fs-sm); line-height: 1.5;
+}
+.panel table tbody tr:hover td { background: rgba(79, 209, 176, .04); }
+.panel table tbody tr:last-child td { border-bottom: 0; }
+.panel table td small {
+  display: block; margin-top: 2px; font-size: var(--fs-xs); color: #7f8e8a; font-weight: 400;
+}
+.cellSummary {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px;
+  cursor: help;
+}
+.statusPill { align-self: flex-start; }
+
+/* 长说明折叠：默认只给一句结论，判据收在 details 里 */
+.inlineDetails { display: inline; }
+.inlineDetails > summary {
+  display: inline; cursor: pointer; color: #4fd1b0; font-size: var(--fs-xs);
+  padding: 2px 6px; border-radius: 4px; background: rgba(79, 209, 176, .08);
+  list-style: none; white-space: nowrap;
+}
+.inlineDetails > summary::-webkit-details-marker { display: none; }
+.inlineDetails[open] > summary { margin-bottom: var(--sp-2); }
+.inlineDetails[open] {
+  display: block; margin-top: var(--sp-2); padding: var(--sp-3);
+  border-left: 2px solid rgba(79, 209, 176, .3);
+  background: rgba(79, 209, 176, .04); border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: var(--fs-xs); line-height: 1.7; color: #9aa8a4;
+}
+.fieldHint { font-size: var(--fs-sm); line-height: 1.7; color: #8b9a96; margin: 0 0 var(--sp-4); }

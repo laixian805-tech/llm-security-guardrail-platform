@@ -46,16 +46,41 @@
 
         <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
 
-        <section id="overview" class="metrics" aria-label="扫描概览">
+        <section id="overview" class="metrics" aria-label="扫描概览" data-view="overview">
           <div class="metric"><span>扫描次数</span><strong id="metricScans">—</strong><small>本地扫描记录</small></div>
           <div class="metric"><span>发现项</span><strong id="metricFindings">—</strong><small>已归一化的引擎结果</small></div>
           <div class="metric"><span>高优先级</span><strong id="metricHigh">—</strong><small>严重与高危等级</small></div>
           <div class="metric"><span>最近扫描</span><strong id="metricLatest">—</strong><small>UTC 时间</small></div>
         </section>
 
-        <section id="assets" class="panel">
+        <section data-view="overview" class="overviewGrid" aria-label="治理概览">
+          <article class="vizCard">
+            <header><h3>归因覆盖</h3><span class="hint" id="attrHint">—</span></header>
+            <div class="vizBig"><strong id="attrBig">—</strong><span id="attrPct">—</span></div>
+            <div class="ratioBar"><span id="attrBar" style="width:0%"></span></div>
+            <p class="vizFoot" id="attrFoot">正在加载…</p>
+          </article>
+          <article class="vizCard">
+            <header><h3>策略决策分布</h3><span class="hint" id="decHint">—</span></header>
+            <div class="stackBar" id="decBar"><i style="width:100%;background:rgba(255,255,255,.06)"></i></div>
+            <div class="legend" id="decLegend"></div>
+          </article>
+          <article class="vizCard">
+            <header><h3>治理状态</h3><span class="hint">实时</span></header>
+            <div class="evalRows" id="govRows"><p class="vizFoot">正在加载…</p></div>
+          </article>
+          <article class="vizCard">
+            <header><h3>离线评测</h3><span class="hint">标注集，非线上统计</span></header>
+            <div class="evalRows" id="evalRows"><p class="vizFoot">正在加载…</p></div>
+          </article>
+        </section>
+        <section id="assets" class="panel" data-view="assets">
           <div class="sectionHeading"><div><p class="eyebrow">资产</p><h2>资产中心</h2></div><button id="assetsRefresh" type="button" class="textButton">刷新资产视图</button></div>
-          <p class="fieldHint">资产台账（<code>GET /api/v1/assets</code>）已接入。安装状态由准入事务推导，运行状态由执行记录推导，启用状态由准入记录里产品侧的加载结论（<code>product_loaded</code>）推导，三者都按平台真正持有的证据现算；<b>目录里有文件不算已启用</b>，只有产品会话真的确认加载过才记 <code>enabled</code>，探测不可用记 <code>unknown</code> 而不是 false，客户端声明的状态一律拒绝。</p>
+          <p class="fieldHint">三态都按平台真正持有的证据现算：<b>目录里有文件不算已启用</b>。
+            <details cla…<details class="inlineDetails"><summary>说明</summary>三态都按平台真正持有的证据现算：<b>目录里有文件不算已启用</b>。
+            <details class="inlineDetails"><summary>判据</summary>
+              安装状态由准入事务推导，运行状态由执行记录推导，启用状态由产品侧的加载结论（<code>product_loaded</code>）推导。只有产品会话确认加载过才记 <code>enabled</code>；探测不可用记 <code>unknown</code> 而不是 false；客户端声明的状态一律拒绝。
+            </details></details></p>
           <div class="tableWrap">
             <table>
               <thead><tr><th>产品 / 版本</th><th>供应商</th><th>Hook 传输</th><th>采集器</th><th>事件观测</th><th>ASGP 调用审批</th><th>可摄入</th></tr></thead>
@@ -148,7 +173,7 @@
           <div id="assetTrace" class="recordList"></div>
         </section>
 
-        <section id="detections" class="panel">
+        <section id="detections" class="panel" data-view="detections">
           <div class="sectionHeading"><div><p class="eyebrow">检测</p><h2>检测运行</h2></div><span id="scanCount" class="subtleText"></span></div>
           <div class="tableWrap">
             <table>
@@ -166,7 +191,7 @@
           <p class="fieldHint">超时、解析错误与部分覆盖不会显示为无发现项；失败运行保持失败状态。原始报告正文按 <code>read_raw_report</code> 权限单独复核，列表与详情都不回传。</p>
         </section>
 
-        <section id="runtime" class="panel">
+        <section id="runtime" class="panel" data-view="runtime">
           <div class="sectionHeading"><div><p class="eyebrow">执行观测</p><h2>运行时间线</h2></div><button id="runtimeRefresh" type="button" class="textButton">刷新执行记录</button></div>
           <div id="runtimeProducts" class="fieldHint"></div>
           <label for="runtimeExecution">产品、测试设备与会话</label>
@@ -178,12 +203,12 @@
           <button id="runtimeMore" type="button" class="textButton" hidden>加载更多</button>
         </section>
 
-        <section id="approvals" class="panel">
+        <section id="approvals" class="panel" data-view="approvals">
           <div class="sectionHeading"><h2>调用审批</h2><button id="approvalRefresh" type="button" class="textButton">刷新待审批</button></div>
           <p class="fieldHint">ASGP 审批绑定设备、调用与参数哈希。它不是 Codex 原生 ask。页面不展示原始命令，批准前请核对测试端本地上下文；拒绝、超时或控制面不可达均不放行。</p>
           <div id="approvalRequests">点击刷新查看审批。</div>
         </section>
-        <section id="hostRuntime" class="panel">
+        <section id="hostRuntime" class="panel" data-view="hostRuntime">
           <div class="sectionHeading"><h2>主机运行事件</h2><button id="hostEventsRefresh" type="button" class="textButton">刷新主机事件</button></div>
           <label for="runtimeHost">主机 ID</label><input id="runtimeHost" value="test-agentsec-01" />
           <p class="fieldHint">Linux Audit 是观测来源，事件没有调用证据时保持未归因；不展示进程参数。</p>
@@ -191,10 +216,16 @@
           <button id="correlateExecution" class="secondaryButton" type="button">分析上方选中会话的归因候选</button>
           <div id="attributionCandidates" class="fieldHint"></div>
         </section>
+        <section id="coverage" class="panel" data-view="detections">
+          <div class="sectionHeading"><div><p class="eyebrow">接入面</p><h2>采集覆盖度</h2></div><button id="coverageRefresh" type="button" class="textButton">刷新覆盖度</button></div>
+          <p class="fieldHint">Hook 与 Audit 的丢失率由端侧对账得出：端侧每次因队列容量封顶、重试上限耗尽、审计日志轮转缺口丢数据时都会登记…<details class="inlineDetails"><summary>说明</summary>Hook 与 Audit 的丢失率由端侧对账得出：端侧每次因队列容量封顶、重试上限耗尽、审计日志轮转缺口丢数据时都会登记并上报。丢失率 = 丢失记录 / 尝试送达记录；轮转缺口量级未知，单独列出而不并进分母。主机有执行却长时间没有对账上报，标记为采集器静默。</details></p>
+          <div id="coverageSummary" class="fieldHint">点击刷新查看覆盖度。</div>
+          <div id="coverageHosts" class="recordList"></div>
+        </section>
 
-        <section id="policy" class="panel">
+        <section id="policy" class="panel" data-view="policy">
           <div class="sectionHeading"><div><p class="eyebrow">决策</p><h2>风险与策略</h2></div><button id="policyRefresh" type="button" class="textButton">刷新策略视图</button></div>
-          <p class="fieldHint">固有风险、运行风险、暴露风险分维度评估，不同量纲不在代码里相加；求值按当前活跃策略版本依序匹配，并记录实际生效的 <code>policy_version</code>。没有活跃版本时求值返回 500，不静默回退。策略决定不等于执行：阻断成功必须另有 EnforcementEvidence。</p>
+          <p class="fieldHint">固有风险、运行风险、暴露风险分维度评估，不同量纲不在代码里相加；求值按当前活跃策略版本依序匹配，并记录实际生效的 <co…<details class="inlineDetails"><summary>说明</summary>固有风险、运行风险、暴露风险分维度评估，不同量纲不在代码里相加；求值按当前活跃策略版本依序匹配，并记录实际生效的 <code>policy_version</code>。没有活跃版本时求值返回 500，不静默回退。策略决定不等于执行：阻断成功必须另有 EnforcementEvidence。</details></p>
 
           <div class="centerGrid">
             <form id="riskForm" class="panel nestedPanel">
@@ -264,9 +295,9 @@
           <div id="decisionList" class="recordList"></div>
         </section>
 
-        <section id="admissions" class="panel">
+        <section id="admissions" class="panel" data-view="admissions">
           <div class="sectionHeading"><div><p class="eyebrow">准入</p><h2>准入安装</h2></div><button id="admissionsRefresh" type="button" class="textButton">刷新准入记录</button></div>
-          <p class="fieldHint">受管安装器只在平台托管目录（inbound / staging / installed / backup）内做真实的 stage/commit/verify/reconcile/rollback，每次转移都有文件系统后果，body 布尔值不能代替安装证据。托管目录是平台自己的包管理存储，<b>不代表 Agent 产品已加载该包</b>。</p>
+          <p class="fieldHint">受管安装器只在平台托管目录（inbound / staging / installed / backup）内做真实的 s…<details class="inlineDetails"><summary>说明</summary>受管安装器只在平台托管目录（inbound / staging / installed / backup）内做真实的 stage/commit/verify/reconcile/rollback，每次转移都有文件系统后果，body 布尔值不能代替安装证据。托管目录是平台自己的包管理存储，<b>不代表 Agent 产品已加载该包</b>。</details></p>
           <form id="admissionForm" class="panel nestedPanel">
             <div class="sectionHeading"><h3>创建准入检查</h3></div>
             <label for="admissionAsset">资产实例 ID</label>
@@ -287,7 +318,7 @@
           <p class="fieldHint">暂存来源填写托管 inbound 目录下的相对路径；越界路径、符号链接与 setuid/setgid 文件会被拒绝。</p>
         </section>
 
-        <section id="incidents" class="panel">
+        <section id="incidents" class="panel" data-view="incidents">
           <div class="sectionHeading"><div><p class="eyebrow">闭环</p><h2>Incident 中心</h2></div><button id="incidentsRefresh" type="button" class="textButton">刷新工单</button></div>
           <p class="fieldHint">工单从发现项走向调查、确认、修复、复测与关闭。真实风险关闭需要工单开启后、同检测器同目标的 clean 复测 DetectorRun 证据；<code>retest_passed</code> 布尔值不作为证据。</p>
           <form id="incidentForm" class="panel nestedPanel">
@@ -317,8 +348,8 @@
           </div>
         </section>
 
-        <section class="workGrid">
-          <section id="scan" class="panel scanPanel">
+        <section class="workGrid" data-view="scan">
+          <section id="scan" class="panel scanPanel" data-view="scan">
             <div class="sectionHeading"><div><p class="eyebrow">运行</p><h2>开始扫描</h2></div></div>
             <form id="scanForm">
               <label for="scanEngine">扫描引擎</label>
@@ -346,7 +377,7 @@
           </section>
         </section>
 
-        <section id="engines" class="panel enginePanel">
+        <section id="engines" class="panel enginePanel" data-view="engines">
           <div class="sectionHeading"><div><p class="eyebrow">集成</p><h2>扫描引擎</h2></div><span id="engineCount" class="subtleText"></span></div>
           <div class="tableWrap">
             <table>
@@ -356,7 +387,7 @@
           </div>
         </section>
 
-        <section id="providers" class="panel providerPanel">
+        <section id="providers" class="panel providerPanel" data-view="engines">
           <div class="sectionHeading"><div><p class="eyebrow">模型服务</p><h2>供应商配置</h2></div><span id="providerSelection" class="subtleText"></span></div>
           <div class="tableWrap">
             <table>
