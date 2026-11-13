@@ -207,6 +207,14 @@
             <svg id="attributionLane" class="laneSvg" role="img" aria-label="Intent 与 Event 的归因连线图"></svg>
             <p class="laneFoot" id="laneFoot">选择一个执行并点击「运行归因」后显示。</p>
           </div>
+          <div class="laneWrap">
+            <div class="laneHead">
+              <span class="laneTitle">数据流链（敏感读 → 中转 → 外连）</span>
+              <span class="hint">路径级判据，不证明内容被发送</span>
+            </div>
+            <svg id="dataflowChain" class="laneSvg" role="img" aria-label="数据外发链"></svg>
+            <p class="laneFoot" id="dataflowFoot">选择一个执行并点击「运行归因」后显示。</p>
+          </div>
           <ol id="runtimeEntries" class="runtimeEntries"></ol>
           <button id="runtimeMore" type="button" class="textButton" hidden>加载更多</button>
         </section>

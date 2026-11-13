@@ -760,11 +760,98 @@ async function renderAttributionLane(executionId) {
   foot.textContent = parts.join(' · ');
 }
 
+/* ---------- 数据流链 ------------------------------------------------
+   source（读了敏感文件）→ hop（中转）→ sink（连到外部地址）。
+   刻意只在"有 sink"时画链：读了私钥但没有外连，不算外发——这条规则决定
+   误报率，也是它敢在 git push 场景下不出声的原因。
+   ------------------------------------------------------------------- */
+const FLOW_TONE = {medium: '#fbbf24', low: '#94a3b8'};
+
+async function renderDataFlow(executionId) {
+  const svg = byId('dataflowChain');
+  const foot = byId('dataflowFoot');
+  svg.replaceChildren();
+  let data;
+  try { data = await request('/api/v1/executions/' + encodeURIComponent(executionId) + '/data-flows'); }
+  catch (error) { if (error instanceof UnauthenticatedError) return; throw error; }
+
+  const flows = data.flows || [];
+  if (!flows.length) {
+    svg.setAttribute('viewBox', '0 0 900 90');
+    svg.setAttribute('height', '90');
+    svg.appendChild(svgText(16, 38, '未发现外发链', {fill: '#c9d6d2', 'font-size': 13}));
+    svg.appendChild(svgText(16, 60,
+      '读了敏感文件但没有外部连接，或连接目标属于内网/可信域名 —— 按设计不产链。',
+      {fill: '#7c8b87', 'font-size': 11}));
+    foot.textContent = data.note || '';
+    return;
+  }
+
+  const BOX_W = 190, BOX_H = 56, GAP = 72, PAD = 16, ROW = 92;
+  const maxNodes = Math.max.apply(null, flows.map(function (f) { return f.hops.length + 2; }));
+  const width = PAD * 2 + maxNodes * BOX_W + (maxNodes - 1) * GAP;
+  const height = PAD * 2 + flows.length * ROW;
+  svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+  svg.setAttribute('height', String(height));
+
+  flows.forEach(function (flow, rowIndex) {
+    const y = PAD + rowIndex * ROW;
+    const nodes = [{kind: 'source', label: flow.source.path, sub: flow.source.tool_name}]
+      .concat(flow.hops.map(function (hop) {
+        return {kind: 'hop', label: (hop.paths && hop.paths[0]) || '(中转)', sub: hop.tool_name};
+      }))
+      .concat([{kind: 'sink',
+        label: flow.sink.host + (flow.sink.port ? ':' + flow.sink.port : ''),
+        sub: '外部连接 · ' + (flow.sink_basis === 'time_window' ? '时间窗匹配' : '精确归属')}]);
+
+    nodes.forEach(function (node, index) {
+      const x = PAD + index * (BOX_W + GAP);
+      const tone = node.kind === 'source' ? '#f87171'
+        : node.kind === 'sink' ? '#c084fc' : '#60a5fa';
+      svg.appendChild(svgEl('rect', {x: x, y: y, width: BOX_W, height: BOX_H, rx: 10,
+        fill: 'rgba(255,255,255,.03)', stroke: tone, 'stroke-opacity': .45}));
+      svg.appendChild(svgEl('rect', {x: x, y: y, width: 3, height: BOX_H, rx: 1.5, fill: tone}));
+      svg.appendChild(svgText(x + 12, y + 22,
+        String(node.label).slice(0, 26), {'font-size': 12, fill: '#dbe7e3'}));
+      svg.appendChild(svgText(x + 12, y + 40,
+        String(node.sub || '').slice(0, 30), {'font-size': 10, fill: '#7c8b87'}));
+      if (index < nodes.length - 1) {
+        const x1 = x + BOX_W, x2 = x + BOX_W + GAP;
+        const mid = y + BOX_H / 2;
+        svg.appendChild(svgEl('path', {
+          d: 'M ' + x1 + ' ' + mid + ' L ' + (x2 - 8) + ' ' + mid,
+          stroke: 'rgba(255,255,255,.25)', 'stroke-width': 1.4, fill: 'none'}));
+        svg.appendChild(svgEl('path', {
+          d: 'M ' + (x2 - 12) + ' ' + (mid - 4) + ' L ' + x2 + ' ' + mid
+           + ' L ' + (x2 - 12) + ' ' + (mid + 4),
+          stroke: 'rgba(255,255,255,.35)', 'stroke-width': 1.4, fill: 'none'}));
+      }
+    });
+
+    // 置信度徽标放在链路末端
+    const badgeX = PAD + (nodes.length - 1) * (BOX_W + GAP) + BOX_W - 52;
+    const tone = FLOW_TONE[flow.confidence] || '#94a3b8';
+    svg.appendChild(svgEl('rect', {x: badgeX, y: y + BOX_H + 6, width: 52, height: 16,
+      rx: 8, fill: 'rgba(255,255,255,.06)', stroke: tone, 'stroke-opacity': .5}));
+    svg.appendChild(svgText(badgeX + 26, y + BOX_H + 17, flow.confidence,
+      {'font-size': 10, fill: tone, 'text-anchor': 'middle'}));
+  });
+
+  foot.textContent = data.note || '';
+}
+
+function shortId(value, keep) {
+  const text = String(value || '');
+  const limit = keep || 16;
+  return text.length > limit + 4 ? text.slice(0, limit) + '…' : text;
+}
+
 async function correlateCurrent() {
   const id=byId('runtimeExecution').value;if(!id)return;
   const result=await request(`/api/v1/executions/${encodeURIComponent(id)}/correlate`,{method:'POST',headers:JSON_HEADERS,body:'{}'});
   const edges=await request(`/api/v1/executions/${encodeURIComponent(id)}/attributions`);
   await renderAttributionLane(id);
+  await renderDataFlow(id);
   const box=byId('attributionCandidates');box.replaceChildren();
   const summary=document.createElement('p');summary.textContent=`受评事件 ${result.subject_count} · 候选 ${result.candidate_count} · 强候选选择 ${result.selected_count} · 无候选 ${result.no_candidate_count} · 有候选但未选定 ${result.ambiguous_count}（同主机事件可能属于其他会话）`;box.append(summary);
   for(const edge of edges.attributions){const line=document.createElement('p');line.textContent=`${edge.event_id} → ${edge.intent_id} · ${edge.method} · ${edge.confidence} · ${edge.selected ? '当前选择，仍须核验证据' : '未选择候选'}`;box.append(line);}
@@ -1535,7 +1622,8 @@ function renderIncidents() {
     const row = document.createElement('tr');
     const title = addCell(row, incident.title);
     const summary = document.createElement('small');
-    summary.textContent = `${incident.incident_id}${incident.summary ? ` · ${incident.summary}` : ''}`;
+    summary.textContent = `${shortId(incident.incident_id)}${incident.summary ? ` · ${incident.summary}` : ''}`;
+    summary.title = incident.incident_id;
     title.append(summary);
     addPillCell(row, incident.severity, severityLabels, 'severityPill');
     addPillCell(row, incident.status, incidentStatusLabels);

@@ -321,3 +321,19 @@ td code { font-size: 11px; }
 .laneLegend b { width: 14px; height: 2px; margin-right: 6px; border-radius: 2px; }
 .laneSvg { width: 100%; display: block; overflow: visible; }
 .laneFoot { margin: var(--sp-3) 0 0; font-size: var(--fs-xs); color: #8b9a96; line-height: 1.6; }
+
+/* 状态语义色：全站统一一套，扫一眼就知道处置倾向。
+   原规则里 audit 和 confirm 都是 amber，看不出"只是记录"和"要人决定"的区别。 */
+.statusPill.block { background: rgba(248, 113, 113, .14); color: #f87171; }
+.statusPill.confirm { background: rgba(251, 146, 60, .14); color: #fb923c; }
+.statusPill.audit { background: rgba(96, 165, 250, .14); color: #60a5fa; }
+.statusPill.allow { background: rgba(52, 211, 153, .14); color: #34d399; }
+.statusPill.unknown, .statusPill.missing { background: rgba(148, 163, 184, .12); color: #94a3b8; }
+
+/* 长标识符：表格里不该让一串 hex 撑开整列 */
+.monoId {
+  display: inline-block; max-width: 220px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--fs-xs);
+  color: #8b9a96;
+}
