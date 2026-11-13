@@ -82,7 +82,7 @@ def capture(config, product, payload, *, now=None):
                                 cmdline=(Path('/proc')/str(pid)/'cmdline').read_bytes().decode('utf-8','ignore')
                             except OSError:
                                 cmdline=''
-                        if name in {'codex','claude','claude.exe','qwen'} or (product=='qwen-code' and ('@qwen-code' in cmdline or 'cli-entry.js' in cmdline or '/bin/qwen' in cmdline)):
+                        if name in {'codex','claude','claude.exe','qwen'} or (product=='qwen-code' and any(part == 'qwen' or part.endswith('/qwen') or '@qwen-code' in part or 'cli-entry.js' in part for part in cmdline.split('\x00') if part)):
                             product_pid=(pid,parent,'qwen' if product=='qwen-code' else name);break
                         if parent<=1:break
                         pid=parent
