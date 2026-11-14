@@ -17,6 +17,23 @@ def stable(*parts):
     return uuid.uuid5(uuid.NAMESPACE_URL, json.dumps(parts)).hex
 
 
+def _eval_shadow_patterns(patterns, params):
+    if not patterns:
+        return None
+    raw = json.dumps(params, ensure_ascii=False)
+    hits = []
+    for idx, entry in enumerate(patterns):
+        if isinstance(entry, dict):
+            pat = str(entry.get('pattern') or '')
+            rule_id = str(entry.get('rule_id') or f'shadow_{idx}')[:64]
+        else:
+            pat = str(entry or '')
+            rule_id = f'shadow_{idx}'
+        if pat and pat in raw:
+            hits.append({'rule_id': rule_id, 'pattern_sha256': hashlib.sha256(pat.encode('utf-8')).hexdigest()[:12]})
+    return hits or None
+
+
 def capture(config, product, payload, *, now=None):
     event = parse(product, payload)
     stamp = now or datetime.now(timezone.utc).isoformat()
@@ -71,7 +88,12 @@ def capture(config, product, payload, *, now=None):
             call = event['tool_call_id'] or uuid.uuid4().hex
             intent_id = 'intent_'+stable(execution_id, call)
             src_kind, src_ref = infer_lineage(product, payload, tool_call_id=event['tool_call_id'])
-            summary, digest = summarize(event['params'])
+            shadow_hits = (
+                _eval_shadow_patterns(config.get('shadow_deny_patterns', []), event['params'])
+                if event['hook_event_type'] == 'pre_tool_use'
+                else None
+            )
+            summary, digest = summarize(event['params'], shadow_matches=shadow_hits)
             intent = {'intent_id': intent_id, 'tool_call_id': event['tool_call_id'],
                 'tool_name': event['tool_name'], 'hook_event_type': event['hook_event_type'],
                 'decision': decision, 'decision_reason': reason if decision != 'not_applicable' else None,

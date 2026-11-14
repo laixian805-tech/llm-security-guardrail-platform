@@ -98,6 +98,43 @@
           ],
           "default": null,
           "title": "Runtime Risk Min"
+        },
+        "shadow_only": {
+          "default": false,
+          "title": "Shadow Only",
+          "type": "boolean"
+        },
+        "target_host_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 64,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Host Ids"
+        },
+        "target_products": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 16,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Products"
         }
       },
       "required": [

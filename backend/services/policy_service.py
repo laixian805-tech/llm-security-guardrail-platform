@@ -8,7 +8,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from domain import PolicyDecision, PolicyRuleSet, PolicyStatus
+import json
+from domain import PolicyAction, PolicyDecision, PolicyRuleSet, PolicyStatus
 from domain.evidence import EvidenceRef
 from services.ingestion_service import IngestError, reject_secrets
 from storage.governance_repositories import GovernanceRepository
@@ -108,7 +109,15 @@ class PolicyService:
                                         {"reason": reason.strip()})
         return self.get(policy_version)
 
-    def evaluate(self, assessment, subject_kind: str, subject_id: str) -> PolicyDecision:
+    def evaluate(
+        self,
+        assessment,
+        subject_kind: str,
+        subject_id: str,
+        *,
+        host_id: str | None = None,
+        product: str | None = None,
+    ) -> PolicyDecision:
         version = self.active()
         if version is None:
             raise IngestError("no_active_policy", 500)
@@ -118,16 +127,25 @@ class PolicyService:
             "runtime_risk_min": assessment.runtime_risk,
             "exposure_risk_min": assessment.exposure_risk,
         }
-        matched = next((rule for rule in version.rules if self._matches(rule, floors, peak)), None)
+        matched = next(
+            (rule for rule in version.rules if self._matches(rule, floors, peak, host_id=host_id, product=product)),
+            None,
+        )
         if matched is None:
             raise IngestError("policy_rule_set_has_no_match", 500)
+        effective_action = PolicyAction.AUDIT if matched.shadow_only else matched.action
+        reason = (
+            f"{matched.rule_id} [SHADOW would={matched.action.value}]: {matched.reason}"
+            if matched.shadow_only
+            else f"{matched.rule_id}: {matched.reason}"
+        )
         return PolicyDecision(
             decision_id="decision_" + uuid.uuid4().hex,
-            action=matched.action,
+            action=effective_action,
             policy_version=version.policy_version,
             subject_kind=subject_kind,
             subject_id=subject_id,
-            reason=f"{matched.rule_id}: {matched.reason}",
+            reason=reason,
             evidence_refs=[EvidenceRef(kind="risk_assessment", uri=assessment.assessment_id),
                            EvidenceRef(kind="policy_version", uri=version.policy_version)],
             enforcement_expected=False,
@@ -135,8 +153,53 @@ class PolicyService:
             expires_at=NOW() + DECISION_TTL,
         )
 
+    def shadow_summary(self) -> dict:
+        """汇总服务端策略影子裁决与端侧 shadow_deny_patterns 命中分布，用于灰度前误报评估。"""
+        with self.storage.connection() as c:
+            total_intents = c.execute("SELECT COUNT(*) FROM intents").fetchone()[0]
+            shadow_rows = c.execute(
+                "SELECT i.intent_id, i.execution_id, i.tool_name, i.decision, i.params_summary,"
+                " e.host_id, e.product, i.occurred_at"
+                " FROM intents i JOIN executions e ON e.execution_id = i.execution_id"
+                " WHERE i.params_summary LIKE ?"
+                " ORDER BY i.occurred_at DESC LIMIT 100",
+                ('%"shadow_would_block": true%',),
+            ).fetchall()
+            policy_shadows = [
+                dict(r)
+                for r in c.execute(
+                    "SELECT decision_id, policy_version, subject_kind, subject_id, reason, created_at"
+                    " FROM policy_decisions WHERE reason LIKE '%[SHADOW would=%'"
+                    " ORDER BY created_at DESC LIMIT 100"
+                ).fetchall()
+            ]
+        by_product: dict[str, int] = {}
+        items = []
+        for row in shadow_rows:
+            d = dict(row)
+            by_product[d["product"]] = by_product.get(d["product"], 0) + 1
+            try:
+                parsed = json.loads(d.pop("params_summary") or "{}")
+            except ValueError:
+                parsed = {}
+            d["shadow_matches"] = parsed.get("shadow_matches", [])
+            items.append(d)
+        return {
+            "total_intents": total_intents,
+            "endpoint_shadow_hits": len(items),
+            "endpoint_shadow_rate": round(len(items) / total_intents, 6) if total_intents else 0.0,
+            "by_product": by_product,
+            "endpoint_items": items,
+            "policy_shadow_decisions": len(policy_shadows),
+            "policy_shadow_items": policy_shadows,
+        }
+
     @staticmethod
-    def _matches(rule, floors: dict, peak: float) -> bool:
+    def _matches(rule, floors: dict, peak: float, *, host_id: str | None = None, product: str | None = None) -> bool:
+        if rule.target_host_ids is not None and (host_id is None or host_id not in rule.target_host_ids):
+            return False
+        if rule.target_products is not None and (product is None or product not in rule.target_products):
+            return False
         if any(value < getattr(rule, key) for key, value in floors.items() if getattr(rule, key) is not None):
             return False
         if rule.any_dimension_above is not None and peak <= rule.any_dimension_above:

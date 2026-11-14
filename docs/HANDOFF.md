@@ -20,7 +20,7 @@ https://43.139.77.64/
 # 跑全量测试（必须先跑通这个，再看别的）
 ssh root@43.139.77.64
 cd /root/agent-security-fusion-platform && ./scripts/test.sh
-# 期望：487 passed（最新 P2 基线），且扫描器"未发现硬编码/重复真值问题"
+# 期望：489 passed（P2 + Shadow Deny/定向灰度策略最新基线），且扫描器"未发现硬编码/重复真值问题"
 ```
 
 ## 3. 系统拓扑
@@ -157,6 +157,6 @@ ssh root@43.139.77.64 'cd /root/agent-security-fusion-platform && \
 
 ## 10. 接手建议
 
-先跑 `./scripts/test.sh` 确认 **487 passed** 且硬编码扫描器 0 问题，再打开控制台 `https://43.139.77.64/` 看概览评测对比卡片是否正常。
+先跑 `./scripts/test.sh` 确认 **489 passed** 且硬编码扫描器 0 问题，再打开控制台 `https://43.139.77.64/` 看概览评测对比卡片是否正常。
 
 若继续在主机 `b`（`116.62.28.177`）跑真机 `qwen-code`：需先在阿里云控制台重启主机 `b`（该机在 1.7 GiB RAM + 临时 `/swapfile` 跑完整 Node `qwen` 时出现 SSH banner 超时），重启后删除 `/swapfile` 再通过轻量场景或单步采集执行。

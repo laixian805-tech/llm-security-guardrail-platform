@@ -112,6 +112,9 @@ class PolicyRule(StrictModel):
     exposure_risk_min: float | None = Field(default=None, ge=0, le=100)
     any_dimension_above: float | None = Field(default=None, ge=0, le=100)
     peak_at_most: float | None = Field(default=None, ge=0, le=100)
+    target_host_ids: list[str] | None = Field(default=None, max_length=64)
+    target_products: list[str] | None = Field(default=None, max_length=16)
+    shadow_only: bool = False
 
 
 class PolicyRuleSet(StrictModel):

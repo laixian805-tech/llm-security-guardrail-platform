@@ -40,6 +40,8 @@ def route(handler,method,parsed,governance,approval,hub=None):
         body=handler._body()
         result=governance.policy.rollback(path.split('/')[5],handler._actor().user_id,
                                           body.get('reason') if isinstance(body,dict) else None)
+    elif path=='/api/v1/policies/shadow-summary' and method=='GET':
+        handler._send(200,governance.policy.shadow_summary());return True
     elif path=='/api/v1/policies/active' and method=='GET':
         active=governance.policy.active()
         handler._send(200,{'active':active.model_dump(mode='json') if active else None});return True

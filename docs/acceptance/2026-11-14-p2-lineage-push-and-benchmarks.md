@@ -43,6 +43,15 @@
 
 ## 5. 全量自动化验证与 Host b 资源状态
 
-- `./scripts/test.sh`：`scan_hardcoded.py` 扫描 `86` 个代码文件、`36` 个测试文件 `0` 问题；`pytest` 全量 **`487 passed in 144.27s (0:02:24)`**。
+- `./scripts/test.sh`：`scan_hardcoded.py` 扫描 `86` 个代码文件、`37` 个测试文件 `0` 问题；`pytest` 全量 **`489 passed in 142.85s (0:02:22)`**。
 - `scripts/export-schemas.py --check` 退出码 `0`。
-- Host b（2C2G，`Swap: 0`）：`Mem: 1736 MiB total / 407 used / 1154 available`，`asgp-audit-collector`（`MemoryCurrent=11870208` ~`11.3 MiB`）与 `asgp-endpoint-flush`（`MemoryCurrent=11878400` ~`11.3 MiB`）均远低于 `96M` 配额；`auditctl -s` 内核 `lost=0, backlog=0`。
+- Host b（2C2G，`Swap: 0`）：`Mem: 1736 MiB total / 407 used / 1154 available`，`asgp-audit-collector`（`MemoryCurrent=12267520` ~`11.7 MiB`）与 `asgp-endpoint-flush`（`MemoryCurrent=12013568` ~`11.5 MiB`）均远低于 `96M` 配额；`auditctl -s` 内核 `lost=0, backlog=0`。
+## 6. 防误报与灰度发布补充（Shadow Deny + 定向灰度 `PolicyRule`）
+
+- **端侧非阻断干跑（Shadow Deny）**：`endpoint/hook.py`（`_eval_shadow_patterns`）与 `endpoint/redaction.py`（`summarize(..., shadow_matches=...)`）支持 `shadow_deny_patterns` 配置；命中时在 `observe` 与 `deny` 模式下均**不阻断正常业务执行**，仅随摘要上报脱敏指标 `shadow_would_block: true` 与 `shadow_matches: [{rule_id, pattern_sha256}]`（截断至 8 项，不回传原始参数或正则文本）。
+- **控制面定向灰度与只审计影子策略**：`backend/domain/governance.py`（`PolicyRule`）及 `contracts/policy-version.schema.json` 新增可选字段 `target_host_ids`（`max_length=64`）、`target_products`（`max_length=16`）与 `shadow_only: bool = False`。`PolicyService.evaluate(..., host_id=..., product=...)` 与 `GovernanceService.evaluate(body)` 在未命中灰度白名单时自动跳过规则；命中 `shadow_only=True` 规则时强制降级为 `PolicyAction.AUDIT` 并标记 `[SHADOW would={action}]`。
+- **误报观测聚合接口**：新增 `GET /api/v1/policies/shadow-summary`（`Permission.READ`），参数化聚合控制面 `[SHADOW would=...]` 决策与端侧 `intents` `shadow_would_block` 命中数。
+- **验证与诚实边界**：
+  - 单元测试与 API 测试见 `tests/test_p2_shadow_canary.py`（包含在 `./scripts/test.sh` 的 `489 passed in 142.85s` 中）。
+  - 主机 b 端侧冒烟实测：`{'directive': '', 'decision': 'not_applicable', 'shadow_would_block': True, 'shadow_matches': [{'pattern_sha256': 'dc86dcaf7ed3', 'rule_id': 'shadow-test'}]}`。
+  - **诚实边界**：当前实验环境仅包含单台控制面（主机 a）与单台端侧实验机（主机 b，2C2G），以上验证证明单端侧与多设备/多产品模型测试下规则作用域过滤、非阻断上报与回滚逻辑成立；百台以上生产集群的分批次百分比下发效果尚待企业多节点环境实测。

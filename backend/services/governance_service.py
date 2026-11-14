@@ -200,12 +200,21 @@ class GovernanceService:
 
     def evaluate(self,body):
         reject_secrets(body)
-        if set(body)-{'assessment_id','subject_kind','subject_id'}:raise IngestError('invalid_policy_input')
+        if set(body)-{'assessment_id','subject_kind','subject_id','host_id','product'}:raise IngestError('invalid_policy_input')
         if not all(isinstance(body.get(k),str) and 0<len(body[k])<=160 for k in ('assessment_id','subject_kind','subject_id')):raise IngestError('invalid_policy_input')
+        for opt in ('host_id','product'):
+            if opt in body and body[opt] is not None and (not isinstance(body[opt],str) or not (0<len(body[opt])<=160)):
+                raise IngestError('invalid_policy_input')
         risk=self.repo.get(RiskAssessment,body['assessment_id'])
         if not risk:raise IngestError('unknown_assessment',404)
         # 求值与落库都按当前活跃策略版本；版本号来自版本记录，不写死。
-        decision=self.policy.evaluate(risk,body['subject_kind'],body['subject_id'])
+        decision=self.policy.evaluate(
+            risk,
+            body['subject_kind'],
+            body['subject_id'],
+            host_id=body.get('host_id'),
+            product=body.get('product'),
+        )
         return self.repo.create(decision)
 
     def check_admission(self,body):

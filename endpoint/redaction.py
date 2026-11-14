@@ -58,7 +58,7 @@ def resource_hints(params):
     return found[:MAX_HINTS]
 
 
-def summarize(params):
+def summarize(params, *, shadow_matches=None):
     safe = redact(params)
     encoded = json.dumps(safe, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode()
     # Values are deliberately excluded; even unrecognised credentials cannot escape.
@@ -67,5 +67,8 @@ def summarize(params):
     hints = resource_hints(params)
     if hints:
         payload['resource_hints'] = hints
+    if shadow_matches:
+        payload['shadow_would_block'] = True
+        payload['shadow_matches'] = list(shadow_matches)[:8]
     summary = json.dumps(payload, sort_keys=True)
     return summary, hashlib.sha256(encoded).hexdigest()
