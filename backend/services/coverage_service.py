@@ -32,7 +32,7 @@ SILENCE_AFTER = timedelta(minutes=15)
 LOSS_WARN_ABOVE = 0.01
 
 FIELDS = {'collector_id', 'period_start', 'period_end', 'delivered', 'dead',
-          'dropped', 'backlog', 'high_water_seq'}
+          'dropped', 'backlog', 'high_water_seq', 'dropped_records', 'unbounded_gaps'}
 
 
 class CoverageService:

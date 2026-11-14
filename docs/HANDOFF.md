@@ -20,7 +20,7 @@ https://43.139.77.64/
 # 跑全量测试（必须先跑通这个，再看别的）
 ssh root@43.139.77.64
 cd /root/agent-security-fusion-platform && ./scripts/test.sh
-# 期望：457 passed，且扫描器"未发现硬编码/重复真值问题"
+# 期望：487 passed（最新 P2 基线），且扫描器"未发现硬编码/重复真值问题"
 ```
 
 ## 3. 系统拓扑
@@ -99,6 +99,7 @@ deploy/                      nginx 配置与说明
 | ~~P0（已修）~~ | `asset_releases.signature_verified` 服务端 Ed25519 验签 | 已合入（Schema v11）：`publishers` 公钥台账 + RFC 8032 服务端验签，客户端传 `signature_verified` 返回 400 | 保持不变；如需增强可接外部 PKI |
 | ~~P1（已补）~~ | 纯 MCP 配置管道执行检测 | 已增 `mcp-config-guard` 本地静态守卫，覆盖独立 `mcp.json` 与内嵌 `mcpServers.args` 的 `curl \| sh`、未固定版本与明文凭据 | 后续可再叠加 LLM 语义分析 |
 | ~~P1（已补）~~ | MCP 准入产品侧配置与会话枚举 | `endpoint/probe_product.py --asset-type mcp_server` 支持检测 `.qwen/settings.json`/`.claude.json`/`.codex/config.toml` 及 `<product> mcp list` | 需在实际准入流程中绑定端侧回传调用 |
+| ~~P2（已补）~~ | 非环境变量 `SourceKind` + 推送 + `sendto`/PG 对等 + 外部轨迹基准 | 新增 `endpoint/lineage.py`（Host b 实测 `1.1–4.6ms`）、PG DDL 对等（29 表 295 列）、SSE/长轮询/异步入库、`sendto`/`sendmsg` + LOTS、`coverage_reports` 实库修复及 AgentDojo/InjecAgent 风格 N=40（Wilson 95% CI）评测（详见 [2026-11-14 P2 报告](acceptance/2026-11-14-p2-lineage-push-and-benchmarks.md)） | — |
 | P2 | 数据流链只到路径级 | 证明"先读后发"，不证明字节流向；跨会话接力不覆盖 | 内容级需要端侧拦读写，量级不同，当前明确不做 |
 | P2 | 归因标注集偏小 | 当前 10 场景 13 条事件，只能证明判据行为与故障注入边界，不能外推生产误报率 | 扩到 50+，加多 agent 并发 |
 | P2 | Windows / macOS 采集未做 | 端侧只支持 Linux auditd | Windows 可做（Kernel-Process ETW）；macOS 受 entitlement 限制，建议只做接口不硬做 |
@@ -156,6 +157,6 @@ ssh root@43.139.77.64 'cd /root/agent-security-fusion-platform && \
 
 ## 10. 接手建议
 
-先跑 `./scripts/test.sh` 确认 **457 passed** 且硬编码扫描器 0 问题，再打开控制台 `https://43.139.77.64/` 看概览评测对比卡片是否正常。
+先跑 `./scripts/test.sh` 确认 **487 passed** 且硬编码扫描器 0 问题，再打开控制台 `https://43.139.77.64/` 看概览评测对比卡片是否正常。
 
 若继续在主机 `b`（`116.62.28.177`）跑真机 `qwen-code`：需先在阿里云控制台重启主机 `b`（该机在 1.7 GiB RAM + 临时 `/swapfile` 跑完整 Node `qwen` 时出现 SSH banner 超时），重启后删除 `/swapfile` 再通过轻量场景或单步采集执行。

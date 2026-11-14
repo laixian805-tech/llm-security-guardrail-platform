@@ -24,11 +24,11 @@ def is_device_route(method, path):
     if path == '/api/v1/coverage-reports' and method == 'POST':
         return True
     match = EXECUTION.fullmatch(path)
-    return method == "POST" and (path in ("/api/v1/executions", "/api/v1/runtime-events:batch")
+    return method == "POST" and (path in ("/api/v1/executions", "/api/v1/runtime-events:batch", "/api/v1/runtime-events:ingest-async")
         or bool(match and match[2] == "intents"))
 
 
-def route(handler, method, parsed, ingestion, timeline, assets, coverage=None):
+def route(handler, method, parsed, ingestion, timeline, assets, coverage=None, async_ingest=None):
     path = parsed.path
     match = EXECUTION.fullmatch(path)
     asset_match = ASSET.fullmatch(path)
@@ -93,13 +93,20 @@ def route(handler, method, parsed, ingestion, timeline, assets, coverage=None):
     if method == "POST" and is_device_route(method, path):
         body = handler._body()
         device_id = handler._device.device_id
+        status = 200
         if path == "/api/v1/executions":
             result = ingestion.execution(device_id, body)
+        elif path == "/api/v1/runtime-events:ingest-async":
+            if async_ingest is None:
+                result = ingestion.batch(device_id, body)
+            else:
+                result = async_ingest.enqueue(device_id, body)
+                status = 202
         elif path == "/api/v1/runtime-events:batch":
             result = ingestion.batch(device_id, body)
         else:
             result = ingestion.intent(device_id, unquote(match[1]), body)
-        handler._send(200, {**result, "request_id": handler._request_id})
+        handler._send(status, {**result, "request_id": handler._request_id})
         return True
     if method == "GET" and (path == "/api/v1/executions" or (match and match[2] == "timeline")):
         query = parse_qs(parsed.query)

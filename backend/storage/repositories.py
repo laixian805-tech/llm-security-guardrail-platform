@@ -67,6 +67,10 @@ class Storage:
         with self._lock, self.connection() as conn:
             migrate(conn)
 
+    @property
+    def dialect(self) -> str:
+        return "sqlite"
+
     def connection(self) -> sqlite3.Connection:
         return connect(self.path)
 

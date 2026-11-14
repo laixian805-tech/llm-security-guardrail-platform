@@ -73,3 +73,19 @@ def is_external_host(host: str | None) -> bool:
     except ValueError:
         return True
     return address.is_global
+
+
+LOTS_ABUSE_DOMAINS = (
+    "webhook.site", "requestbin.com", "pipedream.net", "hookbin.com",
+    "ngrok-free.app", "ngrok.io", "trycloudflare.com",
+    "transfer.sh", "paste.ee", "pastebin.com", "ix.io",
+    "api.telegram.org",
+)
+
+
+def is_lots_endpoint(host: str | None) -> bool:
+    """识别常见 Living-Off-Trusted-Sites (LOTS) 临时外带/Webhook/隧道域名。"""
+    if not host:
+        return False
+    value = str(host).strip().lower().rstrip(".")
+    return any(value == dom or value.endswith("." + dom) for dom in LOTS_ABUSE_DOMAINS)

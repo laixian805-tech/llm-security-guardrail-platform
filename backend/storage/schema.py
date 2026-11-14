@@ -692,6 +692,13 @@ def _migrate_v12(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE intents ADD COLUMN source_ref TEXT")
 
 
+def _ensure_coverage_delivered(conn: sqlite3.Connection) -> None:
+    """旧库升级后 coverage_reports 可能缺少 delivered 列，幂等补齐。"""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(coverage_reports)")}
+    if columns and "delivered" not in columns:
+        conn.execute("ALTER TABLE coverage_reports ADD COLUMN delivered INTEGER NOT NULL DEFAULT 0")
+
+
 def _ensure_attribution_foreign_keys(conn: sqlite3.Connection) -> None:
     """升级早期 v6 试运行表，让保留策略删除源证据时同时删除归因边。"""
     if conn.execute('PRAGMA foreign_key_list(event_attributions)').fetchall():
@@ -758,6 +765,7 @@ def migrate(conn: sqlite3.Connection) -> None:
     # asset_instance_id 仍是自由文本引用，不回溯加外键，否则要重建两张有存量
     # 数据的表。台账对存量引用的态度是"不校验、不猜测"，见 AssetService。
     _ensure_attribution_foreign_keys(conn)
+    _ensure_coverage_delivered(conn)
     conn.executescript(INDEX_DDL)
     conn.execute(
         "INSERT INTO schema_meta (key, value) VALUES ('schema_version', ?)"

@@ -1,14 +1,24 @@
 """治理 API：只读控制台权限与操作员写权限分离；设备不冒充分析员。"""
+from urllib.parse import parse_qs
 from domain import Permission,Admission,Incident,PolicyDecision,RiskAssessment
 from services.ingestion_service import IngestError
 
 
-def route(handler,method,parsed,governance,approval):
+def route(handler,method,parsed,governance,approval,hub=None):
     path=parsed.path
     if path=='/api/v1/approval-requests' and method=='POST':
         result=approval.create(handler._device.device_id,handler._body())
     elif path.startswith('/api/v1/approval-requests/') and method=='GET':
-        result=approval.get(path.rsplit('/',1)[1],device_id=handler._device.device_id)
+        approval_id=path.rsplit('/',1)[1]
+        result=approval.get(approval_id,device_id=handler._device.device_id)
+        qs=parse_qs(parsed.query)
+        if (qs.get('wait') or ['0'])[0]=='1' and result.state=='pending' and hub is not None:
+            try:
+                wait_sec=float((qs.get('timeout') or ['10'])[0])
+            except ValueError:
+                wait_sec=10.0
+            hub.wait_approval(approval_id, timeout=min(max(wait_sec,0.05),20.0))
+            result=approval.get(approval_id,device_id=handler._device.device_id)
     elif path=='/api/v1/approvals' and method=='GET':
         handler._send(200,{'approvals':[r.model_dump(mode='json') for r in approval.list()]});return True
     elif path.startswith('/api/v1/approvals/') and method=='POST':

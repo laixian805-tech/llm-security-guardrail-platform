@@ -22,6 +22,7 @@ from domain import (
 )
 from services.evidence_rules import (
     is_external_host,
+    is_lots_endpoint,
     is_sensitive_path,
     normalize_hint_path,
 )
@@ -124,6 +125,12 @@ def _evaluate_event(
             return (
                 EffectDiffVerdict.UNDECLARED_SIDE_EFFECT,
                 f"模型调用属于 {category} 工具，预期无网络活动，但 OS 观测到外连 {host}",
+            )
+        if is_lots_endpoint(host) and not (hints and host and _target_matches_hints(host, hints)):
+            prefix = f"低信任来源({source_kind})诱导的" if low_trust else ""
+            return (
+                EffectDiffVerdict.UNDECLARED_SIDE_EFFECT,
+                f"{prefix}LOTS 临时外带/隧道端点外连：{host}",
             )
         if is_external_host(host) and not (hints and host and _target_matches_hints(host, hints)):
             prefix = f"低信任来源({source_kind})诱导的" if low_trust else ""

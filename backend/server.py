@@ -50,6 +50,8 @@ from services.managed_installer import ManagedInstaller
 from services.product_installer import ProductInstaller, parse_bindings
 from services.approval_service import ApprovalService
 from services.attribution_service import AttributionService
+from services.notification_hub import NotificationHub
+from services.async_ingestion import AsyncIngestionWorker
 from pydantic import ValidationError
 from storage.repositories import Storage, now_iso
 
@@ -104,7 +106,9 @@ governance_service = GovernanceService(
         else None
     ),
 )
-approval_service = ApprovalService(storage)
+notification_hub = NotificationHub()
+approval_service = ApprovalService(storage, hub=notification_hub)
+async_ingestion = AsyncIngestionWorker(ingestion_service, hub=notification_hub)
 attribution_service = AttributionService(storage)
 
 # 保留策略默认值先落库，否则第一次清理时读不到规则。
@@ -381,6 +385,39 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _stream_events(self, parsed) -> None:
+        """Server-Sent Events 实时推流（支持 ?once=1 一次性快照与断线清理）。"""
+        import queue as _q
+        qs = parse_qs(parsed.query)
+        topic_prefix = (qs.get("topic") or [""])[0]
+        once = (qs.get("once") or ["0"])[0] == "1"
+        self._status_sent = 200
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        ready = json.dumps({"dialect": storage.dialect, "async_ingest": async_ingestion.stats()}, ensure_ascii=False)
+        self.wfile.write(f"event: ready\ndata: {ready}\n\n".encode("utf-8"))
+        self.wfile.flush()
+        if once:
+            return
+        sub_id, q = notification_hub.subscribe(topic_prefix=topic_prefix)
+        try:
+            while True:
+                try:
+                    ev = q.get(timeout=15.0)
+                    payload = json.dumps(ev, ensure_ascii=False)
+                    self.wfile.write(f"event: {ev['topic']}\ndata: {payload}\n\n".encode("utf-8"))
+                    self.wfile.flush()
+                except _q.Empty:
+                    self.wfile.write(b": keepalive\n\n")
+                    self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+        finally:
+            notification_hub.unsubscribe(sub_id)
+
     def _body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))
         maximum = 16 * 1024 * 1024 if self.path.startswith("/api/v1/") else MAX_BODY_BYTES
@@ -470,7 +507,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path.startswith('/api/v1/executions/') and path.endswith('/attributions') and method == 'GET':
                 execution_id = path.split('/')[4]
                 self._send(200, {'attributions': attribution_service.list(execution_id)})
-            elif route_governance(self, method, parsed, governance_service, approval_service):
+            elif path == '/api/v1/events/stream' and method == 'GET':
+                self._stream_events(parsed)
+            elif route_governance(self, method, parsed, governance_service, approval_service, hub=notification_hub):
                 pass
             elif path == '/api/v1/coverage' and method == 'GET':
                 query = parse_qs(parsed.query)
@@ -481,7 +520,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, coverage_service.summary(
                     host_id=(query.get('host_id') or [None])[0], window_hours=window))
             elif route_v1(self, method, parsed, ingestion_service, timeline_service,
-                          asset_service, coverage_service):
+                          asset_service, coverage_service, async_ingest=async_ingestion):
                 pass
             elif method == "GET":
                 self._route_get(parsed)
@@ -568,7 +607,14 @@ class Handler(BaseHTTPRequestHandler):
     def _route_get(self, parsed) -> None:
         path = parsed.path
         if path == "/api/health":
-            self._send(200, {"ok": True, "scan_root": str(SCAN_ROOT), "bind": BIND_HOST})
+            self._send(200, {
+                "ok": True,
+                "scan_root": str(SCAN_ROOT),
+                "bind": BIND_HOST,
+                "storage_dialect": storage.dialect,
+                "async_ingest": async_ingestion.stats(),
+                "sse_subscribers": notification_hub.subscriber_count(),
+            })
         elif path == "/api/engines":
             self._send(200, {"engines": _engine_rows()})
         elif path == "/api/providers":

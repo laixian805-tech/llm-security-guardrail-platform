@@ -20,7 +20,7 @@ class ApprovalInput(StrictModel):
 
 
 class ApprovalService:
-    def __init__(self,storage):self.storage=storage
+    def __init__(self,storage,hub=None):self.storage=storage;self.hub=hub
 
     def create(self,device_id,body):
         reject_secrets(body);value=ApprovalInput.model_validate(body)
@@ -42,7 +42,10 @@ class ApprovalService:
             c.execute("INSERT INTO approval_requests VALUES (?,?,?,?,?,?,?,?,?,'pending',?,?,NULL,NULL)",
                 (identifier,device_id,device['host_id'],value.product,value.product_version,value.session_id,value.tool_call_id,value.tool_name,value.params_sha256,
                  now_iso,(now+timedelta(seconds=value.timeout_seconds)).isoformat()))
-        return self.get(identifier,device_id=device_id)
+        created=self.get(identifier,device_id=device_id)
+        if self.hub is not None:
+            self.hub.publish('approval.requested',created.model_dump(mode='json'))
+        return created
 
     def _expire(self,c,now):
         c.execute("UPDATE approval_requests SET state='expired',resolved_at=? WHERE state='pending' AND expires_at<=?",(now,now))
@@ -73,4 +76,7 @@ class ApprovalService:
             if row['state']==body['decision']:return ApprovalRequest.model_validate(dict(row))
             if row['state']!='pending':raise IngestError('approval_already_final',409)
             c.execute("UPDATE approval_requests SET state=?,resolved_at=?,resolved_by=? WHERE approval_id=? AND state='pending'",(body['decision'],now,actor_id,identifier))
-        return self.get(identifier)
+        resolved=self.get(identifier)
+        if self.hub is not None:
+            self.hub.publish('approval.resolved',resolved.model_dump(mode='json'))
+        return resolved

@@ -24,12 +24,12 @@ def request_approval(config,product,version,event):
     base=config['server_base_url'].rstrip('/')
     opener=urllib.request.build_opener(NoRedirect)
     deadline=time.monotonic()+timeout
-    def call(path,payload=None):
+    def call(path,payload=None,timeout_cap=2.0):
         request=urllib.request.Request(base+path,data=json.dumps(payload).encode() if payload is not None else None,
             headers={'Authorization':'Bearer '+config['device_token'],'Content-Type':'application/json'})
         remaining=deadline-time.monotonic()
         if remaining<=0:raise TimeoutError
-        with opener.open(request,timeout=min(2,remaining)) as response:
+        with opener.open(request,timeout=min(timeout_cap,remaining)) as response:
             return json.loads(response.read(64*1024))
     try:
         result=call('/api/v1/approval-requests',body)
@@ -44,7 +44,16 @@ def request_approval(config,product,version,event):
             if result['state']=='approved':return 'allow','ASGP operator approved '+identifier
             if result['state']!='pending':return 'deny','ASGP operator denied or expired '+identifier
             if time.monotonic()>=deadline:return 'deny','ASGP approval timeout '+identifier
-            time.sleep(min(.2,max(0,deadline-time.monotonic())))
-            result=call('/api/v1/approval-requests/'+identifier)
+            remaining=deadline-time.monotonic()
+            if remaining<=0:return 'deny','ASGP approval timeout '+identifier
+            if config.get('approval_push_wait', True) and remaining>0.4:
+                wait_sec=round(min(1.5,max(0.2,remaining-0.3)),2)
+                t0=time.monotonic()
+                result=call('/api/v1/approval-requests/'+identifier+'?wait=1&timeout='+str(wait_sec),timeout_cap=wait_sec+1.0)
+                if result['state']=='pending' and (time.monotonic()-t0)<0.15:
+                    time.sleep(min(.2,max(0,deadline-time.monotonic())))
+            else:
+                time.sleep(min(.2,max(0,remaining)))
+                result=call('/api/v1/approval-requests/'+identifier)
     except Exception:
         return 'deny','ASGP approval unavailable or invalid'

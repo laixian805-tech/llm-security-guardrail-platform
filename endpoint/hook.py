@@ -7,6 +7,7 @@ import uuid
 from pathlib import Path
 from datetime import datetime, timezone
 from endpoint.config import load
+from endpoint.lineage import infer_lineage
 from endpoint.outbox import Outbox, enqueue
 from endpoint.protocols import parse, directive
 from endpoint.redaction import summarize
@@ -69,6 +70,7 @@ def capture(config, product, payload, *, now=None):
         if event['tool_name']:
             call = event['tool_call_id'] or uuid.uuid4().hex
             intent_id = 'intent_'+stable(execution_id, call)
+            src_kind, src_ref = infer_lineage(product, payload, tool_call_id=event['tool_call_id'])
             summary, digest = summarize(event['params'])
             intent = {'intent_id': intent_id, 'tool_call_id': event['tool_call_id'],
                 'tool_name': event['tool_name'], 'hook_event_type': event['hook_event_type'],
@@ -76,8 +78,8 @@ def capture(config, product, payload, *, now=None):
                 'params_summary': summary, 'params_sha256': digest, 'redaction_applied': True,
                 'occurred_at': stamp, 'ended_at': stamp if event['event'] == 'PostToolUse' else None,
                 'product_result': 'observed' if event['event'] == 'PostToolUse' else None,
-                'source_kind': os.environ.get('ASGP_SOURCE_KIND') or None,
-                'source_ref': os.environ.get('ASGP_SOURCE_REF') or None}
+                'source_kind': src_kind,
+                'source_ref': src_ref}
             records.append((intent_id+':'+event['event'], '/api/v1/executions/'+execution_id+'/intents', intent))
             if config.get('runtime_anchors') and event['event']=='PreToolUse':
                 pid=os.getppid()

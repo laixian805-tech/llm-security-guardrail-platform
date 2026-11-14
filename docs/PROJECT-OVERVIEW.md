@@ -197,7 +197,7 @@ check → approve → stage → commit → verify → reconcile
 
 | 指标 | 数值 | 口径 |
 | --- | --- | --- |
-| 自动化测试 | **457 项全绿** | 契约、迁移（Schema v12）、鉴权、Ed25519 验签、适配器、归因、副作用差分、治理、端侧 |
+| 自动化测试 | **487 项全绿** | 契约、迁移（Schema v12）、鉴权、Ed25519 验签、适配器、归因、副作用差分、治理、端侧 |
 | 接入产品 | **3 个** | Claude Code 2.1.152 / Codex 0.166.0 / qwen-code 0.26.8 |
 | 标注攻击集检出率 | **83.33%**（15/18） | SkillSpector 静态模式，`--no-llm`，可重放 |
 | 攻击集误报率 | **0%**（0/7） | 7 条良性样本；样本小，不代表真实环境误报率 |
@@ -303,6 +303,7 @@ check → approve → stage → commit → verify → reconcile
 | 数据外发链只到路径级 | 证明「先读后发」，不证明字节流向；跨会话接力不覆盖；可信域名是硬编码 | 内容级需端侧拦读写，量级不同，当前明确不做 |
 | ~~MCP 准入无产品侧验证~~ | 已支持端侧读取产品 MCP 配置与 `<product> mcp list` 枚举三态回传（详见 [2026-11-14 P1 报告](acceptance/2026-11-14-p1-capabilities-and-ablation.md)） | 待在真实准入单上联跑回传闭环 |
 | ~~纯 MCP 配置的管道执行漏检~~ | 已新增 `mcp-config-guard` 规则引擎捕获 `mcpServers.args` 管道执行、未固定包与明文凭据 | 语义检测器按需可选叠加 |
+| ~~`SourceKind` 仅靠环境变量 & 无外部轨迹/PG 对等校验~~ | P2 已交付 `endpoint/lineage.py` 非环境变量 transcript 推导、PostgreSQL v12 29表/295列 DDL 对等、SSE/异步入库、`sendto`/`sendmsg`+LOTS、`coverage_reports` 实库修复及 AgentDojo/InjecAgent 风格 N=40（Wilson 95% CI）基准（见 [2026-11-14 P2 报告](acceptance/2026-11-14-p2-lineage-push-and-benchmarks.md)） | 外部真实在线 LLM 模型跑批按需扩展 |
 | ~~策略回滚无 API~~ | 已修：`POST /policies/versions/{v}/rollback` 允许 retired → active，强制带原因，迁移记录标注 rollback；8 项测试覆盖 | — |
 | ~~无数字签名/发布者验签~~ | 已修（Schema v11）：`publishers` 公钥台账 + 服务端 RFC 8032 Ed25519 验签，拒收客户端自报布尔字段 | 仅余外部 PKI / 证书透明日志未接 |
 | 控制面连不到被测主机 | 产品验证靠端侧回传，下发靠手工/脚本 | 端侧任务拉取通道产品化 |

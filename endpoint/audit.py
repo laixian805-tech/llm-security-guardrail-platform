@@ -26,7 +26,7 @@ _SHELL_BINS={'sh','bash','dash'}
 _FORBIDDEN_SHELL_META=('\n','\r',';','|','`','$(','>','<','#')
 _EXECVE_ARG=re.compile(r'^a(\d+)$')
 # x86_64 only: rule installation is explicitly arch=b64.
-SYSCALLS={'59':'process_start','322':'process_start','42':'network_connect',
+SYSCALLS={'59':'process_start','322':'process_start','42':'network_connect','44':'network_connect','46':'network_connect',
           '2':'file_access','257':'file_access','437':'file_access'}
 
 
@@ -75,11 +75,14 @@ def normalize(records,*,uid,keys,boot_id):
         if addrs:
             resources=[a for a in addrs if a is not None]
             if not resources:return []
+        elif syscall.get('syscall') in {'44','46'}:
+            # sendto/sendmsg 无 SOCKADDR（如已连接本地/IPC 套接字）不产生空主机噪声。
+            return []
     events=[]
     for index,resource in enumerate(resources):
         digest=hashlib.sha256(f'{boot_id}:{stamp}:{serial}:{index}'.encode()).hexdigest()[:32]
         event={'event_id':'audit_'+digest,'event_type':event_type,'occurred_at':occurred,'process':process,
-            'resource':resource,'action':{'process_start':'exec','file_access':'open','network_connect':'connect'}[event_type],
+            'resource':resource,'action':{'42':'connect','44':'sendto','46':'sendmsg'}.get(syscall.get('syscall'),{'process_start':'exec','file_access':'open','network_connect':'connect'}[event_type]),
             'result':'success' if syscall.get('success')=='yes' else 'in_progress' if event_type=='network_connect' and syscall.get('exit')=='-115' else 'failed','sequence':int(serial),
             'evidence_refs':[{'kind':'linux_audit','uri':f'audit:{boot_id}:{stamp}:{serial}'}]}
         events.append(event)
