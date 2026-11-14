@@ -21,6 +21,7 @@ from services.evidence_rules import (
     TRUSTED_SUFFIXES,
     is_external_host,
     is_sensitive_path,
+    normalize_hint_path,
 )
 from services.ingestion_service import IngestError
 
@@ -63,47 +64,80 @@ class DataFlowService:
             if not execution:
                 raise IngestError("unknown_execution", 404)
             intents = [dict(row) for row in conn.execute(
-                "SELECT intent_id,tool_name,occurred_at,params_summary FROM intents"
-                " WHERE execution_id=? ORDER BY occurred_at", (execution_id,))]
+                "SELECT intent_id,execution_id,tool_name,decision,occurred_at,ended_at,params_summary"
+                " FROM intents WHERE execution_id=? ORDER BY occurred_at", (execution_id,))]
+            intent_ids = [i["intent_id"] for i in intents]
+            attributed_files: dict[str, list[dict]] = {}
+            attributed_nets: list[dict] = []
+            if intent_ids:
+                marks = ",".join("?" * len(intent_ids))
+                for row in conn.execute(
+                    "SELECT a.intent_id,e.event_id,e.event_type,e.occurred_at,"
+                    "e.resource_host,e.resource_port,e.resource_path,e.pid"
+                    " FROM event_attributions a JOIN runtime_events e"
+                    " ON e.host_id=a.host_id AND e.collector_id=a.collector_id AND e.event_id=a.event_id"
+                    f" WHERE a.selected=1 AND a.intent_id IN ({marks})"
+                    " AND e.event_type IN ('network_connect','file_access')"
+                    " ORDER BY e.occurred_at",
+                    intent_ids,
+                ):
+                    item = dict(row)
+                    if item["event_type"] == "file_access":
+                        attributed_files.setdefault(item["intent_id"], []).append(item)
+                    else:
+                        attributed_nets.append(item)
+
             events = [dict(row) for row in conn.execute(
                 "SELECT event_id,event_type,occurred_at,resource_host,resource_port,resource_path,pid"
                 " FROM runtime_events WHERE execution_id=? AND event_type IN"
                 " ('network_connect','file_access') ORDER BY occurred_at", (execution_id,))]
-            # 真实采集里审计事件几乎都不带 execution_id（全库 18820 条只有 17 条有），
-            # 按执行查会永远为空。退回"同主机 + 时间窗"，并如实标注依据——
-            # 时间窗匹配的 sink 有可能属于同期别的进程，置信度要降级。
+            # 真实采集里审计事件几乎都不带 execution_id；优先采用已 selected=1 归因的外连事件，
+            # 无归因外连时再退回"同主机 + 时间窗"，并如实标注 sink_basis。
             sink_basis = "execution_id"
             if not events:
-                started = str(execution["started_at"])
-                # 事件带毫秒、intent 时间不带，直接用字符串当上界会把同一秒里
-                # 毫秒更大的事件排除掉（13:02:46 < 13:02:46.357）。统一按时间戳
-                # 计算并留 90 秒缓冲：进程退出、连接收尾通常晚于最后一次工具调用。
-                last = max((datetime.fromisoformat(str(i["occurred_at"])) for i in intents),
-                           default=datetime.fromisoformat(started))
-                if execution["ended_at"]:
-                    end_dt = datetime.fromisoformat(str(execution["ended_at"]))
+                if any(_is_external(ev.get("resource_host")) for ev in attributed_nets):
+                    events = attributed_nets
+                    sink_basis = "attribution"
                 else:
-                    end_dt = last + timedelta(seconds=90)
-                ended = end_dt.isoformat()
-                events = [dict(row) for row in conn.execute(
-                    "SELECT event_id,event_type,occurred_at,resource_host,resource_port,resource_path,pid"
-                    " FROM runtime_events WHERE host_id=? AND device_id=? AND occurred_at>=?"
-                    " AND occurred_at<=? AND event_type IN ('network_connect','file_access')"
-                    " ORDER BY occurred_at",
-                    (execution["host_id"], execution["device_id"], started, ended))]
-                sink_basis = "time_window"
+                    started = str(execution["started_at"])
+                    # 事件带毫秒、intent 时间不带，统一按时间戳计算并留 90 秒缓冲。
+                    last = max((datetime.fromisoformat(str(i["occurred_at"])) for i in intents),
+                               default=datetime.fromisoformat(started))
+                    if execution["ended_at"]:
+                        end_dt = datetime.fromisoformat(str(execution["ended_at"]))
+                    else:
+                        end_dt = last + timedelta(seconds=90)
+                    ended = end_dt.isoformat()
+                    events = [dict(row) for row in conn.execute(
+                        "SELECT event_id,event_type,occurred_at,resource_host,resource_port,resource_path,pid"
+                        " FROM runtime_events WHERE host_id=? AND device_id=? AND occurred_at>=?"
+                        " AND occurred_at<=? AND event_type IN ('network_connect','file_access')"
+                        " ORDER BY occurred_at",
+                        (execution["host_id"], execution["device_id"], started, ended))]
+                    sink_basis = "time_window"
             anchors = [dict(row) for row in conn.execute(
                 "SELECT intent_id,occurred_at FROM intents WHERE execution_id=?", (execution_id,))]
         _ = anchors  # 保留查询以便后续做时间对齐扩展
 
         flows: list[dict] = []
         for index, intent in enumerate(intents):
-            hints = self._hints(intent)
-            sensitive = [hint for hint in hints if _is_sensitive(hint)]
-            if not sensitive:
+            if intent.get("decision") == "deny" and not intent.get("ended_at"):
                 continue
-            for source_path in sensitive:
-                flow = self._build(intent, source_path, intents[index + 1:], events, sink_basis)
+            sources: dict[str, tuple[str, str, str | None]] = {}
+            for hint in self._hints(intent):
+                if _is_sensitive(hint):
+                    key = normalize_hint_path(hint) or hint
+                    sources.setdefault(key, (hint, str(intent["occurred_at"]), None))
+            for ev in attributed_files.get(intent["intent_id"], []):
+                path = ev.get("resource_path")
+                if _is_sensitive(path):
+                    key = normalize_hint_path(path) or str(path)
+                    sources.setdefault(key, (str(path), str(ev["occurred_at"]), ev["event_id"]))
+            for source_path, source_time, source_event_id in sources.values():
+                flow = self._build(
+                    intent, source_path, intents[index + 1:], events, sink_basis,
+                    source_time=source_time, source_event_id=source_event_id,
+                )
                 if flow:
                     flows.append(flow)
         return {"execution_id": execution_id, "version": VERSION,
@@ -125,9 +159,10 @@ class DataFlowService:
         return [str(hint) for hint in (hints or [])]
 
     def _build(self, source_intent: dict, source_path: str,
-               later_intents: list[dict], events: list[dict], sink_basis: str) -> dict | None:
+               later_intents: list[dict], events: list[dict], sink_basis: str,
+               *, source_time: str | None = None, source_event_id: str | None = None) -> dict | None:
         """从一次敏感读取出发，找中转跳与外部 sink。没有 sink 就不产链。"""
-        source_time = str(source_intent["occurred_at"])
+        source_time = source_time or str(source_intent["occurred_at"])
         name = _basename(source_path)
 
         hops = []
@@ -177,6 +212,8 @@ class DataFlowService:
         sink = sinks[0]
         evidence = [_evidence("intent", source_intent["intent_id"]),
                     _evidence("file_access", source_path)]
+        if source_event_id:
+            evidence.append(_evidence("runtime_event", source_event_id))
         evidence.extend(item["evidence_refs"][0] for item in hops)
         evidence.append(_evidence("network_connect", sink["event_id"]))
 

@@ -60,3 +60,15 @@
 ```bash
 .venvs/control-plane/bin/python scripts/lab/eval_attribution.py --json-out docs/acceptance/attribution-eval.json
 ```
+
+## 2026-11-13 扩展基线更新（10 个场景 / 13 条事件，对应当前 `attribution-eval.json`）
+
+> 上文 8 场景 / 11 事件为 2026-11-12 首轮基线。后续标注集已扩展并引入端侧错误 `intent_ref` 故障注入场景与跨会话无关事件（见 [`attribution-eval.json`](./attribution-eval.json)）：
+
+| 口径 | Precision | Recall | 边数 | 说明 |
+| --- | --- | --- | --- | --- |
+| **selected**（score ≥ 0.8 且无冲突） | **0.8333**（5/6） | **0.625**（5/8） | 6 | 1 条误选来自刻意注入的 `collector_hint_points_at_wrong_intent` |
+| **any_edge**（含弱候选 0.35） | **0.8889**（8/9） | **0.875**（7/8） | 9 | 保留冲突边与弱候选后覆盖 7/8 正样本 |
+
+- 分方法精度：`process_tree` **1.00**（5/5）、`temporal_feature` **1.00**（1/1）、`hook_id` **0.6667**（2/3，`false_strong_rate = 0.125`）。
+- 负样本正确拒绝：**5/5**（`unresolved` 5 条全部 `correct_negative`）；`conflict_recall = 1.0`，`conflict_false_positive_rate = 0.0`。

@@ -55,3 +55,20 @@ def test_endpoint_offline_approval_fails_closed():
     config={'server_base_url':'http://127.0.0.1:1','device_token':'fake','approval_timeout_seconds':1}
     event={'session_id':'s','tool_call_id':'t','tool_name':'Bash','params':{}}
     assert request_approval(config,'codex','0.166.0',event)[0]=='deny'
+def test_approved_approval_cannot_replay_or_outlive_expiry(api,admin_token):
+    device=setup_device(api,admin_token,'replay')
+    req=body();req['tool_call_id']='call-replay'
+    created=call(api.base,'POST','/api/v1/approval-requests',token=device['token'],body=req)
+    assert created.status_code==200,created.text
+    identifier=created.json()['approval_id']
+    resolved=call(api.base,'POST','/api/v1/approvals/'+identifier,token=admin_token,body={'decision':'approved','params_sha256':req['params_sha256']})
+    assert resolved.status_code==200,resolved.text
+    # Re-submitting POST /api/v1/approval-requests for an already approved call must be rejected (no replay).
+    replayed=call(api.base,'POST','/api/v1/approval-requests',token=device['token'],body=req)
+    assert replayed.status_code==409
+    assert replayed.json()['error']['code']=='approval_replay_forbidden'
+    # Device polling past expires_at sees expired even after approval, while operator console preserves audit state.
+    with api.module.storage.connection() as c:
+        c.execute("UPDATE approval_requests SET expires_at='2000-01-01T00:00:00+00:00' WHERE approval_id=?",(identifier,))
+    assert call(api.base,'GET','/api/v1/approval-requests/'+identifier,token=device['token']).json()['state']=='expired'
+    assert call(api.base,'GET','/api/v1/approvals',token=admin_token).json()['approvals'][0]['state']=='approved'

@@ -30,23 +30,33 @@ class ApprovalService:
         device=DeviceIdentityRepository(self.storage).get(device_id)
         if not device or not device['host_id']:raise IngestError('host_unbound',409)
         now=datetime.now(timezone.utc);identifier='approval_'+uuid.uuid4().hex
+        now_iso=now.isoformat()
         with self.storage._lock,self.storage.connection() as c:
-            c.execute("INSERT OR IGNORE INTO approval_requests VALUES (?,?,?,?,?,?,?,?,?,'pending',?,?,NULL,NULL)",
-                (identifier,device_id,device['host_id'],value.product,value.product_version,value.session_id,value.tool_call_id,value.tool_name,value.params_sha256,
-                 now.isoformat(),(now+timedelta(seconds=value.timeout_seconds)).isoformat()))
-            row=c.execute('SELECT * FROM approval_requests WHERE device_id=? AND product=? AND session_id=? AND tool_call_id=? AND params_sha256=?',
+            self._expire(c,now_iso)
+            existing=c.execute('SELECT * FROM approval_requests WHERE device_id=? AND product=? AND session_id=? AND tool_call_id=? AND params_sha256=?',
                 (device_id,value.product,value.session_id,value.tool_call_id,value.params_sha256)).fetchone()
-        return self.get(row['approval_id'],device_id=device_id)
+            if existing is not None:
+                if existing['state']=='approved':
+                    raise IngestError('approval_replay_forbidden',409)
+                return ApprovalRequest.model_validate(dict(existing))
+            c.execute("INSERT INTO approval_requests VALUES (?,?,?,?,?,?,?,?,?,'pending',?,?,NULL,NULL)",
+                (identifier,device_id,device['host_id'],value.product,value.product_version,value.session_id,value.tool_call_id,value.tool_name,value.params_sha256,
+                 now_iso,(now+timedelta(seconds=value.timeout_seconds)).isoformat()))
+        return self.get(identifier,device_id=device_id)
 
     def _expire(self,c,now):
         c.execute("UPDATE approval_requests SET state='expired',resolved_at=? WHERE state='pending' AND expires_at<=?",(now,now))
 
     def get(self,identifier,device_id=None):
+        now_iso=datetime.now(timezone.utc).isoformat()
         with self.storage._lock,self.storage.connection() as c:
-            self._expire(c,datetime.now(timezone.utc).isoformat())
+            self._expire(c,now_iso)
             row=c.execute('SELECT * FROM approval_requests WHERE approval_id=?',(identifier,)).fetchone()
         if not row or (device_id is not None and row['device_id']!=device_id):raise IngestError('unknown_approval',404)
-        return ApprovalRequest.model_validate(dict(row))
+        data=dict(row)
+        if device_id is not None and data['state']=='approved' and data['expires_at']<=now_iso:
+            data['state']='expired'
+        return ApprovalRequest.model_validate(data)
 
     def list(self):
         with self.storage._lock,self.storage.connection() as c:

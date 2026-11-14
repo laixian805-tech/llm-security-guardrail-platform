@@ -17,7 +17,12 @@ SENSITIVE_MARKERS = (
     ".aws/credentials", ".git-credentials", ".npmrc", ".pypirc",
     ".kube/config", ".docker/config.json", "keychain", "login data",
     ".env", "credentials", "cookies", "cookie.sqlite", "wallet.dat",
+    "/etc/shadow", "/etc/gshadow", "/etc/sudoers",
+    ".bash_history", ".zsh_history", ".gnupg", "/proc/self/environ",
 )
+
+PROC_ENVIRON_RE = re.compile(r"^/proc/(?:self|\d+)/environ$")
+BENIGN_ENV_SUFFIXES = (".env.example", ".env.sample", ".env.template", ".env.dist")
 
 TRUSTED_HOSTS = (
     # 代码托管与包管理：日常构建必经，纳入白名单否则每次 push/install 都误报。
@@ -41,12 +46,14 @@ def normalize_hint_path(path: str | None) -> str | None:
 
 
 def is_sensitive_path(path: str | None) -> bool:
-    """判断路径是否触及敏感凭据/配置；公钥 (.pub) 不算敏感源。"""
+    """判断路径是否触及敏感凭据/配置；公钥 (.pub) 与示例环境变量模板不算敏感源。"""
     if not path:
         return False
-    lowered = str(path).lower()
-    if lowered.endswith(".pub"):
+    lowered = str(path).strip().lower()
+    if lowered.endswith(".pub") or lowered.endswith(BENIGN_ENV_SUFFIXES):
         return False
+    if PROC_ENVIRON_RE.match(lowered):
+        return True
     return any(marker in lowered for marker in SENSITIVE_MARKERS)
 
 

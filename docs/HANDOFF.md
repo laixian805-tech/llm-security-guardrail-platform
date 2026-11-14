@@ -51,7 +51,7 @@ nginx 配置在 `/etc/nginx/conf.d/asgp.conf`，归档副本 `deploy/nginx-asgp.
 | 准入状态机 | 完成 | 8 态：check→approve→stage→commit→verify / reject / rollback，非法跳转一律拒 |
 | 风险与策略 | 完成 + 已验证 | 六组风险输入 **6/6** 命中预期规则；同一输入在 policy-v1 与 policy-eval-v2 下决策不同（confirm→block），复位后恢复 |
 | 策略回滚 | 完成 | retired → active 需带原因，迁移记录标 rollback |
-| 行为归因 | 完成 | 标注集 8 场景 11 事件：精度 **1.00** / 召回 **0.71**（selected）；含弱候选时召回 1.00；负样本零误归 |
+| 行为归因 | 完成 | 标注集 10 场景 13 事件：selected 精度 **0.8333** / 召回 **0.625**（`hook_id` 精度 0.6667，`process_tree` 精度 1.00，`false_strong_rate=0.125`）；any 精度 0.8889 / 召回 0.875 |
 | 数据外发链 | 完成 | 30 条标注序列：**检出 15/15、误报 0/15**；关键负样本「读私钥 + git push github」不报 |
 | 采集完整性 | 完成 | Audit 层 20 次操作零丢失；Hook 前置事件 25/25；后置 18/20（缺的 2 次由产品进程 OOM kill 导致） |
 | 控制台 | 完成（聚焦改版） | 证据链与治理分组导航 + 发布者 Ed25519 验签 + EffectDiff 反事实差分面板 + 概览实时评测四卡（归因 156/22508） |
@@ -100,7 +100,7 @@ deploy/                      nginx 配置与说明
 | **P1** | 纯 MCP 配置漏检管道执行 | `mcpServers.args` 里的 `curl \| sh` 不触发 SC2/TM2（写在 SKILL.md 里才触发） | 补 MCP 专用规则或接语义检测器 |
 | **P1** | MCP 准入无产品侧加载验证 | `activation_state=unknown`，配置审批过但不知道产品是否真的注册了 | 接产品 MCP 枚举 + 端侧回传 |
 | P2 | 数据流链只到路径级 | 证明"先读后发"，不证明字节流向；跨会话接力不覆盖 | 内容级需要端侧拦读写，量级不同，当前明确不做 |
-| P2 | 归因标注集偏小 | 11 条事件，只能证明判据行为正确，不能外推误报率 | 扩到 50+，加多 agent 并发 |
+| P2 | 归因标注集偏小 | 当前 10 场景 13 条事件，只能证明判据行为与故障注入边界，不能外推生产误报率 | 扩到 50+，加多 agent 并发 |
 | P2 | Windows / macOS 采集未做 | 端侧只支持 Linux auditd | Windows 可做（Kernel-Process ETW）；macOS 受 entitlement 限制，建议只做接口不硬做 |
 
 **已修但值得知道的**：采集器游标曾在日志轮转后越界，导致事件时间静默停在 7 小时前，上层所有时间窗关联全部错位。现在按 `(source, inode)` 分文件记游标，实测滞后从 48733 秒降到 53 秒。

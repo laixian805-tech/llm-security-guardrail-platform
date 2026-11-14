@@ -504,8 +504,14 @@ class TestEd25519ReleaseVerification:
                         body={"name": "acme-signer", "public_key": other_pub_hex})
         assert conflict.status_code == 409
 
+        from services.asset_service import release_signing_payload
+        # 拒绝小阶点公钥或 R 点。
+        assert not verify_ed25519(bytes([1]) + b"\x00" * 31, b"msg", sig_vec)
+        assert not verify_ed25519(pk_vec, b"msg", bytes([1]) + b"\x00" * 31 + b"\x00" * 32)
+
         asset = _register(api, admin_token, publisher="acme-signer")["asset"]
-        sig_hex = sign(CONTENT_HASH.encode("ascii")).hex()
+        other_asset = _register(api, admin_token, canonical_name="other-pkg", publisher="acme-signer")["asset"]
+        sig_hex = sign(release_signing_payload(asset["asset_id"], "1.0.0", CONTENT_HASH)).hex()
 
         # 绝不信任客户端自报 signature_verified。
         forged_flag = call(api.base, "POST", "/api/v1/asset-releases", token=admin_token,
@@ -523,6 +529,22 @@ class TestEd25519ReleaseVerification:
                               "signature": sig_hex})
         assert tampered.status_code == 400
         assert tampered.json()["error"]["code"] == "signature_verification_failed"
+
+        # 跨版本或跨资产重放相同 content_hash 签名必须失败。
+        cross_version = call(api.base, "POST", "/api/v1/asset-releases", token=admin_token,
+                             body={"asset_id": asset["asset_id"], "version": "2.0.0",
+                                   "content_hash": CONTENT_HASH,
+                                   "publisher_id": publisher["publisher_id"],
+                                   "signature": sig_hex})
+        assert cross_version.status_code == 400
+        assert cross_version.json()["error"]["code"] == "signature_verification_failed"
+        cross_asset = call(api.base, "POST", "/api/v1/asset-releases", token=admin_token,
+                           body={"asset_id": other_asset["asset_id"], "version": "1.0.0",
+                                 "content_hash": CONTENT_HASH,
+                                 "publisher_id": publisher["publisher_id"],
+                                 "signature": sig_hex})
+        assert cross_asset.status_code == 400
+        assert cross_asset.json()["error"]["code"] == "signature_verification_failed"
 
         # 合法 Ed25519 签名：服务端算得 signature_verified=True 与 verified_at。
         verified = call(api.base, "POST", "/api/v1/asset-releases", token=admin_token,

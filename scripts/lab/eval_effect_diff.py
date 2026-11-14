@@ -229,6 +229,8 @@ def main() -> int:
         rows = []
 
         for idx, sc in enumerate(SCENARIOS, 1):
+            base_sec = idx * 100
+            anchor_pid = 4000 + idx
             ex_id = f"exec_eval_{idx}"
             intent_id = f"int_eval_{idx}"
             ingest.execution(
@@ -238,7 +240,7 @@ def main() -> int:
                     "product": "claude-code",
                     "product_version": "2.1.152",
                     "session_id": f"sess_{idx}",
-                    "started_at": _ts(0),
+                    "started_at": _ts(base_sec),
                     "outcome": "running",
                 },
             )
@@ -255,29 +257,59 @@ def main() -> int:
                     "params_summary": json.dumps({"parameter_names": ["target"], "resource_hints": sc["hints"]}),
                     "source_kind": sc["source_kind"],
                     "source_ref": sc["source_ref"],
-                    "occurred_at": _ts(1),
+                    "occurred_at": _ts(base_sec + 1),
+                    "ended_at": _ts(base_sec + 5),
+                },
+            )
+            # 先摄入 Hook 锚点，真实审计事件不预填 execution_id/intent_ref，交由进程树归因连接。
+            ingest.batch(
+                device_id,
+                {
+                    "collector_id": "eval-hook",
+                    "events": [
+                        {
+                            "event_id": f"anchor_{idx}",
+                            "execution_id": ex_id,
+                            "intent_ref": intent_id,
+                            "event_type": "hook_anchor",
+                            "occurred_at": _ts(base_sec + 1),
+                            "action": "hook_anchor",
+                            "result": "ok",
+                            "process": {"pid": anchor_pid, "ppid": 1, "executable": "claude"},
+                        }
+                    ],
                 },
             )
             batch = []
             for ev_idx, ev in enumerate(sc["events"], 1):
                 item = {
                     "event_id": f"ev_{idx}_{ev_idx}",
-                    "execution_id": ex_id,
-                    "intent_ref": intent_id,
                     "event_type": ev["type"],
-                    "occurred_at": _ts(2),
+                    "occurred_at": _ts(base_sec + 2),
                     "action": ev["type"],
                     "result": "ok",
+                    "process": {
+                        "pid": 5000 + idx * 10 + ev_idx,
+                        "ppid": anchor_pid,
+                        "executable": ev.get("executable", "/usr/bin/tool"),
+                    },
                 }
                 if ev["type"] == "file_access":
                     item["resource"] = {"path": ev["path"]}
                 elif ev["type"] == "network_connect":
                     item["resource"] = {"host": ev["host"], "port": ev["port"]}
-                elif ev["type"] == "process_exec":
-                    item["process"] = {"pid": 5000 + idx, "ppid": 4999, "executable": ev["executable"]}
                 batch.append(item)
             ingest.batch(device_id, {"collector_id": "eval-audit", "events": batch})
-            attr.correlate(ex_id)
+            attr_res = attr.correlate(ex_id)
+            with storage.connection() as c:
+                methods = sorted({
+                    r["method"]
+                    for r in c.execute(
+                        "SELECT method FROM event_attributions WHERE intent_id=? AND selected=1 AND event_id LIKE 'ev_%'",
+                        (intent_id,),
+                    ).fetchall()
+                })
+            assert methods == ["process_tree"], f"{sc['id']}: expected process_tree attribution, got {methods} ({attr_res})"
             res = diff_svc.analyze(ex_id)
 
             detected = res["undeclared_count"] > 0
@@ -303,6 +335,7 @@ def main() -> int:
                     "source_kind": sc["source_kind"],
                     "baseline_rule_only_detected": base_det,
                     "asgp_undeclared_count": res["undeclared_count"],
+                    "attribution_methods": methods,
                     "asgp_detected": detected,
                     "note": sc["note"],
                 }

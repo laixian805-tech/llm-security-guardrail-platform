@@ -130,3 +130,56 @@ def test_unknown_execution_is_404(service):
     with pytest.raises(IngestError) as exc:
         svc.trace("exec_missing")
     assert exc.value.status == 404
+
+
+
+def test_os_attributed_sensitive_file_access_and_net_trigger_flow_without_hints(service):
+    """即使模型参数只剩 parameter_names（无 resource_hints），已归因的 OS 敏感读+外连也必须检出链。"""
+    svc, storage = service
+    from services.attribution_service import AttributionService
+    with storage.connection() as conn:
+        conn.execute(
+            "INSERT INTO device_identities (device_id,label,credential_hash,status,enrolled_at,host_id)"
+            " VALUES (?,?,?,?,?,?)",
+            ("dev_os", "os", "0" * 64, "active", at(0), "host-os"))
+        conn.execute(
+            "INSERT INTO executions (execution_id,host_id,device_id,product,product_version,"
+            "session_id,started_at,outcome,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            ("exec_os_secret", "host-os", "dev_os", "qwen-code", PRODUCT_VERSIONS["qwen-code"], "s-os",
+             at(0), "running", at(0), at(0)))
+        conn.execute(
+            "INSERT INTO intents (intent_id,execution_id,tool_call_id,tool_name,hook_event_type,"
+            "decision,params_summary,params_sha256,redaction_applied,occurred_at,ended_at,created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("int_sh", "exec_os_secret", "tc_sh", "run_shell_command", "pre_tool_use",
+             "not_applicable", json.dumps({"parameter_names": ["command"], "values_omitted": True}),
+             "0" * 64, 1, at(1), at(3), at(1)))
+        for eid, etype, ts, pid, ppid, exe, rpath, rhost, rport, iref in [
+            ("ev_anchor", "hook_anchor", at(1), 7016, 7000, "qwen", None, None, None, "int_sh"),
+            ("ev_cat", "file_access", at(1.5), 7046, 7016, "/usr/bin/cat", ".env.secret", None, None, None),
+            ("ev_curl", "network_connect", at(2.0), 7047, 7016, "/usr/bin/curl", None, "104.20.23.154", 443, None),
+        ]:
+            conn.execute(
+                "INSERT INTO runtime_events (event_id,host_id,collector_id,device_id,execution_id,"
+                "event_type,occurred_at,received_at,pid,ppid,executable,resource_path,resource_host,"
+                "resource_port,action,result,sequence,evidence_refs,intent_ref) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (eid, "host-os", "linux-audit-v1", "dev_os", "exec_os_secret" if etype == "hook_anchor" else None,
+                 etype, ts, ts, pid, ppid, exe, rpath, rhost, rport, "observed", "success", 0, "[]", iref))
+        conn.commit()
+    AttributionService(storage).correlate("exec_os_secret")
+    report = svc.trace("exec_os_secret")
+    assert report["sink_basis"] == "attribution"
+    assert len(report["flows"]) == 1
+    assert report["flows"][0]["source"]["path"] == ".env.secret"
+    assert report["flows"][0]["sink"]["host"] == "104.20.23.154"
+    assert report["flows"][0]["execution_id"] == "exec_os_secret"
+
+
+def test_sensitive_path_updates_and_benign_env_templates():
+    from services.evidence_rules import is_sensitive_path
+    assert is_sensitive_path("/etc/shadow") is True
+    assert is_sensitive_path("/proc/1234/environ") is True
+    assert is_sensitive_path("/home/lab/.bash_history") is True
+    assert is_sensitive_path("/home/lab/proj/.env.secret") is True
+    assert is_sensitive_path("/home/lab/proj/.env.example") is False
+    assert is_sensitive_path("/home/lab/proj/.env.sample") is False

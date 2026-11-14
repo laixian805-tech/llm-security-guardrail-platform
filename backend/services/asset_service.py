@@ -168,6 +168,11 @@ def derive_activation_state(admissions: list[dict[str, Any]]) -> str:
     return ActivationState.UNKNOWN.value
 
 
+def release_signing_payload(asset_id: str, version: str, content_hash: str) -> bytes:
+    """域分隔的发布签名载荷，防止跨资产或跨版本签名重放。"""
+    return f"ASGP-REL-v1\0{asset_id}\0{version}\0{content_hash}".encode("utf-8")
+
+
 class AssetService:
     def __init__(self, storage: Storage) -> None:
         self.storage = storage
@@ -308,7 +313,7 @@ class AssetService:
             if sig_bytes is None:
                 raise IngestError("invalid_signature_format")
             pub_bytes = bytes.fromhex(publisher["public_key"])
-            if not verify_ed25519(pub_bytes, content_hash.encode("ascii"), sig_bytes):
+            if not verify_ed25519(pub_bytes, release_signing_payload(asset_id, version, content_hash), sig_bytes):
                 raise IngestError("signature_verification_failed")
             canonical_sig = sig_bytes.hex()
             signature_verified = True

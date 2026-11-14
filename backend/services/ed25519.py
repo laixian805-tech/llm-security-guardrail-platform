@@ -123,6 +123,9 @@ def verify_ed25519(public_key: bytes, message: bytes, signature: bytes) -> bool:
     s_int = int.from_bytes(signature[32:], "little")
     if a_point is None or r_point is None or s_int >= _L:
         return False
+    # Reject identity and all cofactor-8 small-order torsion points on A and R.
+    if _point_equal(_point_mul(8, a_point), _NEUTRAL) or _point_equal(_point_mul(8, r_point), _NEUTRAL):
+        return False
     h = int.from_bytes(hashlib.sha512(r_bytes + public_key + message).digest(), "little") % _L
     lhs = _point_mul(s_int, _B)
     rhs = _point_add(r_point, _point_mul(h, a_point))
