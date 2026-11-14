@@ -170,7 +170,7 @@ check → approve → stage → commit → verify → reconcile
 | 行为归因 | 首片 + 已有指标 | Hook ID / 进程树 / 资源时间弱关联；10 场景 13 事件标注集上 selected 精度 **0.8333**、召回 **0.625**（any 精度 0.8889 / 召回 0.875，5/5 负样本正确拒绝，包含 1 例 `collector_hint_points_at_wrong_intent` 误导故障注入 `false_strong_rate=0.125`） |
 | 准入安装 | 完成 | 平台托管 + 产品真实加载路径，端侧探测回传，`activation_state=enabled` 实测产出 |
 | 策略版本 | 完成 + 已验证生效 | draft/active/retired + 原子激活 + **回滚（必须带原因）**；6 组用例 6/6 命中预期规则，同一输入在 v1/v2 下决策不同（confirm→block→confirm）|
-| MCP 资产与准入 | 完成（配置层） | `asset_type=mcp_server` 走同一状态机；纯 mcp.json 检出 PE3+RP1，但管道执行类漏检 |
+| MCP 资产与准入 | 完成（含守卫与端侧枚举） | `asset_type=mcp_server` 走同一状态机；`mcp-config-guard` 捕获 `mcpServers.args` 管道执行；端侧 `probe_product --asset-type mcp_server` 枚举配置与 `mcp list` |
 | Incident 闭环 | 机制完成 | 状态机 + clean 复测证据门槛（布尔值不足以关闭） |
 | Skill 安全评测 | 完成首轮 | 25 条标注集：检出率 83.33%，误报 0% |
 | 发布者 Ed25519 验签 | 完成（Schema v11） | 服务端 RFC 8032 验签，拒收客户端自报 `signature_verified` |
@@ -301,8 +301,8 @@ check → approve → stage → commit → verify → reconcile
 | 只有 Linux 采集 | Windows/macOS 端侧未实现 | 先用本机 Windows 做最小采集验证 |
 | 归因标注集偏小 | 当前 10 场景 13 条事件，只能证明判据行为与故障注入边界，不能外推生产误报率 | 扩到 50+ 事件、加多 agent 并发场景、对已归因边做人工抽查 |
 | 数据外发链只到路径级 | 证明「先读后发」，不证明字节流向；跨会话接力不覆盖；可信域名是硬编码 | 内容级需端侧拦读写，量级不同，当前明确不做 |
-| MCP 准入只到配置层 | 配置能被审批与检测，但产品侧是否真的注册加载未验证（`activation_state=unknown`） | 接产品 MCP 枚举 + 端侧回传 |
-| 纯 MCP 配置的管道执行漏检 | `mcpServers.args` 里的 `curl \| sh` 不触发 SC2/TM2 | 补 MCP 专用规则或接语义检测器 |
+| ~~MCP 准入无产品侧验证~~ | 已支持端侧读取产品 MCP 配置与 `<product> mcp list` 枚举三态回传（详见 [2026-11-14 P1 报告](acceptance/2026-11-14-p1-capabilities-and-ablation.md)） | 待在真实准入单上联跑回传闭环 |
+| ~~纯 MCP 配置的管道执行漏检~~ | 已新增 `mcp-config-guard` 规则引擎捕获 `mcpServers.args` 管道执行、未固定包与明文凭据 | 语义检测器按需可选叠加 |
 | ~~策略回滚无 API~~ | 已修：`POST /policies/versions/{v}/rollback` 允许 retired → active，强制带原因，迁移记录标注 rollback；8 项测试覆盖 | — |
 | ~~无数字签名/发布者验签~~ | 已修（Schema v11）：`publishers` 公钥台账 + 服务端 RFC 8032 Ed25519 验签，拒收客户端自报布尔字段 | 仅余外部 PKI / 证书透明日志未接 |
 | 控制面连不到被测主机 | 产品验证靠端侧回传，下发靠手工/脚本 | 端侧任务拉取通道产品化 |

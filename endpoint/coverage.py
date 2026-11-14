@@ -81,3 +81,52 @@ def emit(outbox, config, *, period_start, period_end, delivered=0, dead=0):
     if drops:
         outbox.mark_drops_reported(drops[-1]['seq'])
     return report
+def read_kernel_audit_status():
+    """读取 auditctl -s 中的内核 lost / backlog。权限不足或未安装时返回 None，不伪造 0。"""
+    import re
+    import shutil
+    import subprocess
+    exe = shutil.which('auditctl') or ('/sbin/auditctl' if __import__('os').path.exists('/sbin/auditctl') else None)
+    if not exe:
+        return None
+    try:
+        proc = subprocess.run([exe, '-s'], capture_output=True, text=True, timeout=2, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    parsed = {}
+    for k, v in re.findall(r'^(\w+)\s+(\d+)\b', proc.stdout or '', re.MULTILINE):
+        parsed[k] = int(v)
+    if 'lost' not in parsed:
+        return None
+    return {
+        'enabled': parsed.get('enabled', 0),
+        'lost': parsed['lost'],
+        'backlog': parsed.get('backlog', 0),
+        'backlog_limit': parsed.get('backlog_limit', 0),
+    }
+
+
+def record_kernel_audit_drops(outbox, *, status=None):
+    """把 auditctl -s 的增量 kernel lost / backlog 预警写入 outbox_drops。"""
+    info = status if status is not None else read_kernel_audit_status()
+    if not info:
+        return None
+    with outbox.db:
+        outbox.db.execute(
+            'CREATE TABLE IF NOT EXISTS coverage_meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)'
+        )
+        row = outbox.db.execute("SELECT value FROM coverage_meta WHERE key='kernel_audit_lost'").fetchone()
+        prev_lost = int(row['value']) if row is not None else None
+        outbox.db.execute(
+            "INSERT OR REPLACE INTO coverage_meta (key, value) VALUES ('kernel_audit_lost', ?)",
+            (int(info['lost']),),
+        )
+    if prev_lost is not None and info['lost'] > prev_lost:
+        delta = int(info['lost']) - prev_lost
+        outbox.record_drop('kernel_audit_lost', delta, detail=f"backlog={info.get('backlog', 0)}")
+    limit = info.get('backlog_limit') or 0
+    if limit > 0 and info.get('backlog', 0) >= int(limit * 0.8):
+        outbox.record_drop('kernel_audit_backlog', 0, detail=f"{info['backlog']}/{limit}")
+    return info

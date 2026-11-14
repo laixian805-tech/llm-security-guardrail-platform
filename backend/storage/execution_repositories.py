@@ -142,6 +142,46 @@ class ExecutionRepository:
                 raise
 
 
+    def reap_stale(self, *, stale_after_seconds: int = 1800,
+                   product: str | None = None,
+                   now: datetime | None = None) -> dict[str, Any]:
+        """收敛无 SessionEnd（如 qwen-code 退出）的超时 running 执行为 aborted。"""
+        from datetime import timedelta, timezone
+
+        ref_now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        cutoff = ref_now - timedelta(seconds=max(60, int(stale_after_seconds)))
+        cutoff_iso = cutoff.isoformat()
+        stamp = now_iso()
+        closed_ids: list[str] = []
+        with self._storage._lock, self._storage.connection() as conn:
+            sql = "SELECT execution_id, started_at, product FROM executions WHERE outcome = 'running'"
+            params: list[Any] = []
+            if product:
+                sql += " AND product = ?"
+                params.append(product)
+            rows = conn.execute(sql, params).fetchall()
+            for row in rows:
+                ex_id = row["execution_id"]
+                last_intent = conn.execute(
+                    "SELECT max(coalesce(ended_at, occurred_at)) AS ts FROM intents WHERE execution_id = ?",
+                    (ex_id,),
+                ).fetchone()["ts"]
+                last_event = conn.execute(
+                    "SELECT max(occurred_at) AS ts FROM runtime_events WHERE execution_id = ?",
+                    (ex_id,),
+                ).fetchone()["ts"]
+                candidates = [t for t in (row["started_at"], last_intent, last_event) if t]
+                last_dt = max(datetime.fromisoformat(t.replace("Z", "+00:00")).astimezone(timezone.utc) for t in candidates)
+                if last_dt <= cutoff:
+                    ended_iso = last_dt.isoformat()
+                    conn.execute(
+                        "UPDATE executions SET outcome = 'aborted', ended_at = COALESCE(ended_at, ?), updated_at = ? WHERE execution_id = ? AND outcome = 'running'",
+                        (ended_iso, stamp, ex_id),
+                    )
+                    closed_ids.append(ex_id)
+        return {"closed_count": len(closed_ids), "execution_ids": closed_ids, "cutoff": cutoff_iso}
+
+
 class IntentRepository:
     def __init__(self, storage: Storage) -> None:
         self._storage = storage

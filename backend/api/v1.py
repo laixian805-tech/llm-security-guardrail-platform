@@ -39,6 +39,16 @@ def route(handler, method, parsed, ingestion, timeline, assets, coverage=None):
         host_id = ingestion.identity(handler._device.device_id)['host_id']
         handler._send(200, coverage.record(handler._device.device_id, host_id, handler._body()))
         return True
+    if path == '/api/v1/executions:reap-stale' and method == 'POST':
+        body = handler._body() if int(handler.headers.get('Content-Length') or '0') > 0 else {}
+        stale_seconds = body.get('stale_after_seconds', 1800)
+        if not isinstance(stale_seconds, int) or isinstance(stale_seconds, bool) or stale_seconds < 60:
+            raise IngestError('invalid_stale_after_seconds')
+        prod = body.get('product')
+        if prod is not None and not isinstance(prod, str):
+            raise IngestError('invalid_product_filter')
+        handler._send(200, ingestion.executions.reap_stale(stale_after_seconds=stale_seconds, product=prod))
+        return True
     if path == '/api/v1/assets':
         if method == 'GET':
             handler._send(200, assets.list_assets(**_asset_query(parsed.query)))

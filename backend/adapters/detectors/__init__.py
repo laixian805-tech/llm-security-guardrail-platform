@@ -10,6 +10,7 @@ from adapters.detectors.base import (
 )
 from adapters.detectors.cli import CliDetectorAdapter
 from adapters.detectors.errors import DetectorError, ErrorKind
+from adapters.detectors.mcp_config_guard import McpConfigGuardAdapter
 from adapters.detectors.mcp_scanner import McpScannerAdapter
 from adapters.detectors.skillspector import SkillSpectorAdapter
 from adapters.detectors.snyk_agent_scan import SnykAgentScanAdapter
@@ -22,6 +23,7 @@ __all__ = [
     "DetectorError",
     "ErrorKind",
     "HealthReport",
+    "McpConfigGuardAdapter",
     "McpScannerAdapter",
     "NormalizedFinding",
     "RawReport",

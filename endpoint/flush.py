@@ -11,7 +11,7 @@ import time
 import urllib.error
 import urllib.request
 from endpoint.config import load
-from endpoint.coverage import emit, stamp
+from endpoint.coverage import emit, record_kernel_audit_drops, stamp
 from endpoint.outbox import Outbox
 
 
@@ -61,6 +61,7 @@ def flush(config):
         if stats['dead']:
             # 重试上限耗尽即永久丢失，和容量封顶一样必须留痕。
             outbox.record_drop('retry_limit', stats['dead'], detail='exceeded max_attempts')
+        record_kernel_audit_drops(outbox)
         emit(outbox, config, period_start=stamp(started), period_end=stamp(time.time()),
              delivered=stats['sent'], dead=stats['dead'])
         return stats

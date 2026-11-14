@@ -1,0 +1,8 @@
+{
+  "benchmark": "benign-dev-workload-1k",
+  "tool_calls": 1000,
+  "undeclared_side_effect_fp": 0,
+  "dataflow_fp": 0,
+  "fp_per_1k_calls": 0.0,
+  "elapsed_seconds": 6.34
+}

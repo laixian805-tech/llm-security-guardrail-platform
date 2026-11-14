@@ -37,6 +37,18 @@ PROBE_COMMAND = {
     "qwen-code": ("qwen", "-y", "-p", "/{name}"),
 }
 
+MCP_CONFIG_FILES = {
+    "claude-code": (".claude.json", ".claude/settings.json", ".claude/.mcp.json"),
+    "qwen-code": (".qwen/settings.json",),
+    "codex": (".codex/config.toml",),
+}
+
+MCP_LIST_COMMAND = {
+    "claude-code": ("claude", "mcp", "list"),
+    "qwen-code": ("qwen", "mcp", "list"),
+    "codex": ("codex", "mcp", "list"),
+}
+
 UNLOADED_MARKERS = ("unknown command", "unknown skill", "no such command", "not found:")
 PROBE_TIMEOUT = 120
 FIRST_INSTALL = "first_install"
@@ -213,6 +225,130 @@ def remove(product: str, name: str, rollback_ref: str | None = None) -> dict:
     return out
 
 
+
+def _extract_toml_mcp_entry(text: str, name: str):
+    """从 Codex config.toml 提取 mcp_servers.<name> 配置块，兼容 Python 3.10+。"""
+    try:
+        import tomllib  # type: ignore[import-not-found]
+        parsed = tomllib.loads(text)
+        servers = parsed.get("mcp_servers")
+        if isinstance(servers, dict) and isinstance(servers.get(name), dict):
+            return servers[name]
+    except ModuleNotFoundError:
+        import re as _re
+        hdr = _re.compile(rf'^\[mcp_servers\.(?:"{_re.escape(name)}"|{_re.escape(name)})\]\s*$')
+        collecting = False
+        section_data = {}
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if stripped.startswith("["):
+                if collecting:
+                    break
+                if hdr.match(stripped):
+                    collecting = True
+                continue
+            if collecting and "=" in stripped:
+                k, v = stripped.split("=", 1)
+                section_data[k.strip()] = v.strip().strip('"').strip("'")
+        if collecting:
+            return section_data
+    except Exception:
+        return None
+    return None
+
+
+def _find_mcp_entry(product: str, name: str, home: Path | None = None):
+    rel_paths = MCP_CONFIG_FILES.get(product)
+    if rel_paths is None:
+        raise SystemExit(f"unknown_product: {product}")
+    if not name or "/" in name or name.startswith("."):
+        raise SystemExit("invalid_asset_name")
+    base = Path(home) if home is not None else Path.home()
+    for rel in rel_paths:
+        cfg_path = base / rel
+        if not cfg_path.is_file() or cfg_path.is_symlink():
+            continue
+        try:
+            text = cfg_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if cfg_path.suffix == ".toml":
+            entry = _extract_toml_mcp_entry(text, name)
+            if entry is not None:
+                return cfg_path, entry
+        else:
+            try:
+                parsed = json.loads(text)
+            except ValueError:
+                continue
+            servers = parsed.get("mcpServers") if isinstance(parsed, dict) else None
+            if isinstance(servers, dict) and isinstance(servers.get(name), dict):
+                return cfg_path, servers[name]
+    return base / rel_paths[0], None
+
+
+def verify_mcp(product: str, name: str, expected_hash: str | None = None, *, home: Path | None = None) -> dict:
+    """验证 mcp_server 是否已写入产品真实配置，并尽可能用 `<product> mcp list` 复核。"""
+    cfg_path, entry = _find_mcp_entry(product, name, home=home)
+    if entry is None:
+        return {
+            "action": "verify",
+            "asset_type": "mcp_server",
+            "target": str(cfg_path),
+            "observed_hash": None,
+            "level": "filesystem",
+            "loaded": False,
+            "probe": "not_registered",
+        }
+    canonical = json.dumps(entry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    observed = hashlib.sha256(canonical).hexdigest()
+    if expected_hash and observed != expected_hash:
+        raise SystemExit("product_content_mismatch")
+
+    result = {
+        "action": "verify",
+        "asset_type": "mcp_server",
+        "target": str(cfg_path),
+        "observed_hash": observed,
+        "level": "filesystem",
+        "loaded": None,
+        "probe": "config_registered",
+    }
+    command = MCP_LIST_COMMAND.get(product)
+    if command is None:
+        result["probe"] = "unsupported_for_product"
+        return result
+    executable = shutil.which(command[0])
+    if executable is None:
+        result["probe"] = "cli_not_found"
+        return result
+    try:
+        completed = subprocess.run(
+            (executable,) + command[1:],
+            cwd="/tmp", capture_output=True, text=True, timeout=PROBE_TIMEOUT, check=False,
+            env={**os.environ, "NO_COLOR": "1", "TERM": "dumb"},
+        )
+    except subprocess.TimeoutExpired:
+        result.update(level="product_session", probe={"outcome": "timeout"})
+        return result
+    output = ((completed.stdout or "") + "\n" + (completed.stderr or ""))[-4000:]
+    if completed.returncode == 0:
+        import re as _re
+        listed = bool(_re.search(rf"(?<![A-Za-z0-9_-]){_re.escape(name)}(?![A-Za-z0-9_-])", output))
+        loaded = listed
+        outcome = "listed" if listed else "not_listed"
+    else:
+        loaded, outcome = None, "inconclusive"
+    result.update(
+        level="product_session",
+        loaded=loaded,
+        probe={"outcome": outcome, "exit_code": completed.returncode, "output_head": output[:300]},
+    )
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=("install", "verify", "remove"))
@@ -221,12 +357,16 @@ def main() -> int:
     parser.add_argument("--name", required=True)
     parser.add_argument("--expected-hash", default="")
     parser.add_argument("--rollback-ref", default="")
+    parser.add_argument("--asset-type", choices=("skill", "mcp_server"), default="skill")
     args = parser.parse_args()
     try:
         if args.action == "install":
             result = install(args.product, args.name, Path(args.package))
         elif args.action == "verify":
-            result = verify(args.product, args.name, args.expected_hash or None)
+            if args.asset_type == "mcp_server":
+                result = verify_mcp(args.product, args.name, args.expected_hash or None)
+            else:
+                result = verify(args.product, args.name, args.expected_hash or None)
         else:
             result = remove(args.product, args.name, args.rollback_ref or None)
     except SystemExit:

@@ -12,6 +12,7 @@ from adapters.detectors import (
     AigMcpScanAdapter,
     AigSkillScanAdapter,
     DetectorAdapter,
+    McpConfigGuardAdapter,
     McpScannerAdapter,
     SkillSpectorAdapter,
     SnykAgentScanAdapter,
@@ -20,6 +21,7 @@ from adapters.detectors import (
 ADAPTER_TYPES = {
     "skillspector": SkillSpectorAdapter,
     "snyk-agent-scan": SnykAgentScanAdapter,
+    "mcp-config-guard": McpConfigGuardAdapter,
     "mcp-scanner": McpScannerAdapter,
     "aig-skill-scan": AigSkillScanAdapter,
     "aig-mcp-scan": AigMcpScanAdapter,

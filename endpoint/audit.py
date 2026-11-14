@@ -217,10 +217,12 @@ def collect_once(config,*,settled=False):
             break
         if selected is None:
             position=home[2] if home else 0
-            return {'events':0,'bytes':0,'offset':position,'own_telemetry_excluded':0,'rotation_gap':rotation_gap}
+            if rotation_gap:
+                box.record_drop('audit_rotation_gap', 0, detail='rotated audit log missing before cursor completed')
+            return {'events':0,'bytes':0,'offset':position,'own_telemetry_excluded':0,'rotation_gap':rotation_gap,'more':False}
         with selected.open('rb') as stream:
             stream.seek(offset);raw=stream.read(1024*1024)
-        if not raw:return {'events':0,'bytes':0,'offset':offset,'own_telemetry_excluded':0,'rotation_gap':rotation_gap}
+        if not raw:return {'events':0,'bytes':0,'offset':offset,'own_telemetry_excluded':0,'rotation_gap':rotation_gap,'more':False}
         # Never checkpoint a partial text record.
         boundary=raw.rfind(b'\n')+1
         if boundary==0:raise ValueError('audit_record_exceeds_read_limit')
@@ -306,22 +308,30 @@ def collect_once(config,*,settled=False):
             if live:
                 box.db.execute('DELETE FROM collector_cursors WHERE source=? AND inode NOT IN (%s)'
                     % ','.join('?'*len(live)),(str(source),*sorted(live)))
-        return {'events':len(records),'bytes':end-offset,'offset':end,'own_telemetry_excluded':excluded,'rotation_gap':rotation_gap}
+        if rotation_gap:
+            box.record_drop('audit_rotation_gap', 0, detail='rotated audit log missing before cursor completed')
+        more = (len(raw) == 1024*1024) or (end < stat.st_size)
+        return {'events':len(records),'bytes':end-offset,'offset':end,'own_telemetry_excluded':excluded,'rotation_gap':rotation_gap,'more':more}
     finally:box.close()
 
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--once',action='store_true');args=p.parse_args();config=load()
     while True:
+        delay = 1.0
         try:
             result=collect_once(config,settled=False)
             if not result['bytes']:
                 time.sleep(.2);result=collect_once(config,settled=True)
+            if result.get('more'):
+                delay = 0.02
+            elif result.get('bytes', 0) > 0:
+                delay = 0.25
             print(json.dumps({'component':'linux-audit-v1',**result}),flush=True)
         except Exception as exc:
             print(json.dumps({'component':'linux-audit-v1','error_type':type(exc).__name__}),flush=True)
         if args.once:break
-        time.sleep(2)
+        time.sleep(delay)
 
 
 if __name__=='__main__':main()

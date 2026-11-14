@@ -147,6 +147,8 @@ def _required_permission(method: str, path: str) -> Permission | None:
     # 由服务端按准入事务和执行记录现算，所以读接口不需要更高权限。
     if path == '/api/v1/assets' or path.startswith('/api/v1/assets/'):
         return Permission.READ if method == 'GET' else Permission.GOVERN
+    if path == '/api/v1/executions:reap-stale' and method == 'POST':
+        return Permission.GOVERN
     if path.startswith('/api/v1/executions/') and path.endswith('/findings'):
         return Permission.GOVERN
     # 覆盖度对账：POST 由设备令牌走 is_device_route，不经本表；这里只覆盖

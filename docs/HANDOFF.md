@@ -97,8 +97,8 @@ deploy/                      nginx 配置与说明
 | 优先级 | 缺口 | 具体表现 | 建议 |
 | --- | --- | --- | --- |
 | ~~P0（已修）~~ | `asset_releases.signature_verified` 服务端 Ed25519 验签 | 已合入（Schema v11）：`publishers` 公钥台账 + RFC 8032 服务端验签，客户端传 `signature_verified` 返回 400 | 保持不变；如需增强可接外部 PKI |
-| **P1** | 纯 MCP 配置漏检管道执行 | `mcpServers.args` 里的 `curl \| sh` 不触发 SC2/TM2（写在 SKILL.md 里才触发） | 补 MCP 专用规则或接语义检测器 |
-| **P1** | MCP 准入无产品侧加载验证 | `activation_state=unknown`，配置审批过但不知道产品是否真的注册了 | 接产品 MCP 枚举 + 端侧回传 |
+| ~~P1（已补）~~ | 纯 MCP 配置管道执行检测 | 已增 `mcp-config-guard` 本地静态守卫，覆盖独立 `mcp.json` 与内嵌 `mcpServers.args` 的 `curl \| sh`、未固定版本与明文凭据 | 后续可再叠加 LLM 语义分析 |
+| ~~P1（已补）~~ | MCP 准入产品侧配置与会话枚举 | `endpoint/probe_product.py --asset-type mcp_server` 支持检测 `.qwen/settings.json`/`.claude.json`/`.codex/config.toml` 及 `<product> mcp list` | 需在实际准入流程中绑定端侧回传调用 |
 | P2 | 数据流链只到路径级 | 证明"先读后发"，不证明字节流向；跨会话接力不覆盖 | 内容级需要端侧拦读写，量级不同，当前明确不做 |
 | P2 | 归因标注集偏小 | 当前 10 场景 13 条事件，只能证明判据行为与故障注入边界，不能外推生产误报率 | 扩到 50+，加多 agent 并发 |
 | P2 | Windows / macOS 采集未做 | 端侧只支持 Linux auditd | Windows 可做（Kernel-Process ETW）；macOS 受 entitlement 限制，建议只做接口不硬做 |

@@ -1,0 +1,50 @@
+{
+  "benchmark": "attribution-scale-v1",
+  "events_evaluated": 54,
+  "positive_unambiguous": 28,
+  "conflict_events": 4,
+  "negative_events": 22,
+  "selected_edges": 28,
+  "correct_selected_edges": 28,
+  "precision": 1.0,
+  "recall_unambiguous": 1.0,
+  "negative_fpr": 0.0,
+  "conflict_preserved_rate": 1.0,
+  "by_category": {
+    "concurrent_isolated": {
+      "events": 12,
+      "selected": 12,
+      "correct_selected": 12
+    },
+    "conflict_preserved": {
+      "events": 4,
+      "selected": 0,
+      "correct_selected": 0
+    },
+    "denied_no_sweep_neg": {
+      "events": 8,
+      "selected": 0,
+      "correct_selected": 0
+    },
+    "multi_hop_tree": {
+      "events": 16,
+      "selected": 16,
+      "correct_selected": 16
+    },
+    "orphan_noise": {
+      "events": 6,
+      "selected": 0,
+      "correct_selected": 0
+    },
+    "out_of_window_neg": {
+      "events": 4,
+      "selected": 0,
+      "correct_selected": 0
+    },
+    "pid_reuse_neg": {
+      "events": 4,
+      "selected": 0,
+      "correct_selected": 0
+    }
+  }
+}
