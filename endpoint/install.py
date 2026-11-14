@@ -10,8 +10,21 @@ import subprocess
 import sys
 
 EVENTS = ('SessionStart', 'PreToolUse', 'PostToolUse', 'SessionEnd')
+QWEN_EVENTS = ('SessionStart', 'PreToolUse', 'PostToolUse')
 BEGIN = '# BEGIN ASGP ENDPOINT'
 END = '# END ASGP ENDPOINT'
+
+
+def _product_events(product):
+    return QWEN_EVENTS if product == 'qwen-code' else EVENTS
+
+
+def _settings_path(home, product):
+    if product == 'codex':
+        return home / '.codex/config.toml'
+    if product == 'qwen-code':
+        return home / '.qwen/settings.json'
+    return home / '.claude/settings.json'
 
 
 def private_write(path, data):
@@ -61,7 +74,8 @@ def install(home, root, config_path, products, *, print_only=False):
     configuration=json.loads(Path(config_path).read_text()) if Path(config_path).exists() else {}
     approval_enabled=configuration.get('approval_mode')=='control_plane'
     for product in products:
-        path=home/('.codex/config.toml' if product=='codex' else '.claude/settings.json')
+        path=_settings_path(home,product)
+        events=_product_events(product)
         command=hook_command(root,config_path,product)
         if product in manifest:
             if hashlib.sha256(path.read_bytes()).hexdigest()==manifest[product]['installed_sha256']:
@@ -71,14 +85,14 @@ def install(home, root, config_path, products, *, print_only=False):
         if product=='codex':
             if BEGIN.encode() in original:raise RuntimeError('orphaned_asgp_configuration')
             extra='\n'+BEGIN+'\n'
-            for event in EVENTS:
+            for event in events:
                 timeout=25 if approval_enabled and event=='PreToolUse' else 3
                 extra+='[[hooks.'+event+']]\n[[hooks.'+event+'.hooks]]\ntype = "command"\ncommand = '+json.dumps(command)+'\ntimeout = '+str(timeout)+'\n'
             installed=original+extra.encode()
         else:
             data=json.loads(original or b'{}')
             hooks=data.setdefault('hooks',{})
-            for event in EVENTS:
+            for event in events:
                 timeout=25 if approval_enabled and event=='PreToolUse' else 3
                 hooks.setdefault(event,[]).append({'hooks':[{'type':'command','command':command,'timeout':timeout}]})
             installed=(json.dumps(data,indent=2,ensure_ascii=False)+'\n').encode()
@@ -128,7 +142,7 @@ def uninstall(config_path):
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument('--config',required=True);parser.add_argument('--product',action='append',choices=['codex','claude-code'])
+    parser.add_argument('--config',required=True);parser.add_argument('--product',action='append',choices=['codex','claude-code','qwen-code'])
     parser.add_argument('--print',dest='print_only',action='store_true');parser.add_argument('--uninstall',action='store_true')
     args=parser.parse_args();path=Path(args.config).resolve()
     if args.uninstall:print(json.dumps({'restored':uninstall(path)}));return
@@ -137,11 +151,14 @@ def main():
     config=json.loads(path.read_text())
     fingerprints={}
     for product in products:
-        binary=shutil.which('claude' if product=='claude-code' else 'codex')
+        bin_name='qwen' if product=='qwen-code' else 'claude' if product=='claude-code' else 'codex'
+        binary=shutil.which(bin_name)
         if not binary:raise RuntimeError('product_binary_missing')
         version=subprocess.check_output([binary,'--version'],text=True,timeout=10).strip()
         expected=config['product_versions'][product]
-        if version.split()[0 if product=='claude-code' else 1] != expected:
+        tokens=version.split()
+        actual=tokens[1] if product=='codex' and len(tokens)>1 else tokens[0]
+        if actual != expected and expected not in tokens:
             raise RuntimeError('configured_product_version_does_not_match_binary')
         binary=Path(binary).resolve()
         binaries=[binary]
@@ -152,7 +169,7 @@ def main():
         files=[]
         for file in binaries:
             stat=file.stat()
-            files.append({'path':str(file),'stat':[stat.st_dev,stat.st_ino,stat.st_size,stat.st_mtime_ns]})
+            files.append({'path':str(file),'stat':[stat.st_dev,stat.st_ino,stat.st_size,stat.st_mtime_ns],'sha256':hashlib.sha256(file.read_bytes()).hexdigest()})
         fingerprints[product]={'files':files}
     plans=install(Path.home(),root,path,products,print_only=args.print_only)
     if not args.print_only:

@@ -55,8 +55,12 @@ class AttributionService:
                     lineage.append(pid)
                     if pid in anchors:
                         for intent in anchors[pid]:
+                            # Denied calls without PostToolUse never execute a tool; forbid open +30s sweeps.
+                            has_end=bool(intent['ended_at'])
+                            if intent.get('decision')=='deny' and not has_end:
+                                continue
                             # PID trees alone are not a timeless identity; require the call interval.
-                            start=seconds(intent['occurred_at']);has_end=bool(intent['ended_at'])
+                            start=seconds(intent['occurred_at'])
                             end=seconds(intent['ended_at']) if has_end else start+30
                             ev_t=seconds(event['occurred_at'])
                             # 已结束的调用（Pre/PostToolUse 同一宿主机时钟闭合）不把前置 Hook 或后置宿主辅助进程拉进直接子进程。
@@ -68,6 +72,8 @@ class AttributionService:
             if not candidates:
                 # Weak candidates require an explicit matching resource hint, not time alone.
                 for intent in intents:
+                    if intent.get('decision')=='deny' and not intent.get('ended_at'):
+                        continue
                     resource=_hint_form(event['resource_path']) or event['resource_host']
                     try:summary=json.loads(intent['params_summary'])
                     except (ValueError,TypeError):continue
@@ -89,6 +95,21 @@ class AttributionService:
                         +([EvidenceRef(kind='process_lineage',uri='pid-chain:'+'>'.join(str(p) for p in lineage))] if method is AttributionMethod.PROCESS_TREE else []),
                     rule_version=VERSION,created_at=datetime.now(timezone.utc)))
         with self.storage._lock,self.storage.connection() as c:
+            intent_ids=[i['intent_id'] for i in intents]
+            stale_identities=set()
+            if intent_ids:
+                marks=','.join('?'*len(intent_ids))
+                keep_ids={e.attribution_id for e in edges}
+                existing=c.execute(
+                    f'SELECT attribution_id,host_id,collector_id,event_id FROM event_attributions WHERE intent_id IN ({marks})',
+                    intent_ids,
+                ).fetchall()
+                stale=[r for r in existing if r['attribution_id'] not in keep_ids]
+                if stale:
+                    stale_ids=[r['attribution_id'] for r in stale]
+                    stale_identities={(r['host_id'],r['collector_id'],r['event_id']) for r in stale}
+                    stale_marks=','.join('?'*len(stale_ids))
+                    c.execute(f'DELETE FROM event_attributions WHERE attribution_id IN ({stale_marks})',stale_ids)
             for edge in edges:
                 c.execute('INSERT INTO event_attributions VALUES (?,?,?,?,?,?,?,?,?,?,?,?) '
                     'ON CONFLICT(intent_id,host_id,collector_id,event_id,method) DO UPDATE SET '
@@ -96,7 +117,7 @@ class AttributionService:
                     'evidence_refs=excluded.evidence_refs,rule_version=excluded.rule_version',
                     (edge.attribution_id,edge.intent_id,edge.event_id,edge.host_id,edge.collector_id,edge.method.value,edge.confidence.value,edge.score,int(edge.selected),
                      json.dumps([r.model_dump() for r in edge.evidence_refs]),edge.rule_version,edge.created_at.isoformat()))
-            for identity in {(e.host_id,e.collector_id,e.event_id) for e in edges}:
+            for identity in {(e.host_id,e.collector_id,e.event_id) for e in edges}|stale_identities:
                 # An event observed from competing executions remains ambiguous.
                 conflicts=c.execute('SELECT COUNT(DISTINCT intent_id) FROM event_attributions WHERE host_id=? AND collector_id=? AND event_id=? AND score>=0.8',identity).fetchone()[0]
                 if conflicts>1:

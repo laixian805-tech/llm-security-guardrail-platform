@@ -230,3 +230,37 @@ type=EOE msg=audit(1794569607.575:6634):
         ('process_start','/usr/bin/systemd-inhibit'),
         ('network_connect','/usr/bin/curl'),
     ]
+
+
+
+def test_correlate_prunes_stale_edges_and_skips_deny_open_window(tmp_path):
+    storage=Storage(tmp_path/'control.db');devices=DeviceIdentityRepository(storage)
+    did,_=devices.enroll(label='lab');devices.set_host(device_id=did,host_id='h');ingest=IngestionService(storage)
+    base=datetime(2026,11,13,10,4,6,0,tzinfo=timezone.utc)
+    def at(ms):return (base+timedelta(milliseconds=ms)).isoformat()
+    ingest.execution(did,{'execution_id':'exec_pr','session_id':'s1','product':'qwen-code','product_version':'0.26.8','started_at':at(0)})
+    ingest.intent(did,'exec_pr',{'intent_id':'i_read','tool_call_id':'tc_read','tool_name':'read_file','hook_event_type':'pre_tool_use','occurred_at':at(283)})
+    ingest.batch(did,{'collector_id':'test','events':[
+        {'event_id':'anchor_r','execution_id':'exec_pr','intent_ref':'i_read','event_type':'hook_anchor','occurred_at':at(283),'process':{'pid':4676,'ppid':4675}},
+        {'event_id':'pre_hook','event_type':'process_start','occurred_at':at(235),'process':{'pid':4692,'ppid':4676,'executable':'/usr/bin/bash'}},
+        {'event_id':'real_read','event_type':'file_access','occurred_at':at(347),'process':{'pid':4676,'ppid':4675},'resource':{'path':'/lab/health_check.sh'}},
+        {'event_id':'post_git','event_type':'process_start','occurred_at':at(451),'process':{'pid':4694,'ppid':4676,'executable':'/usr/bin/git'}},
+    ]})
+    service=AttributionService(storage)
+    # First correlate before PostToolUse sets ended_at: wide window captures post_git & pre_hook
+    service.correlate('exec_pr')
+    assert {e['event_id'] for e in service.list('exec_pr') if e['selected']}=={'anchor_r','pre_hook','real_read','post_git'}
+    # Now PostToolUse closes ended_at and re-correlate must prune stale pre/post edges
+    ingest.intent(did,'exec_pr',{'intent_id':'i_read','tool_call_id':'tc_read','tool_name':'read_file','hook_event_type':'post_tool_use','occurred_at':at(283),'ended_at':at(407)})
+    service.correlate('exec_pr')
+    assert {e['event_id'] for e in service.list('exec_pr') if e['selected']}=={'anchor_r','real_read'}
+
+    # Denied intent without PostToolUse must not absorb +30s unrelated events
+    ingest.execution(did,{'execution_id':'exec_deny','session_id':'s2','product':'codex','product_version':'0.166.0','started_at':at(1000)})
+    ingest.intent(did,'exec_deny',{'intent_id':'i_deny','tool_call_id':'tc_deny','tool_name':'Bash','hook_event_type':'pre_tool_use','decision':'deny','decision_reason':'policy','occurred_at':at(1200)})
+    ingest.batch(did,{'collector_id':'test','events':[
+        {'event_id':'anchor_d','execution_id':'exec_deny','intent_ref':'i_deny','event_type':'hook_anchor','occurred_at':at(1200),'process':{'pid':5000,'ppid':1}},
+        {'event_id':'ambient_net','event_type':'network_connect','occurred_at':at(1230),'process':{'pid':5001,'ppid':5000,'executable':'/usr/bin/python3'},'resource':{'host':'127.0.0.1','port':18082}},
+    ]})
+    service.correlate('exec_deny')
+    assert {e['event_id'] for e in service.list('exec_deny') if e['selected']}=={'anchor_d'}

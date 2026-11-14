@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from datetime import datetime, timedelta, timezone
 
 from test_console_auth import api, admin_token, call
@@ -342,3 +344,47 @@ class TestEffectDiff:
         by_ev = {item["event_id"]: item["verdict"] for item in diff["items"]}
         assert by_ev["ev_ps_read"] == "undeclared_side_effect"
         assert by_ev["ev_ps_exec"] == "within_expected"
+
+
+    def test_hostless_network_connect_is_unverified_not_undeclared(self, api, admin_token):
+        device = setup_device(api, admin_token, label="ed-hostless-net")
+        _create_execution(api, device["token"], "exec_hostless_1")
+        _post_intent(
+            api,
+            device["token"],
+            "exec_hostless_1",
+            {
+                "intent_id": "int_hostless_read",
+                "tool_call_id": "tc_hostless_read",
+                "tool_name": "read_file",
+                "hook_event_type": "pre_tool_use",
+                "decision": "allow",
+                "decision_reason": "ok",
+                "params_summary": json.dumps({"parameter_names": ["path"], "resource_hints": ["~/proj/a.py"]}),
+                "params_sha256": "a" * 64,
+                "redaction_applied": True,
+                "occurred_at": _ts(0),
+                "ended_at": _ts(1),
+                "source_kind": "user_task",
+            },
+        )
+        _post_events(
+            api,
+            device["token"],
+            [
+                {
+                    "event_id": "ev_unix_sock",
+                    "execution_id": "exec_hostless_1",
+                    "intent_ref": "int_hostless_read",
+                    "event_type": "network_connect",
+                    "occurred_at": _ts(0.5),
+                    "process": {"pid": 5301, "ppid": 5300, "executable": "/usr/bin/systemd-inhibit"},
+                    "action": "connect",
+                    "result": "success",
+                }
+            ],
+        )
+        _correlate(api, admin_token, "exec_hostless_1")
+        diff = _effect_diff(api, admin_token, "exec_hostless_1")
+        assert diff["undeclared_count"] == 0
+        assert diff["items"][0]["verdict"] == "unverified"

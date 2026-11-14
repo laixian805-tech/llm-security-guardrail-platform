@@ -86,16 +86,82 @@ def test_install_restore_exact_bytes_and_refuse_overwrite(tmp_path):
     assert settings.read_bytes()==original
 
 
-def test_codex_ask_is_denied_and_binary_change_downgrades_observation(tmp_path):
+def test_codex_ask_is_denied_and_binary_change_fails_closed_in_deny_mode(tmp_path):
     cfg=config(tmp_path)
     cfg.update(fail_mode='deny',verified_decisions={'codex':'0.166.0'},ask_patterns=['echo'])
     response=json.loads(capture(cfg,'codex',payload('PreToolUse')))
     assert response['hookSpecificOutput']['permissionDecision']=='deny'
     cfg['binary_fingerprints']={'codex':{'path':str(tmp_path/'missing'),'stat':[0,0,0,0]}}
-    assert capture(cfg,'codex',dict(payload('PreToolUse'),session_id='changed'))==''
+    changed=json.loads(capture(cfg,'codex',dict(payload('PreToolUse'),session_id='changed')))
+    assert changed['hookSpecificOutput']['permissionDecision']=='deny'
+    assert 'unverified-changed' in changed['hookSpecificOutput']['permissionDecisionReason']
+    obs_cfg=dict(cfg,fail_mode='observe')
+    assert capture(obs_cfg,'codex',dict(payload('PreToolUse'),session_id='changed_obs'))==''
     box=Outbox(cfg['state_dir'])
     rows=[json.loads(r[0]) for r in box.db.execute("select payload from outbox where endpoint='/api/v1/executions'")]
     assert any(row['product_version']=='unverified-changed' for row in rows)
+
+
+def test_hook_main_fails_closed_on_errors_in_deny_mode(tmp_path, monkeypatch, capsys):
+    import hashlib, io
+    from endpoint import hook as hook_mod
+    cfg_path=tmp_path/'config.json'
+    state_dir=tmp_path/'state'
+    bin_path=tmp_path/'fake_qwen'
+    bin_path.write_bytes(b'original-binary')
+    st=bin_path.stat()
+    cfg_data={
+        'server_base_url':'http://127.0.0.1:8010',
+        'state_dir':str(state_dir),
+        'product_versions':{'qwen-code':'0.26.8','claude-code':'2.1.152','codex':'0.166.0'},
+        'verified_decisions':{'qwen-code':'0.26.8'},
+        'fail_mode':'deny',
+        'binary_fingerprints':{'qwen-code':{'files':[{'path':str(bin_path),'stat':[st.st_dev,st.st_ino,st.st_size,st.st_mtime_ns],'sha256':hashlib.sha256(b'different').hexdigest()}]}},
+    }
+    cfg_path.write_text(json.dumps(cfg_data),encoding='utf-8')
+    monkeypatch.setenv('ASGP_ENDPOINT_CONFIG',str(cfg_path))
+    monkeypatch.setattr(hook_mod.sys,'argv',['endpoint.hook','qwen-code'])
+
+    # sha256 mismatch with identical stat triggers unverified-changed fail-closed deny
+    pre_payload={'hook_event_name':'PreToolUse','session_id':'s_sha','tool_name':'run_shell_command','tool_input':{'command':'ls'}}
+    monkeypatch.setattr(hook_mod.sys,'stdin',type('S',(),{'buffer':io.BytesIO(json.dumps(pre_payload).encode())})())
+    assert hook_mod.main()==0
+    out=json.loads(capsys.readouterr().out)
+    assert out['hookSpecificOutput']['permissionDecision']=='deny'
+
+    # unknown protocol field exception on PreToolUse in fail_mode=deny -> stdout deny
+    bad_payload=dict(pre_payload,unexpected_field='evil')
+    monkeypatch.setattr(hook_mod.sys,'stdin',type('S',(),{'buffer':io.BytesIO(json.dumps(bad_payload).encode())})())
+    assert hook_mod.main()==0
+    out=json.loads(capsys.readouterr().out)
+    assert out['hookSpecificOutput']['permissionDecision']=='deny'
+
+    # malformed json on stdin in fail_mode=deny -> stdout deny
+    monkeypatch.setattr(hook_mod.sys,'stdin',type('S',(),{'buffer':io.BytesIO(b'{not-json')})())
+    assert hook_mod.main()==0
+    out=json.loads(capsys.readouterr().out)
+    assert out['hookSpecificOutput']['permissionDecision']=='deny'
+
+    # PostToolUse error must not emit PreToolUse deny directive
+    post_bad={'hook_event_name':'PostToolUse','session_id':'s_sha','unexpected_field':'x'}
+    monkeypatch.setattr(hook_mod.sys,'stdin',type('S',(),{'buffer':io.BytesIO(json.dumps(post_bad).encode())})())
+    assert hook_mod.main()==0
+    assert capsys.readouterr().out.strip()==''
+
+
+def test_install_supports_qwen_code_and_uninstall_restores(tmp_path):
+    from endpoint.install import install, uninstall
+    home=tmp_path/'home';root=tmp_path/'source';root.mkdir()
+    settings=home/'.qwen/settings.json';settings.parent.mkdir(parents=True)
+    original=b'{\n  "model": "qwen"\n}\n'
+    settings.write_bytes(original)
+    cfg_path=home/'.asgp/endpoint/config.json'
+    assert install(home,root,cfg_path,['qwen-code'])==[('qwen-code','install')]
+    data=json.loads(settings.read_text(encoding='utf-8'))
+    assert set(data['hooks'].keys())=={'SessionStart','PreToolUse','PostToolUse'}
+    assert 'endpoint.hook qwen-code' in data['hooks']['PreToolUse'][0]['hooks'][0]['command']
+    assert uninstall(cfg_path)==['qwen-code']
+    assert settings.read_bytes()==original
 
 
 def test_capacity_reclaims_only_acknowledged_records_and_counts_duplicates(tmp_path):

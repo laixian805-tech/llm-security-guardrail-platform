@@ -115,10 +115,15 @@ def _evaluate_event(
     )
 
     if etype == "network_connect":
+        if not host:
+            return (
+                EffectDiffVerdict.UNVERIFIED,
+                "无远端主机地址的本地/未解析套接字连接，不作为外部网络越界",
+            )
         if category in ("read", "write"):
             return (
                 EffectDiffVerdict.UNDECLARED_SIDE_EFFECT,
-                f"模型调用属于 {category} 工具，预期无网络活动，但 OS 观测到外连 {host or 'unknown'}",
+                f"模型调用属于 {category} 工具，预期无网络活动，但 OS 观测到外连 {host}",
             )
         if is_external_host(host) and not (hints and host and _target_matches_hints(host, hints)):
             prefix = f"低信任来源({source_kind})诱导的" if low_trust else ""
@@ -251,7 +256,11 @@ class EffectDiffService:
                         trust_tier=trust_tier,
                         expected_scope=scope,
                         verdict=EffectDiffVerdict.NO_OBSERVED_EFFECT,
-                        reason="未归因到对应的 OS 级系统事件（保持留空，不做猜测）",
+                        reason=(
+                            "该工具调用已被策略拒绝（decision=deny），未观测到对应 OS 副作用"
+                            if intent.get("decision") == "deny"
+                            else "未归因到对应的 OS 级系统事件（保持留空，不做猜测）"
+                        ),
                     )
                 )
                 continue
